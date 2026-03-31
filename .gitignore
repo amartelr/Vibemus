@@ -1,0 +1,11 @@
+.venv/
+__pycache__/
+.pytest_cache/
+.gemini/
+.agents/
+chrome_auth_profile/
+node_modules/
+data/*.json
+*.pyc
+.DS_Store
+*.log

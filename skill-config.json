@@ -1,0 +1,14 @@
+{
+  "name": "Vibemus",
+  "description": "Buscador las \u00faltimas canciones publicadas de tus artistas preferidos en Youtube Music",
+  "enabled_skills": [
+    "python-patterns",
+    "clean-code",
+    "git-pushing",
+    "api-patterns",
+    "testing-patterns",
+    "api-security-best-practices"
+  ],
+  "disabled_skills": [],
+  "skill_priority": {}
+}
