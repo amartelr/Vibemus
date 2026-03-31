@@ -652,9 +652,14 @@ class Manager:
             liked_vids = set()
             if is_hash:
                 try:
-                    liked = self.yt.yt.get_liked_songs(limit=100)
-                    liked_vids = {t['videoId'] for t in liked.get('tracks', []) if t.get('videoId')}
-                except: pass
+                    # Aumentamos el límite para cubrir bibliotecas grandes
+                    liked = self.yt.yt.get_liked_songs(limit=5000)
+                    liked_tracks = liked.get('tracks', [])
+                    liked_vids = {t['videoId'] for t in liked_tracks if t.get('videoId')}
+                    print(f"  \033[96m[DEBUG] Total Likes en biblioteca: {len(liked_vids)}\033[0m")
+                except Exception as e:
+                    print(f"  \033[91m[DEBUG] Error get_liked_songs: {e}\033[0m")
+                    pass
 
             # ── 2c. Last.fm Enrichment ──
             if not skip_lastfm:
@@ -670,10 +675,25 @@ class Manager:
             print(f"  Checking {len(fresh_items)} songs for likes/dislikes...")
             
             # Important: iterate over a copy or tracking list to handle removals
+            processed_count = 0
             for item in list(fresh_items):
-                vid = item['videoId']
-                status = item.get('likeStatus', 'INDIFFERENT')
-                if is_hash and vid in liked_vids: status = 'LIKE'
+                vid = item.get('videoId')
+                song_title = item.get('title', 'Unknown')
+                
+                # Check status from 3 sources: YT Metadata, YT Liked List, or Google Sheet
+                yt_status = item.get('likeStatus', 'INDIFFERENT')
+                is_in_liked_list = vid in liked_vids
+                sheet_status = existing_vids.get(vid, {}).get('status', '') if vid in existing_vids else ''
+                
+                status = 'INDIFFERENT'
+                if yt_status == 'LIKE' or is_in_liked_list or sheet_status == 'Like':
+                    status = 'LIKE'
+                elif yt_status == 'DISLIKE':
+                    status = 'DISLIKE'
+                
+                if is_hash and processed_count < 5:
+                    print(f"  \033[96m[DEBUG] {song_title} | YT:{yt_status} | List:{is_in_liked_list} | Sheet:{sheet_status} | Final:{status}\033[0m")
+                    processed_count += 1
                 
                 # Get current scrobbles for logic
                 scrobbles = item.get('Scrobble', 0)
@@ -713,101 +733,94 @@ class Manager:
                     if vid in yt_vid_map: del yt_vid_map[vid]
                     continue
 
-            if is_hash and status == 'LIKE':
-                artists_list = item.get('artists', [])
-                main_artist = artists_list[0]['name'] if artists_list else 'Unknown'
-                song_title = item.get('title', 'Unknown')
-                
-                # Look up target playlist in sheet
-                artist_row = next((a for a in artists_records if self._normalize(a.get('Artist Name')) == self._normalize(main_artist)), None)
-                target_pl = (artist_row.get('Playlist') or '').strip() if artist_row else ''
-                
-                actual_target_pl = ""
-                
-                if not target_pl:
-                    print(f"    \033[93m❓ Artista '{main_artist}' sin playlist asignada.\033[0m")
-                    print(f"      Canción: \033[92m{song_title}\033[0m")
-                    res_pl = input(f"      ¿A qué playlist enviamos a \033[1m'{main_artist}'\033[0m? ").strip()
-                    if res_pl:
-                        actual_target_pl = res_pl
-                        print(f"      ✅ Asignando '{res_pl}' como playlist por defecto para '{main_artist}'.")
-                        self.sheets.update_artist_playlist(main_artist, res_pl)
-                        if not artist_row:
-                            artists_records.append({'Artist Name': main_artist, 'Playlist': res_pl})
-                        else:
-                            artist_row['Playlist'] = res_pl
-                else:
-                    print(f"    ♥ Liked → \033[92m{main_artist} - {song_title}\033[0m")
-                    print(f"      Playlist actual del artista: \033[1;94m[{target_pl}]\033[0m")
+                if is_hash and status == 'LIKE':
+                    artists_list = item.get('artists', [])
+                    main_artist = artists_list[0]['name'] if artists_list else 'Unknown'
+                    song_title = item.get('title', 'Unknown')
                     
-                    user_ans = input(f"      Enter para aceptar '{target_pl}' o escribe otra playlist: ").strip()
-                    if user_ans:
-                        actual_target_pl = user_ans
-                        # Preguntamos si quiere cambiar el default permanentemente
-                        change_def = input(f"      ¿Cambiar el destino POR DEFECTO de '{main_artist}' a '{user_ans}' para el futuro? (y/N): ").lower().strip()
-                        if change_def == 'y':
-                            self.sheets.update_artist_playlist(main_artist, user_ans)
-                            if artist_row: artist_row['Playlist'] = user_ans
-                            print(f"      ✅ Filtro de artista actualizado.")
+                    # Look up target playlist in sheet
+                    artist_row = next((a for a in artists_records if self._normalize(a.get('Artist Name')) == self._normalize(main_artist)), None)
+                    target_pl = (artist_row.get('Playlist') or '').strip() if artist_row else ''
+                    
+                    actual_target_pl = ""
+                    
+                    if not target_pl:
+                        print(f"    \033[93m❓ Artista '{main_artist}' sin playlist asignada.\033[0m")
+                        print(f"      Canción: \033[92m{song_title}\033[0m")
+                        res_pl = input(f"      ¿A qué playlist enviamos a \033[1m'{main_artist}'\033[0m? ").strip()
+                        if res_pl:
+                            actual_target_pl = res_pl
+                            print(f"      ✅ Asignando '{res_pl}' como playlist por defecto para '{main_artist}'.")
+                            self.sheets.update_artist_playlist(main_artist, res_pl)
+                            if not artist_row:
+                                artists_records.append({'Artist Name': main_artist, 'Playlist': res_pl})
+                            else:
+                                artist_row['Playlist'] = res_pl
                     else:
+                        # AUTOMATISMO: Mover sin preguntar si ya tiene playlist
+                        print(f"    ♥ Liked → \033[92m{main_artist} - {song_title}\033[0m")
+                        print(f"      Destino automático: \033[1;94m[{target_pl}]\033[0m")
                         actual_target_pl = target_pl
-                
-                if actual_target_pl:
-                    # ── Year check ───────────────────────
-                    song_year = 0
-                    y_str = (existing_vids.get(vid) or {}).get('Year') or item.get('year')
                     
-                    if y_str:
-                        match = re.search(r'(\d{4})', str(y_str))
-                        if match: song_year = int(match.group(1))
+                    if actual_target_pl:
+                        # ── Year check ───────────────────────
+                        song_year = 0
+                        y_str = (existing_vids.get(vid) or {}).get('Year') or item.get('year')
+                        
+                        if not y_str:
+                            y_str = self._fetch_song_year(vid, song_title, main_artist)
 
-                    # ── Archive routing check ──
-                    final_target_pl = actual_target_pl
-                    if actual_target_pl in Config.ARCHIVABLE_PLAYLISTS and song_year:
-                        archive_name = f"{actual_target_pl} $"
-                        archive_threshold = self._get_archive_threshold(archive_name)
-                        if archive_threshold and song_year <= archive_threshold:
-                            final_target_pl = archive_name
-                            print(f"    \033[93m📦 Año {song_year} ≤ {archive_threshold} → redirigiendo a '{archive_name}'\033[0m")
+                        if y_str:
+                            match = re.search(r'(\d{4})', str(y_str))
+                            if match: song_year = int(match.group(1))
 
-                    # ── Final Unliking Logic ──
-                    if final_target_pl.endswith('$'):
-                        print(f"    \033[93m⚠ Archivo catalogado → Quitando Like:\033[0m \033[92m{main_artist} - {song_title}\033[0m")
-                        try:
-                            self.yt.rate_song(vid, 'INDIFFERENT')
-                        except: pass
+                        # ── Archive routing check ──
+                        final_target_pl = actual_target_pl
+                        if actual_target_pl in Config.ARCHIVABLE_PLAYLISTS and song_year:
+                            archive_name = f"{actual_target_pl} $"
+                            archive_threshold = self._get_archive_threshold(archive_name)
+                            if archive_threshold and song_year <= archive_threshold:
+                                final_target_pl = archive_name
+                                print(f"    \033[93m📦 Año {song_year} ≤ {archive_threshold} → redirigiendo a '{archive_name}'\033[0m")
 
-                    print(f"    🚀 Moviendo a \033[1;94m[{final_target_pl}]\033[0m")
-                    target_pid = self._resolve_playlist_id(final_target_pl)
-                    if target_pid:
-                        try:
-                            self.yt.add_playlist_items(target_pid, [vid])
-                            self.yt.remove_playlist_items(pid, [item])
-                            
-                            # Use Last.fm values for record
-                            sc_val = item.get('Scrobble', 0)
-                            lsc_val = item.get('LastfmScrobble', 0)
-                            gen_val = item.get('Genre', '')
-                            if not sc_val and vid in existing_vids:
-                                sc_val = existing_vids[vid].get('Scrobble', 0)
+                        # ── Final Unliking Logic ──
+                        if final_target_pl.endswith('$'):
+                            print(f"    \033[93m⚠ Archivo catalogado → Quitando Like:\033[0m \033[92m{main_artist} - {song_title}\033[0m")
+                            try:
+                                self.yt.rate_song(vid, 'INDIFFERENT')
+                            except: pass
 
-                            new_record = dict(existing_vids.get(vid) or {
-                                'Playlist': final_target_pl, 'Artist': main_artist,
-                                'Title': item.get('title'), 'Album': item.get('album', {}).get('name', ''),
-                                'Year': str(y_str or ''), 'Video ID': vid, 'Scrobble': sc_val,
-                                'LastfmScrobble': lsc_val, 'Genre': gen_val
-                            })
-                            new_record['Year'] = str(y_str or '')
-                            new_record['Playlist'] = final_target_pl
-                            new_record['Scrobble'] = sc_val
-                            new_record['LastfmScrobble'] = lsc_val
-                            if gen_val: new_record['Genre'] = gen_val
-                            moved_for_sheet.append(new_record)
+                        print(f"    🚀 Moviendo a \033[1;94m[{final_target_pl}]\033[0m")
+                        target_pid = self._resolve_playlist_id(final_target_pl)
+                        if target_pid:
+                            try:
+                                self.yt.add_playlist_items(target_pid, [vid])
+                                self.yt.remove_playlist_items(pid, [item])
+                                
+                                # Use Last.fm values for record
+                                sc_val = item.get('Scrobble', 0)
+                                lsc_val = item.get('LastfmScrobble', 0)
+                                gen_val = item.get('Genre', '')
+                                if not sc_val and vid in existing_vids:
+                                    sc_val = existing_vids[vid].get('Scrobble', 0)
 
-                            if vid in yt_vid_map: del yt_vid_map[vid]
-                            continue
-                        except Exception as e:
-                            print(f"      ✗ Error moviendo canción: {e}")
+                                new_record = dict(existing_vids.get(vid) or {
+                                    'Playlist': final_target_pl, 'Artist': main_artist,
+                                    'Title': item.get('title'), 'Album': item.get('album', {}).get('name', ''),
+                                    'Year': str(y_str or ''), 'Video ID': vid, 'Scrobble': sc_val,
+                                    'LastfmScrobble': lsc_val, 'Genre': gen_val
+                                })
+                                new_record['Year'] = str(y_str or '')
+                                new_record['Playlist'] = final_target_pl
+                                new_record['Scrobble'] = sc_val
+                                new_record['LastfmScrobble'] = lsc_val
+                                if gen_val: new_record['Genre'] = gen_val
+                                moved_for_sheet.append(new_record)
+
+                                if vid in yt_vid_map: del yt_vid_map[vid]
+                                continue
+                            except Exception as e:
+                                print(f"      ✗ Error moviendo canción: {e}")
                     else:
                         print(f"      ⚠ No se pudo encontrar el ID de la playlist '{final_target_pl}'")
                 continue
@@ -946,6 +959,10 @@ class Manager:
         artists = self.sheets.get_artists()
         for a in artists:
             if a.get('Artist ID') == artist_id:
+                # Si el artista existe pero no tiene nombre (corrupción de datos), lo recuperamos
+                if not a.get('Artist Name'):
+                    a['Artist Name'] = artist_name
+                    self.sheets.save_artists(artists)
                 return "exists", a
         
         # Determine metadata service for genre fetching
@@ -964,18 +981,6 @@ class Manager:
         }
         
         self.sheets.add_artist(new_row)
-        
-        print(f"✅ Artist '{artist_name}' added to tracking list (Genre: {genre or '?'}).")
-        print(f"🔍 Running initial song discovery for '{artist_name}'...")
-        
-        # Initial sync to populate the Inbox (#) right away
-        self.check_new_releases(
-            Config.PLAYLIST_ID, 
-            force=True, 
-            target_artist_name=artist_name, 
-            target_artist_id=artist_id
-        )
-        
         return "added", new_row
 
     def remove_artist(self, name):
@@ -1674,6 +1679,13 @@ class Manager:
                     try:
                         self.yt.remove_playlist_items(original_pid, tracks_to_remove)
                         print(f"  \033[92m✓ Eliminadas.\033[0m")
+                        
+                        # Quitar Me gusta de las canciones archivadas
+                        print(f"  \033[93m⚠ Quitanto 'Me gusta' de {len(candidate_vids)} canciones archivadas...\033[0m")
+                        for vid in candidate_vids:
+                            try:
+                                self.yt.rate_song(vid, 'INDIFFERENT')
+                            except: pass
                     except Exception as e:
                         print(f"  \033[91m✗ Error eliminando canciones: {e}\033[0m")
 

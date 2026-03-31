@@ -44,7 +44,7 @@ def _artist_add(args, manager) -> int:
     if not artist_data:
         return 1
 
-    name = artist_data.get("Artist Name", args.name)
+    name = artist_data.get("Artist Name") or args.name
     
     if status == "added":
         print(f"✅ Successfully added '{name}' to tracking.")
@@ -55,6 +55,42 @@ def _artist_add(args, manager) -> int:
         else:
             print(f"ℹ️ Artist '{name}' is already being tracked.")
 
+    # Always run discovery/sync when adding an artist (new or existing)
+    added_count = manager.check_new_releases(
+        Config.PLAYLIST_ID, 
+        force=True, 
+        target_artist_name=name, 
+        target_artist_id=artist_data.get("Artist ID"),
+        interactive=True
+    )
+
+    # ACCIONES FINALES: Actualizamos el registro del artista en el Excel tras sincronizar
+    # (Haya o no nuevas canciones, ya lo hemos "estudiado")
+    if added_count != -1: # Sync was not cancelled by user
+        now_str = datetime.now().strftime("%d/%m/%Y")
+        
+        # 1. Marcar como Done y poner fecha
+        manager.sheets.update_artist_last_checked(name, now_str)
+        if artist_data.get("Status", "") != "Archived":
+            manager.sheets.update_artist_status(name, "Done")
+        
+        # 2. Recalcular el Song Count total para este artista (en toda la hoja de canciones)
+        all_songs = manager.sheets.get_songs_records()
+        norm_name = manager._normalize(name)
+        # Reutilizamos la función de búsqueda de canciones del manager si existe, o una simple aquí
+        artist_total = len([s for s in all_songs if manager._normalize(s.get('Artist', '')) == norm_name])
+        
+        # Actualizamos la fila del artista con el nuevo conteo de canciones
+        artists_data = manager.sheets.get_artists()
+        for a in artists_data:
+            if a.get('Artist Name') == name or (not a.get('Artist Name') and a.get('Artist ID') == artist_data.get('Artist ID')):
+                a['Song Count'] = artist_total
+                break
+        manager.sheets.save_artists(artists_data)
+
+        if status == "exists":
+            print(f"✅ Artist '{name}' metadata and status updated in tracking list.")
+        
     return 0
 
 
