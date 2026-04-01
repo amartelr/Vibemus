@@ -99,6 +99,12 @@ def _register_sync(subparsers: argparse._SubParsersAction) -> None:
         help="Skip interactive prompts and auto-add all candidates",
     )
 
+    # sync artist
+    sync_sub.add_parser(
+        "artist",
+        help="Synchronize tracked artists with the 'Songs' catalog, performing onboarding for new ones",
+    )
+
     # sync playlist (was --sync-playlist)
     sp_p = sync_sub.add_parser(
         "playlist",
@@ -116,6 +122,13 @@ def _register_sync(subparsers: argparse._SubParsersAction) -> None:
         "--no-covers", action="store_true",
         help="Skip playlist cover generation (reordering)",
     )
+
+    # sync new-releases
+    sync_sub.add_parser(
+        "new-releases",
+        help="Scan global new releases and all tracked artists for recent additions",
+    )
+
 
 
 # ── Playlist ──────────────────────────────────────────────────────────────────

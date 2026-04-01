@@ -238,17 +238,42 @@ class SheetsService:
         if updated:
             self.save_artists(artists)
 
-    def update_artist_playlist(self, artist_name, playlist_name):
-        """Updates the target playlist of a specific artist."""
+    def update_artist_playlist(self, artist_name, playlist_name, artist_id=None, genre=None, song_count=0):
+        """Updates the target playlist of a specific artist. Adds it if missing."""
         artists = self.get_artists()
         updated = False
+        # Normalize for comparison
+        norm_name = str(artist_name).lower().strip()
         for a in artists:
-            if a.get("Artist Name") == artist_name:
+            # Match by ID first if provided, then by Name
+            if (artist_id and str(a.get("Artist ID", "")).strip() == str(artist_id).strip()) or \
+               (str(a.get("Artist Name", "")).lower().strip() == norm_name):
                 a["Playlist"] = playlist_name
+                # Only update if provided
+                if artist_id: a["Artist ID"] = artist_id
+                if genre: a["Genre"] = genre
+                if song_count: a["Song Count"] = song_count
                 updated = True
                 break
+        
         if updated:
             self.save_artists(artists)
+        else:
+            # Case B: Artist is totally new, add a new row
+            new_artist = {
+                "Artist Name": artist_name,
+                "Artist ID": artist_id or "",
+                "Playlist": playlist_name,
+                "Status": "Pending", # Set as pending for future deep syncs
+                "Song Count": song_count or 0,
+                "Last Checked": datetime.now().strftime("%d/%m/%Y") if not artist_id else "", # empty to trigger deep sync if sync was not done
+                "Genre": genre or ""
+            }
+
+            self.add_artist(new_artist)
+            print(f"      🆕 Artist '{artist_name}' added to sheet.")
+
+
 
     def get_all_video_ids(self):
         """Returns the set of all Video IDs present in the Songs sheet.
@@ -390,3 +415,23 @@ class SheetsService:
                 record[h] = row[i] if i < len(row) else ''
             records.append(record)
         return records
+
+    def overwrite_songs_sheet(self, songs_data):
+        """Overwrites the Songs sheet with provided list of song dicts."""
+        ws = self._get_worksheet("Songs")
+        header = ["Playlist", "Artist", "Title", "Album", "Year", "Genre", "Scrobble", "LastfmScrobble", "Video ID"]
+        rows = [header]
+        for s in songs_data:
+            rows.append([
+                s.get('Playlist', ''),
+                s.get('Artist', ''),
+                s.get('Title', ''),
+                s.get('Album', ''),
+                str(s.get('Year', '')),
+                s.get('Genre', ''),
+                self._to_int(s.get('Scrobble')),
+                self._to_int(s.get('LastfmScrobble')),
+                s.get('Video ID', '')
+            ])
+        ws.clear()
+        ws.update(range_name='A1', values=rows)
