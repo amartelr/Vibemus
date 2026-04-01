@@ -41,6 +41,9 @@ def _artist_add(args, manager) -> int:
         api_choice=args.api
     )
 
+    if status == "cancelled":
+        print("  \033[91mOperation cancelled by user.\033[0m")
+        return 0
     if not artist_data:
         return 1
 

@@ -33,11 +33,13 @@ class Config:
     UNLIKE_THRESHOLD = 10
 
     SOURCE_PLAYLISTS = [
-        "#", "Indie Pop", "Indie Rock", "Garage Rock", "Shoegaze", "Grunge", "Post-punk", "Synthpop", "Emo", "Indie Folk",
-        "Indie Pop $", "Indie Rock $", "Indie Folk $", "Post-punk $"
+        "#", "Indie Pop", "Indie Rock", "Garage Rock", "Shoegaze", "Post-punk", "Synthpop", "Emo", "Indie Folk",
+        "Español", "Indie Pop $", "Indie Rock $", "Indie Folk $", "Post-punk $", "Español $"
     ]
 
-    ARCHIVABLE_PLAYLISTS = ["Indie Pop", "Indie Rock", "Indie Folk", "Post-punk"]
+
+
+    ARCHIVABLE_PLAYLISTS = ["Indie Pop", "Indie Rock", "Indie Folk", "Post-punk", "Español"]
     
     MAX_NEW_RELEASE_SONGS = 3  # Max top songs to add from a new album release
     MAX_NEW_RELEASE_YEARS = 1  # Límite de años hacia atrás para buscar novedades

@@ -680,6 +680,24 @@ class Manager:
                 vid = item.get('videoId')
                 song_title = item.get('title', 'Unknown')
                 
+                # ── Registro/Verificación de Artista (Lógica de Onboarding) ──
+                artists_list = item.get('artists', [])
+                main_artist = artists_list[0]['name'] if artists_list else 'Unknown'
+                artist_row = next((a for a in artists_records if self._normalize(a.get('Artist Name')) == self._normalize(main_artist)), None)
+                if not artist_row:
+                    default_pl = pl_name.replace(' $', '')
+                    print(f"    \033[93m🆕 Nuevo artista detectado en playlist: \033[1m'{main_artist}'\033[0m")
+                    res_pl = input(f"      ¿A qué playlist enviamos sus novedades por defecto? [\033[92m{default_pl}\033[0m]: ").strip()
+                    final_pl = res_pl if res_pl else default_pl
+                    if final_pl:
+                        print(f"      ✅ Registrando '{main_artist}' en la hoja de Artistas con playlist '{final_pl}'.")
+                        self.sheets.update_artist_playlist(main_artist, final_pl)
+                        new_artist_data = {'Artist Name': main_artist, 'Playlist': final_pl}
+                        artists_records.append(new_artist_data)
+                        artist_row = new_artist_data
+                    else:
+                        print(f"      ⏭  Artista '{main_artist}' no registrado (sin playlist por defecto).")
+                
                 # Check status from 3 sources: YT Metadata, YT Liked List, or Google Sheet
                 yt_status = item.get('likeStatus', 'INDIFFERENT')
                 is_in_liked_list = vid in liked_vids
@@ -700,6 +718,52 @@ class Manager:
                 if not scrobbles and vid in existing_vids:
                     try: scrobbles = int(existing_vids[vid].get('Scrobble', 0))
                     except: pass
+                
+                # ── 1. ARCHIVADO AUTOMÁTICO DESDE PLAYLISTS DE GÉNERO (No Inbox) ──
+                # Si estamos sincronizando una playlist normal (ej: 'Español') y es archivable,
+                # comprobamos si alguna canción debería ir ya a su versión de catálogo '$'.
+                if not is_hash and pl_name in Config.ARCHIVABLE_PLAYLISTS and not pl_name.endswith('$'):
+                    song_year = 0
+                    y_str = (existing_vids.get(vid) or {}).get('Year') or item.get('year')
+                    if not y_str:
+                        y_str = self._fetch_song_year(vid, song_title, item.get('Artist', ''))
+                    
+                    if y_str:
+                        match = re.search(r'(\d{4})', str(y_str))
+                        if match: song_year = int(match.group(1))
+                    
+                    if song_year:
+                        archive_name = f"{pl_name} $"
+                        archive_threshold = self._get_archive_threshold(archive_name)
+                        if archive_threshold and song_year <= archive_threshold:
+                            print(f"    \033[93m📦 Propuesta de Archivo: Año {song_year} ≤ {archive_threshold}\033[0m")
+                            ans = input(f"      ¿Mover '{song_title} ({song_year})' de '{pl_name}' a '{archive_name}'? [S/n]: ").strip().lower()
+
+                            
+                            if ans != 'n':
+                                target_pid = self._resolve_playlist_id(archive_name)
+                                if target_pid:
+                                    try:
+                                        self.yt.add_playlist_items(target_pid, [vid])
+                                        self.yt.remove_playlist_items(pid, [item])
+                                        self.yt.rate_song(vid, 'INDIFFERENT') # Quitar like al archivar
+                                        
+                                        # Actualizar registro para la hoja de cálculo
+                                        new_rec = dict(existing_vids.get(vid) or {
+                                            'Playlist': archive_name, 'Artist': item.get('Artist', ''),
+                                            'Title': song_title, 'Album': (item.get('album') or {}).get('name', ''),
+                                            'Year': str(y_str), 'Video ID': vid
+                                        })
+                                        new_rec['Playlist'] = archive_name
+                                        moved_for_sheet.append(new_rec)
+                                        
+                                        if vid in yt_vid_map: del yt_vid_map[vid]
+                                        continue # Siguiente canción
+                                    except Exception as e:
+                                        print(f"      ✗ Error al auto-archivar: {e}")
+                            else:
+                                print(f"      ⏭  Canción mantenida en '{pl_name}'.")
+
                 
                 high_scrobbles = is_hash and scrobbles > Config.SCROBBLE_THRESHOLD
                 
@@ -835,7 +899,29 @@ class Manager:
                 print(f"  Found {len(new_vids)} new songs (on YT but missing from Sheet) to add...")
                 for vid in new_vids:
                     item = yt_vid_map[vid]
-                    artist_str = ", ".join([a.get('name', '') for a in item.get('artists', [])])
+                    
+                    # Identificar artista principal
+                    artists_list = item.get('artists', [])
+                    main_artist = artists_list[0]['name'] if artists_list else 'Unknown'
+                    
+                    # ── Registro de Artista Nuevo (Si no se hizo ya en el bucle principal) ──
+                    artist_row = next((a for a in artists_records if self._normalize(a.get('Artist Name')) == self._normalize(main_artist)), None)
+                    if not artist_row:
+                        default_pl = pl_name.replace(' $', '')
+                        print(f"    \033[93m🆕 Nuevo artista detectado en playlist: \033[1m'{main_artist}'\033[0m")
+                        res_pl = input(f"      ¿A qué playlist enviamos sus novedades por defecto? [\033[92m{default_pl}\033[0m]: ").strip()
+                        final_pl = res_pl if res_pl else default_pl
+                        if final_pl:
+                            print(f"      ✅ Registrando '{main_artist}' en la hoja de Artistas con playlist '{final_pl}'.")
+                            self.sheets.update_artist_playlist(main_artist, final_pl)
+                            new_artist_data = {'Artist Name': main_artist, 'Playlist': final_pl}
+                            artists_records.append(new_artist_data)
+                            artist_row = new_artist_data
+                        else:
+                            print(f"      ⏭  Artista '{main_artist}' no registrado (sin playlist por defecto).")
+
+
+                    artist_str = ", ".join([a.get('name', '') for a in artists_list])
                     album_info = item.get('album')
                     album_name = album_info.get('name', '') if album_info else ''
                     # Use year from YT item; if missing, fetch via API
@@ -952,7 +1038,49 @@ class Manager:
             print("\033[91m✗ Artist not found on YouTube Music.\033[0m")
             return "not_found", {}
         
-        best = results[0]
+        candidates = results[:5]
+        best = candidates[0]
+        
+        # Si hay más de un resultado o el nombre no coincide exactamente, ofrecemos elegir
+        if len(candidates) > 1:
+            print(f"  \033[93mMultiple matches found for '{name}'. Please choose one:\033[0m")
+            options = []
+            for i, c in enumerate(candidates):
+                artist_name = c['artist']
+                artist_id = c['browseId']
+                
+                # Fetch top song to help disambiguation
+                top_song_title = "Unknown"
+                top_song_listeners = 0
+                try:
+                    # Buscamos la canción más popular para mostrarla
+                    artist_data = self.yt.yt.get_artist(artist_id)
+                    if 'songs' in artist_data and 'results' in artist_data['songs']:
+                        top_song = artist_data['songs']['results'][0]
+                        top_song_title = top_song.get('title', 'Unknown')
+                        # Obtenemos oyentes globales de Last.fm
+                        info = self.lastfm.get_track_info(artist_name, top_song_title)
+                        top_song_listeners = int(info.get('lastfm_listeners', 0))
+                except:
+                    pass
+                
+                listeners_fmt = f"{top_song_listeners:,}".replace(",", ".")
+                print(f"    [{i+1}] \033[1;92m{artist_name}\033[0m — Top Song: '{top_song_title}' \033[90m[{listeners_fmt}🎧]\033[0m")
+                options.append(c)
+                
+            ans = input(f"  Choose artist (1-{len(options)}) or 'q' to cancel: ").strip().lower()
+            if ans == 'q':
+                return "cancelled", {}
+            try:
+                idx = int(ans) - 1
+                if 0 <= idx < len(options):
+                    best = options[idx]
+                else:
+                    print("  \033[91mInvalid index. Using first result.\033[0m")
+            except ValueError:
+                if ans != "":
+                    print("  \033[91mInvalid input. Using first result.\033[0m")
+        
         artist_name = best['artist']
         artist_id = best['browseId']
         
@@ -1066,8 +1194,23 @@ class Manager:
         new_batch = []
         
         import re
-
         catalog_candidates = []
+
+        # 1. Incluimos las "Top Songs" directamente como candidatos de catálogo
+        top_songs = artist_data.get('songs', {}).get('results', [])
+        for track in top_songs:
+            vid = track.get('videoId')
+            track_title = track.get('title', '')
+            norm_artist = self._normalize(target_artist_name)
+            norm_title = self._normalize(track_title)
+            track_key = f"{norm_artist} - {norm_title}"
+
+            if vid and vid not in existing_vids and track_key not in existing_keys:
+                track['Artist'] = target_artist_name
+                track['Title'] = track_title
+                track['AlbumTitle'] = (track.get('album') or {}).get('name', 'Top Song')
+                catalog_candidates.append(track)
+
         for release in releases:
             title = release.get('title')
             browse_id = release.get('browseId')
@@ -1118,8 +1261,8 @@ class Manager:
             
             if not is_recent:
                 # Si es un álbum antiguo, guardamos sus canciones posibles para un segundo pase de "catálogo"
-                # Solo cogemos las primeras canciones (potenciales singles) para no saturar
-                catalog_candidates.extend(missing_tracks[:2])
+                # Cogemos hasta 5 para tener más variedad en el top final
+                catalog_candidates.extend(missing_tracks[:5])
                 continue
 
             if not missing_tracks:
@@ -1225,10 +1368,10 @@ class Manager:
                 print(f"    🔎 Analizando popularidad del catálogo ({len(deduped_candidates)} candidatos)...")
                 self.lastfm.enrich_songs(deduped_candidates, force_scrobbles=False)
                 
-                # Ordenar por oyentes y coger los 3 mejores
-                top_catalog = sorted(deduped_candidates, key=lambda x: int(x.get('LastfmScrobble', 0)), reverse=True)[:3]
+                # Ordenar por oyentes y coger los 5 mejores (antes 3)
+                top_catalog = sorted(deduped_candidates, key=lambda x: int(x.get('LastfmScrobble', 0)), reverse=True)[:5]
                 
-                print(f"    \033[95m📜 Joyas del catálogo antiguo:\033[0m")
+                print(f"    \033[95m📜 Joyas del catálogo antiguo (Top Popular):\033[0m")
                 for t in top_catalog:
                     listeners = int(t.get('LastfmScrobble', 0))
                     listeners_fmt = f"{listeners:,}".replace(",", ".")
@@ -1255,13 +1398,24 @@ class Manager:
                         existing_vids.add(vid)
                     
         if new_batch:
-            # Quitamos el enrich_songs de aquí porque ya lo hemos hecho arriba canción por canción
-            print(f"  Añadiendo {len(new_batch)} canciones a tu playlist Inbox '#' en YouTube Music...")
+            # 1. Add to YouTube first (critical)
             try:
-                self.yt.add_playlist_items(playlist_id, [s['Video ID'] for s in new_batch])
-            except Exception as e:
-                print(f"  ✗ Error añadiendo a la playlist: {e}")
+                # Deduplicate by Video ID to prevent whole batch failing if one is duplicate or suggested twice
+                vids = list(dict.fromkeys([s['Video ID'] for s in new_batch if s.get('Video ID')]))
+                print(f"  Añadiendo {len(vids)} canciones únicas a tu playlist Inbox '#' en YouTube Music...")
                 
+                res = self.yt.add_playlist_items(playlist_id, vids)
+                
+                # Check status: some versions return a dict. If it failed, don't update Excel yet.
+                if res and isinstance(res, dict) and res.get('status') == 'STATUS_FAILED':
+                    print(f"  ✗ Error: YouTube rechazó la adición (posibl. duplicados o límite).")
+                    return 0
+                
+            except Exception as e:
+                print(f"  ✗ Error añadiendo a la playlist de YouTube: {e}")
+                return 0
+
+            # 2. Add to Excel only if YouTube succeeded
             print(f"  Guardando {len(new_batch)} canciones en el Excel...")
             self.sheets.add_to_songs_batch(new_batch)
             return len(new_batch)

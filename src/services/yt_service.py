@@ -169,7 +169,11 @@ class YTMusicService:
         """Adds songs to a playlist."""
         if not video_ids:
             return
-        return self.yt.add_playlist_items(playlist_id, video_ids, duplicates=False)
+        res = self.yt.add_playlist_items(playlist_id, video_ids, duplicates=False)
+        if isinstance(res, dict) and res.get('status') == 'STATUS_FAILED':
+             # Try to provide more context if available
+             print(f"  ⚠ YouTube: Error al añadir en lote ({len(video_ids)} vids). Posibles duplicados.")
+        return res
 
     def rate_song(self, video_id, rating='INDIFFERENT'):
         """Rates a song. rating: 'LIKE', 'DISLIKE', or 'INDIFFERENT'."""
