@@ -80,8 +80,8 @@ def _artist_add(args, manager) -> int:
         # 2. Recalcular el Song Count total para este artista (en toda la hoja de canciones)
         all_songs = manager.sheets.get_songs_records()
         norm_name = manager._normalize(name)
-        # Reutilizamos la función de búsqueda de canciones del manager si existe, o una simple aquí
-        artist_total = len([s for s in all_songs if manager._normalize(s.get('Artist', '')) == norm_name])
+        # REGLA: No contar canciones en el Inbox (#) para el Song Count acumulado
+        artist_total = len([s for s in all_songs if manager._normalize(s.get('Artist', '')) == norm_name and s.get('Playlist') != '#'])
         
         # Actualizamos la fila del artista con el nuevo conteo de canciones
         artists_data = manager.sheets.get_artists()
@@ -128,8 +128,10 @@ def handle_sync(args, manager) -> int:
         return _sync_new_releases(args, manager)
     elif action == "artist":
         return _sync_artist(args, manager)
+    elif action == "genre":
+        return _sync_genre(args, manager)
     else:
-        print("Usage: vibemus sync <deep|playlist|new-releases|artist>")
+        print("Usage: vibemus sync <deep|playlist|new-releases|artist|genre>")
         print("Run 'vibemus sync --help' for details.")
         return 1
 
@@ -155,6 +157,11 @@ def _sync_new_releases(args, manager) -> int:
 
 def _sync_artist(args, manager) -> int:
     manager.sync_artists_from_songs()
+    return 0
+
+
+def _sync_genre(args, manager) -> int:
+    manager.sync_genre_summary()
     return 0
 
 
@@ -199,6 +206,7 @@ def _playlist_apply_moves(args, manager) -> int:
     manager.apply_manual_moves(
         refresh_cache=args.refresh_cache,
         target_artist_name=args.artist,
+        target_playlist_name=args.playlist,
         api_choice=args.api
     )
     return 0

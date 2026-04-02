@@ -25,8 +25,63 @@ class Manager:
         return None
 
     def _normalize(self, text):
+        import unicodedata
         if not text: return ""
-        return str(text).lower().strip()
+        # Normalización NFC para que 'á' (compuesta) coincida con 'a' + '´' (descompuesta, típica en Mac)
+        normalized = unicodedata.normalize('NFC', str(text))
+        return normalized.lower().strip()
+
+    def _print_artist_catalog_summary(self, artist_name):
+        """Prints a summary of already tracked songs for the given artist."""
+        norm_name = self._normalize(artist_name)
+        active_songs = self.sheets.get_songs_records()
+        archived_songs = self.sheets.get_archived_records()
+        all_tracked_songs = active_songs + archived_songs
+        
+        all_artists = self.sheets.get_artists()
+        tracked_artists = {self._normalize(a.get("Artist Name", "")) for a in all_artists}
+
+        def song_has_artist(song, target_norm_name):
+            field = str(song.get("Artist", "")).strip()
+            norm_field = self._normalize(field)
+            if norm_field == target_norm_name:
+                return True
+            
+            # Si el campo exacto del artista de la canción es un artista que seguimos (pero no es este)
+            # devolvemos False para evitar emparejamientos indeseados (ej: 'The National' vs 'National')
+            if norm_field in tracked_artists:
+                return False
+                
+            # Fallback: separadores comunes
+            normalized_parts = [self._normalize(p) for p in re.split(r'[,&]', field)]
+            return target_norm_name in normalized_parts
+
+        artist_songs = [s for s in all_tracked_songs if song_has_artist(s, norm_name)]
+        
+        if artist_songs:
+            artist_songs_sorted = sorted(artist_songs, key=lambda x: int(x.get("LastfmScrobble") or 0), reverse=True)
+            print(f"\n  \033[94m🎵 Biblioteca Actual ({len(artist_songs)}):\033[0m")
+            # Mostrar solo el top 15 si hay muchas para no saturar la pantalla
+            limit = 15
+            for s in artist_songs_sorted[:limit]:
+                s_title = s.get("Title", "")
+                s_scrobble = int(s.get("LastfmScrobble") or 0)
+                s_scrobble_fmt = f"{s_scrobble:,}".replace(",", ".")
+                s_pl = s.get("Playlist", "")
+                s_year = s.get("Year", "")
+                year_str = f" {s_year}" if s_year else ""
+                
+                # Tag si es archivada
+                is_archived = any(a.get("Video ID") == s.get("Video ID") for a in archived_songs)
+                arch_tag = " \033[33m[ARCH]\033[0m" if is_archived else ""
+                
+                print(f"    - \033[92m{s_title}\033[0m\033[90m{year_str} [{s_scrobble_fmt}🎧]\033[0m \033[35m[{s_pl}]{arch_tag}\033[0m")
+            
+            if len(artist_songs) > limit:
+                print(f"    \033[90m... y {len(artist_songs) - limit} canciones más.\033[0m")
+            print()
+        else:
+            print(f"\n  \033[90m[✕ Biblioteca Actual: 0 canciones conocidas para '{artist_name}']\033[0m\n")
 
     def _split_artist_names(self, raw_name, artist_map):
         """Intelligently splits an artist string into its individual artists, 
@@ -116,20 +171,13 @@ class Manager:
 
         m_count = len([s for s in all_songs if self._normalize(s.get('Artist', '')) == self._normalize(main_artist)])
         
-        # Persist to sheet
+        # Persist to sheet and update the local records list (handled by update_artist_playlist internally)
         self.sheets.update_artist_playlist(main_artist, final_pl, artist_id=m_id, genre=m_genre, song_count=m_count)
         
-        # Update local records
-        new_artist_data = {
-            'Artist Name': main_artist, 
-            'Playlist': final_pl, 
-            'Artist ID': m_id or '', 
-            'Genre': m_genre or '', 
-            'Song Count': m_count,
-            'Status': 'Pending'
-        }
-        artists_records.append(new_artist_data)
-        return new_artist_data
+        # After update_artist_playlist, the local cache in self.sheets is updated.
+        # Since artists_records is a reference to that list, it already contains the new artist.
+        # We find and return that updated record to the caller.
+        return self._find_artist_row(artists_records, name=main_artist, artists_list=artists_list)
 
     def _get_archive_threshold(self, archive_playlist_name):
         """Get the year threshold from an archive '$' playlist's description.
@@ -285,7 +333,7 @@ class Manager:
         total = sum(len(v) for v in source_cache.values())
         print(f"\n\033[92m✅ Cache refreshed:\033[0m \033[1m{len(source_cache)} playlists, {total} total songs.\033[0m\n")
 
-    def apply_manual_moves(self, refresh_cache=False, target_artist_name=None, api_choice="lastfm"):
+    def apply_manual_moves(self, refresh_cache=False, target_artist_name=None, target_playlist_name=None, api_choice="lastfm"):
         print("\n\033[96m" + "━"*50 + "\033[0m")
         print(f"\033[1;96m🎤 VIBEMUS CLASSIFICATION ASSISTANT (apply-moves - {api_choice})\033[0m")
         
@@ -309,6 +357,10 @@ class Manager:
                     if artist_info and artist_genres != '(Desconocido)' and old_ag != artist_genres:
                         any_change_session = True
                     break
+        
+        if target_playlist_name:
+            print(f"\033[93m🎯 Filtro Playlist Destino: {target_playlist_name}\033[0m")
+            
         print("\033[96m" + "━"*50 + "\033[0m")
 
         if refresh_cache:
@@ -323,11 +375,18 @@ class Manager:
         songs_to_process = all_songs
         if target_artist_name:
             norm_target = self._normalize(target_artist_name)
-            songs_to_process = [s for s in all_songs if norm_target in self._normalize(s.get('Artist', ''))]
-            if not songs_to_process:
-                print(f"No se encontraron canciones para: {target_artist_name}")
-                return
-            print(f"Revisando {len(songs_to_process)} canciones...")
+            songs_to_process = [s for s in songs_to_process if norm_target in self._normalize(s.get('Artist', ''))]
+            
+        if target_playlist_name:
+            norm_pl_target = self._normalize(target_playlist_name)
+            songs_to_process = [s for s in songs_to_process if self._normalize(s.get('Playlist', '')) == norm_pl_target]
+
+        if not songs_to_process:
+            if target_artist_name or target_playlist_name:
+                print(f"No se encontraron canciones con los filtros aplicados.")
+            return
+            
+        print(f"Revisando {len(songs_to_process)} canciones...")
 
         cache_vids = {}
         vid_to_cache_entries = {}
@@ -421,8 +480,16 @@ class Manager:
             
             print(f"    🎵  Género de la canción: \033[96m{genres}\033[0m")
             
-            prompt = f"    📍 Destino (Enter=OK/Saltar, 'q'=salir, NuevaPL): "
-            user_input = input(prompt).strip()
+            # Interactive Logic: Skip prompt if target_playlist_name or target_artist_name is set
+            auto_mode = (target_playlist_name is not None)
+            
+            if auto_mode:
+                user_input = "" # Treat as Enter
+                if not is_synced:
+                    print(f"    🚀 Automatic Reposition to '{target_pl}'...")
+            else:
+                prompt = f"    📍 Destino (Enter=OK/Saltar, 'q'=salir, NuevaPL): "
+                user_input = input(prompt).strip()
 
             if user_input.lower() == 'q':
                 print("    Abortando y guardando cambios...")
@@ -431,7 +498,6 @@ class Manager:
                 
             if user_input == '':
                 if is_synced:
-                    print("    ⏭  Mantenida sin cambios.")
                     _finalize_song_iteration(target_pl)
                     continue
                 else:
@@ -916,13 +982,9 @@ class Manager:
                             m_count = len([s for s in all_songs if self._normalize(s.get('Artist', '')) == self._normalize(main_artist)])
                             
                             self.sheets.update_artist_playlist(main_artist, res_pl, artist_id=m_id, genre=m_genre, song_count=m_count)
-                            if not artist_row:
-                                artists_records.append({'Artist Name': main_artist, 'Playlist': res_pl, 'Artist ID': m_id, 'Genre': m_genre, 'Song Count': m_count})
-                            else:
-                                artist_row['Playlist'] = res_pl
-                                artist_row['Artist ID'] = m_id
-                                artist_row['Genre'] = m_genre
-                                artist_row['Song Count'] = m_count
+                            # After update_artist_playlist, the cache in self.sheets is updated.
+                            # We don't need to manually append to artists_records if it's a reference to the cache.
+                            artist_row = self._find_artist_row(artists_records, name=main_artist, artists_list=artists_list)
                     else:
                         # AUTOMATISMO: Mover sin preguntar si ya tiene playlist
                         print(f"    ♥ Liked → \033[92m{main_artist} - {song_title}\033[0m")
@@ -1051,9 +1113,11 @@ class Manager:
                 if vid in yt_vid_map:
                     # Enrich the sheet record with data fetched in step 2c
                     yt_item = yt_vid_map[vid]
+                    # Always update metadata (Scrobbles and Genre) if they exist
                     if 'Scrobble' in yt_item: s['Scrobble'] = yt_item['Scrobble']
                     if 'LastfmScrobble' in yt_item: s['LastfmScrobble'] = yt_item['LastfmScrobble']
-                    if yt_item.get('Genre') and not s.get('Genre'): s['Genre'] = yt_item['Genre']
+                    if yt_item.get('Genre'): 
+                        s['Genre'] = yt_item['Genre']
                     # Only fetch year from YT if it's missing in the sheet
                     if not str(s.get('Year', '')).strip():
                         alb_id = (yt_item.get('album') or {}).get('id')
@@ -1346,9 +1410,12 @@ class Manager:
         print("\033[1;94m🔄 SYNCING ARTISTS FROM CATALOG (SONGS SHEET)\033[0m")
         print("\033[94m" + "━"*60 + "\033[0m")
         
-        # 0. Deduplicate first and prepare artist map
-        print("\n\033[1m🔍 Pasillo de limpieza: Buscando duplicados en la hoja de artistas...\033[0m")
+        # 0. Deduplicate and audit for "fused" artists (collaborations)
         all_artists = self.deduplicate_artists()
+        # Audit for possible fusions (like "Mark Kozelek & Desertshore") already tracked
+        print("\n\033[1m🔍 Auditando artistas en seguimiento por posibles fusiones...\033[0m")
+        all_artists = self.audit_fused_artists(all_artists)
+        
         artist_map = {self._normalize(a.get('Artist Name')): a for a in all_artists if a.get('Artist Name')}
         
         all_songs = self.sheets.get_songs_records()
@@ -1359,6 +1426,7 @@ class Manager:
 
         # 1. Group all songs by artist for counting (including Inbox)
         artist_counts = {}
+        inbox_counts = {}
         # Matrix to find the "majority" playlist: norm_artist -> { base_playlist -> count }
         artist_pl_matrix = {}
         
@@ -1369,12 +1437,18 @@ class Manager:
             # Split using smart helper that respects tracked artists
             artist_names = self._split_artist_names(raw_art, artist_map)
             
+            pl = (s.get('Playlist') or '').strip()
+            
             for art in artist_names:
                 if not art: continue
                 norm_art = self._normalize(art)
-                artist_counts[norm_art] = artist_counts.get(norm_art, 0) + 1
                 
-                pl = (s.get('Playlist') or '').strip()
+                # REGLA: No contamos canciones en el Inbox (#) para el Song Count acumulado
+                if pl != '#':
+                    artist_counts[norm_art] = artist_counts.get(norm_art, 0) + 1
+                else:
+                    inbox_counts[norm_art] = inbox_counts.get(norm_art, 0) + 1
+                
                 if pl and pl != '#':
                     # Normalize playlist name: use base name even if it's an archive list (Ending in ' $')
                     base_pl = pl.replace(' $', '').strip()
@@ -1412,34 +1486,37 @@ class Manager:
             targets = []
             if len(parts) > 1:
                 # COLLABORATION / DUAL NAME
-                # Check if we already track ANY of the component parts. 
-                # If we do, it's definitively a collaboration, not a new single-entity band name.
                 any_tracked = any(self._normalize(p) in artist_map for p in parts)
                 
-                if not any_tracked:
-                    print(f"\n\033[1;93m⚠ Entrada detectada con múltiples nombres: '{raw_name}'\033[0m")
-                    is_single = input(f"    ¿Es un ÚNICO artista/banda (ej: 'Mumford & Sons')? (s/N): ").strip().lower()
-                    
-                    if is_single == 's':
-                        targets = [raw_name]
-                    else:
-                        is_single = 'n'
-                else:
-                    is_single = 'n'
+                print(f"\n\033[1;93m⚠ Posible colaboración detectada: '{raw_name}'\033[0m")
+                print(f"    Artistas individuales encontrados: {', '.join(parts)}")
+                if any_tracked:
+                    tracked_list = [p for p in parts if self._normalize(p) in artist_map]
+                    print(f"    (Ya sigues a: {', '.join(tracked_list)})")
                 
-                if is_single == 'n':
-                    # Tratar como artistas separados
-                    print(f"    Artistas detectados: {', '.join(parts)}")
-                    print(f"    Aún no registrados: {', '.join(missing_parts)}")
-                    choice = input(f"    ¿Qué deseas hacer? (1=Registrar ambos/todos, 2=Solo el primero, c=Cancelar): ").strip()
-                    
-                    if choice == '1' or not choice:
-                        targets = missing_parts
-                    elif choice == '2':
-                        if self._normalize(parts[0]) not in artist_map:
-                            targets = [parts[0]]
-                    else:
-                        targets = []
+                print(f"    ¿Qué deseas hacer con esta entrada?")
+                print(f"    - 's': Registrar como UN SOLO artista/banda (ej: 'Mumford & Sons').")
+                print(f"    - 'n': Tratar como VARIOS artistas independientes (y registrar los que falten).")
+                print(f"    - 'i': DESCARTAR COMBO para siempre (no volver a preguntar por esta unión).")
+                print(f"    - 'c': Omitir por ahora.")
+                
+                choice = input(f"    Opción (s/n/i/c): ").strip().lower()
+                
+                if choice == 's':
+                    targets = [raw_name]
+                elif choice == 'i':
+                    print(f"    Marcando combo '{raw_name}' como 'Multi' permanentemente...")
+                    # Forzar Status: Archived para cumplir con los 3 estados permitidos por el usuario
+                    self.sheets.add_artist({'Artist Name': raw_name, 'Status': 'Archived', 'Type': 'Multi'})
+                    artist_map[self._normalize(raw_name)] = {'Artist Name': raw_name, 'Status': 'Archived', 'Type': 'Multi'}
+                    continue
+                elif choice == 'n':
+                    print(f"    Registrando componentes faltantes: {', '.join(missing_parts)}")
+                    targets = missing_parts
+                    # Opcionalmente, para no volver a preguntar por este combo aunque no registremos todos sus componentes,
+                    # podríamos marcar el combo como ignorado también. Pero el usuario ha sugerido registrar cada uno.
+                else:
+                    continue
             else:
                 # SINGLE ARTIST
                 targets = missing_parts
@@ -1520,11 +1597,22 @@ class Manager:
             
             # Sync count
             total_songs = artist_counts.get(norm_name, 0)
+            inbox_songs = inbox_counts.get(norm_name, 0)
             if str(row.get("Song Count")) != str(total_songs):
                 row["Song Count"] = total_songs
 
+            # Sync Playlist: Update to majority if it changed
+            if total_songs > 0:
+                pl_data = artist_pl_matrix.get(norm_name, {})
+                if pl_data:
+                    best_pl = max(pl_data, key=pl_data.get)
+                    old_pl = row.get("Playlist", "").strip()
+                    if best_pl and old_pl != best_pl and row.get("Status") != "Archived":
+                        print(f"    🔄 Artist '{aname}': Playlist changed {old_pl} -> \033[1;94m{best_pl}\033[0m (Majority)")
+                        row["Playlist"] = best_pl
+
             # ARCHIVE LOGIC: If no songs in catalog AND no songs in Inbox (#), archive artist
-            if total_songs == 0 and row.get("Status") != "Archived":
+            if total_songs == 0 and inbox_songs == 0 and row.get("Status") != "Archived":
                 print(f"    \033[91m⚠ Artist '{aname}' has 0 active songs (Catalog & Inbox).\033[0m")
                 row["Status"] = "Archived"
                 # Consistent with remove_artist: clear tracking data
@@ -1571,6 +1659,9 @@ class Manager:
             
             # Intentamos buscar el Artist ID exacto si lo conocemos (pero aquí no lo tenemos si entramos aquí)
             artist_id = results[0]['browseId']
+            
+        if interactive:
+            self._print_artist_catalog_summary(target_artist_name)
             
         try:
             artist_data = self.yt.yt.get_artist(artist_id)
@@ -2002,35 +2093,8 @@ class Manager:
         print(f"\033[1m[{idx}/{total}] Revisando a:\033[0m \033[93m{name}\033[0m")
         
         if interactive:
-            # Localizamos y mostramos las canciones actuales de este artista en la biblioteca
-            tracked_artists = {self._normalize(a.get("Artist Name", "")) for a in self.sheets.get_artists()}
-            
-            def song_has_artist(song, target_norm_name):
-                field = str(song.get("Artist", "")).strip()
-                norm_field = self._normalize(field)
-                if norm_field == target_norm_name:
-                    return True
-                if norm_field in tracked_artists:
-                    # Entidad de otro artista distinto que seguimos (ej: 'hey, nothing' vs 'nothing')
-                    return False
-                # Fallback: separador oficial
-                return target_norm_name in [self._normalize(part) for part in field.split(', ')]
-
-            artist_songs = [s for s in songs if song_has_artist(s, norm_name)]
-            if artist_songs:
-                artist_songs_sorted = sorted(artist_songs, key=lambda x: int(x.get("LastfmScrobble") or 0), reverse=True)
-                print(f"\n  \033[94m🎵 Biblioteca Actual ({len(artist_songs)}):\033[0m")
-                for s in artist_songs_sorted:
-                    s_title = s.get("Title", "")
-                    s_scrobble = int(s.get("LastfmScrobble") or 0)
-                    s_scrobble_fmt = f"{s_scrobble:,}".replace(",", ".")
-                    s_pl = s.get("Playlist", "")
-                    s_year = s.get("Year", "")
-                    year_str = f" {s_year}" if s_year else ""
-                    print(f"    - \033[92m{s_title}\033[0m\033[90m{year_str} [{s_scrobble_fmt}🎧]\033[0m \033[35m[{s_pl}]\033[0m")
-                print()
-            else:
-                print(f"\n  \033[90m[✕ Biblioteca Actual: 0 canciones]\033[0m\n")
+            # La biblioteca actual ahora se muestra dentro de check_new_releases para mayor consistencia
+            pass
         
         artist_id = artist.get("Artist ID", "")
         added_songs = self.check_new_releases(Config.PLAYLIST_ID, force=True, target_artist_name=name, target_artist_id=artist_id, interactive=interactive)
@@ -2101,10 +2165,7 @@ class Manager:
         print("\033[96m" + "━"*50 + "\033[0m")
 
         if playlist_name:
-            if playlist_name not in Config.ARCHIVABLE_PLAYLISTS:
-                print(f"\033[91m✗ '{playlist_name}' no es una playlist archivable.\033[0m")
-                print(f"  Playlists válidas: {', '.join(Config.ARCHIVABLE_PLAYLISTS)}")
-                return
+            # If a specific playlist is requested, we process it regardless of Config.ARCHIVABLE_PLAYLISTS
             playlists_to_process = [playlist_name]
         else:
             playlists_to_process = Config.ARCHIVABLE_PLAYLISTS
@@ -2152,7 +2213,7 @@ class Manager:
         print("\n  Resolviendo IDs de playlists en YouTube Music...")
         resolved_ids = {}
         try:
-            library_playlists = self.yt.yt.get_library_playlists(limit=100)
+            library_playlists = self.yt.yt.get_library_playlists(limit=500)
         except Exception as e:
             print(f"\033[91m✗ Error obteniendo playlists de la biblioteca: {e}\033[0m")
             return
@@ -2164,6 +2225,7 @@ class Manager:
                 resolved_ids[lp_title.lower()] = pid
 
         total_moved = 0
+        total_restored = 0
 
         for pl_name in playlists_to_process:
             archive_name = f"{pl_name} $"
@@ -2171,109 +2233,122 @@ class Manager:
             archive_lower = archive_name.lower()
 
             original_pid = resolved_ids.get(pl_lower)
+            archive_pid = resolved_ids.get(archive_lower)
+            
             if not original_pid:
                 print(f"\n  \033[91m✗ No se encontró la playlist '{pl_name}' en YouTube Music.\033[0m")
                 continue
 
-            # Filter songs: same playlist + year <= threshold
-            candidates = []
-            skipped_no_year = []
+            # --- A. ENCONTRAR CANDIDATOS PARA ARCHIVAR (Main -> Archive) ---
+            to_archive = []
             for s in all_songs:
-                if s.get('Playlist', '').lower() != pl_lower:
-                    continue
+                if s.get('Playlist', '').lower() != pl_lower: continue
                 song_year = str(s.get('Year', '')).strip()
-                if not song_year:
-                    skipped_no_year.append(s)
-                    continue
                 try:
-                    if int(song_year) <= year:
-                        candidates.append(s)
-                except (ValueError, TypeError):
-                    skipped_no_year.append(s)
+                    if song_year and int(song_year) <= year:
+                        to_archive.append(s)
+                except: pass
 
-            if skipped_no_year:
-                print(f"\n  \033[93m⚠  {len(skipped_no_year)} canciones siguen sin año (ignoradas) en '{pl_name}':\033[0m")
-                for s in skipped_no_year:
-                    print(f"    \033[90m{s.get('Artist', '')} - {s.get('Title', '')}\033[0m")
+            # --- B. ENCONTRAR CANDIDATOS PARA RESTAURAR (Archive -> Main) ---
+            to_restore = []
+            if archive_pid:
+                for s in all_songs:
+                    if s.get('Playlist', '').lower() != archive_lower: continue
+                    song_year = str(s.get('Year', '')).strip()
+                    try:
+                        if song_year and int(song_year) > year:
+                            to_restore.append(s)
+                    except: pass
 
-            if not candidates:
-                print(f"\n  \033[90m⏭ '{pl_name}': Sin canciones con año ≤ {year}.\033[0m")
+            if not to_archive and not to_restore:
+                print(f"\n  \033[90m⏭ '{pl_name}': Sin movimientos necesarios para año {year}.\033[0m")
                 continue
 
-            candidates.sort(key=lambda x: int(x.get('Year', 0)))
-
+            # Mostrar resumen de movimientos
             print(f"\n\033[96m{'━'*50}\033[0m")
-            print(f"  \033[1;95m📂 {pl_name}\033[0m → \033[1;93m{archive_name}\033[0m")
-            print(f"  \033[90m{len(candidates)} canciones con año ≤ {year}:\033[0m")
-            for s in candidates:
-                print(f"    \033[92m{s.get('Artist', '')}\033[0m - {s.get('Title', '')} \033[90m({s.get('Year', '')})\033[0m")
+            print(f"  \033[1;95m📂 {pl_name}\033[0m \033[90m(Año límite: {year})\033[0m")
+            
+            if to_archive:
+                print(f"  \033[91m📥 Para ARCHIVAR ({len(to_archive)}):\033[0m")
+                for s in to_archive[:10]:
+                    print(f"    - {s.get('Artist', '')} - {s.get('Title', '')} \033[90m({s.get('Year', '')})\033[0m")
+                if len(to_archive) > 10: print(f"    \033[90m... y {len(to_archive)-10} más.\033[0m")
 
-            ans = input(f"\n  ¿Mover estas {len(candidates)} canciones a '{archive_name}'? [\033[92mS\033[0m/n]: ").strip().lower()
-            if ans == 'n':
-                print(f"  ⏭ Saltada.")
-                continue
+            if to_restore:
+                print(f"  \033[92m📤 Para RESTAURAR ({len(to_restore)}):\033[0m")
+                for s in to_restore[:10]:
+                    print(f"    - {s.get('Artist', '')} - {s.get('Title', '')} \033[90m({s.get('Year', '')})\033[0m")
+                if len(to_restore) > 10: print(f"    \033[90m... y {len(to_restore)-10} más.\033[0m")
 
-            # Find or create archive playlist
-            archive_pid = resolved_ids.get(archive_lower)
-            if not archive_pid:
-                print(f"  📝 Creando playlist '{archive_name}' en YouTube Music...")
+            ans = input(f"\n  ¿Ejecutar movimientos en '{pl_name}'? [\033[92mS\033[0m/n]: ").strip().lower()
+            if ans == 'n': continue
+
+            # Resolver Archive PID si no existe y lo necesitamos
+            if to_archive and not archive_pid:
+                print(f"  📝 Creando playlist '{archive_name}'...")
                 try:
                     archive_pid = self.yt.create_playlist(archive_name, f"Archivo: canciones ≤ {year}")
                     resolved_ids[archive_lower] = archive_pid
-                    print(f"  \033[92m✓ Playlist '{archive_name}' creada.\033[0m")
                 except Exception as e:
                     print(f"  \033[91m✗ Error creando playlist: {e}\033[0m")
                     continue
 
-            # Get full track objects from original playlist (needed for remove API)
-            print(f"  📥 Obteniendo tracks de '{pl_name}' para mover...")
-            original_tracks = self.yt.get_playlist_items(original_pid, limit=5000)
-            vid_to_track = {t.get('videoId'): t for t in original_tracks if t.get('videoId')}
-
-            candidate_vids = [s.get('Video ID') for s in candidates if s.get('Video ID')]
-
-            if candidate_vids:
-                print(f"  ➕ Añadiendo {len(candidate_vids)} canciones a '{archive_name}'...")
-                try:
-                    self.yt.add_playlist_items(archive_pid, candidate_vids)
-                    print(f"  \033[92m✓ Añadidas.\033[0m")
-                except Exception as e:
-                    print(f"  \033[91m✗ Error añadiendo canciones: {e}\033[0m")
-                    continue
-
-                tracks_to_remove = [vid_to_track[vid] for vid in candidate_vids if vid in vid_to_track]
+            # --- EJECUCIÓN A: ARCHIVAR ---
+            if to_archive:
+                print(f"  ➕ Archivando {len(to_archive)} canciones...")
+                # Obtener info de tracks originales para eliminar
+                original_tracks = self.yt.get_playlist_items(original_pid, limit=5000)
+                vid_to_track = {t.get('videoId'): t for t in original_tracks if t.get('videoId')}
+                
+                vids = [s.get('Video ID') for s in to_archive]
+                self.yt.add_playlist_items(archive_pid, vids)
+                
+                tracks_to_remove = [vid_to_track[v] for v in vids if v in vid_to_track]
                 if tracks_to_remove:
-                    print(f"  ➖ Eliminando {len(tracks_to_remove)} canciones de '{pl_name}'...")
-                    try:
-                        self.yt.remove_playlist_items(original_pid, tracks_to_remove)
-                        print(f"  \033[92m✓ Eliminadas.\033[0m")
-                        
-                        # Quitar Me gusta de las canciones archivadas
-                        print(f"  \033[93m⚠ Quitanto 'Me gusta' de {len(candidate_vids)} canciones archivadas...\033[0m")
-                        for vid in candidate_vids:
-                            try:
-                                self.yt.rate_song(vid, 'INDIFFERENT')
-                            except: pass
-                    except Exception as e:
-                        print(f"  \033[91m✗ Error eliminando canciones: {e}\033[0m")
+                    self.yt.remove_playlist_items(original_pid, tracks_to_remove)
+                
+                # Un-like y update sheet cache
+                for vid in vids:
+                    try: self.yt.rate_song(vid, 'INDIFFERENT')
+                    except: pass
+                
+                vids_set = set(vids)
+                for s in all_songs:
+                    if s.get('Playlist', '').lower() == pl_lower and s.get('Video ID') in vids_set:
+                        s['Playlist'] = archive_name
+                total_moved += len(vids)
 
-            # Update in-memory records
-            candidate_vids_set = set(candidate_vids)
-            for s in all_songs:
-                if s.get('Playlist', '').lower() == pl_lower and s.get('Video ID') in candidate_vids_set:
-                    s['Playlist'] = archive_name
+            # --- EJECUCIÓN B: RESTAURAR ---
+            if to_restore:
+                print(f"  ➕ Restaurando {len(to_restore)} canciones...")
+                # Obtener info de archive tracks para eliminar
+                archive_tracks = self.yt.get_playlist_items(archive_pid, limit=5000)
+                vid_to_track = {t.get('videoId'): t for t in archive_tracks if t.get('videoId')}
+                
+                vids = [s.get('Video ID') for s in to_restore]
+                self.yt.add_playlist_items(original_pid, vids)
+                
+                tracks_to_remove = [vid_to_track[v] for v in vids if v in vid_to_track]
+                if tracks_to_remove:
+                    self.yt.remove_playlist_items(archive_pid, tracks_to_remove)
+                
+                # Re-like y update sheet cache
+                for vid in vids:
+                    try: self.yt.rate_song(vid, 'LIKE')
+                    except: pass
+                
+                vids_set = set(vids)
+                for s in all_songs:
+                    if s.get('Playlist', '').lower() == archive_lower and s.get('Video ID') in vids_set:
+                        s['Playlist'] = pl_name
+                total_restored += len(vids)
 
-            moved_count = len(candidate_vids)
-            total_moved += moved_count
-            print(f"  \033[92m✓ {moved_count} canciones movidas a '{archive_name}'.\033[0m")
-
-        # Save Sheet (Playlist column + any Year changes not yet saved)
-        if total_moved > 0:
-            print(f"\n  📝 Actualizando {total_moved} registros en el Sheet...")
+        if total_moved > 0 or total_restored > 0:
+            print(f"\n  📝 Actualizando sheet ({total_moved + total_restored} cambios)...")
             self.sheets.overwrite_songs(all_songs)
             print(f"\033[92m✓ Sheet actualizado.\033[0m")
 
-        print(f"\n\033[92m✅ Archivado completado. Total: {total_moved} canciones movidas.\033[0m")
+        print(f"\n\033[92m✅ Archivado completado. Archivadas: {total_moved}, Restauradas: {total_restored}.\033[0m")
 
     def cleanup_inbox_duplicates(self):
         pass
@@ -2283,6 +2358,55 @@ class Manager:
 
 
 
+
+    def audit_fused_artists(self, artists):
+        """Scans the current tracking list for artists with separators and asks if they should be ignored."""
+        import re
+        collab_pattern = re.compile(r'\s*,\s*|(?<!\w)&\s*|\s+vs\.?\s+', re.IGNORECASE)
+        
+        modified = False
+        to_keep = []
+        
+        for a in artists:
+            name = a.get('Artist Name', '')
+            status = a.get('Status', '')
+            
+            # Skip if already marked as Multi or explicitly as a Single entity in the Type column
+            if a.get('Type') in ('Multi', 'Single') or not collab_pattern.search(name):
+                to_keep.append(a)
+                continue
+            
+            # SUSPECTED FUSION
+            print(f"\n\033[1;93m⚠ Artista en seguimiento detectado con múltiples nombres: '{name}'\033[0m")
+            print(f"    Estado: {status} | Tipo: {a.get('Type', 'Normal')}")
+            print(f"    ¿Qué deseas hacer con este registro?")
+            print(f"    - 'i': Marcar como 'Multi' (se enviará a Status: Archived). No se trackeará como uno.")
+            print(f"    - 's': MANTENER como un solo artista/banda (Tipo: Single).")
+            print(f"    - 'c': Continuar sin cambios (preguntar la próxima vez).")
+            
+            choice = input(f"    Opción (i/s/c): ").strip().lower()
+            
+            if choice == 'i':
+                a['Type'] = 'Multi'
+                a['Status'] = 'Archived'  # Mantenemos los 3 estados del usuario en Status
+                to_keep.append(a)
+                modified = True
+                print(f"    ✅ '{name}' marcado como Multi (fusionado).")
+            elif choice == 's':
+                a['Type'] = 'Single'
+                to_keep.append(a)
+                modified = True
+                print(f"    ✅ '{name}' confirmado como un solo artista/banda.")
+            else:
+                to_keep.append(a)
+                
+        if modified:
+            self.sheets.save_artists(to_keep)
+            print(f"    ✅ Cambios de auditoría guardados en la hoja 'Artists'.")
+        else:
+            print("  No se encontraron nuevas fusiones que revisar.")
+            
+        return to_keep
 
     def cleanup_collab_artists(self):
         print("\n\033[96m" + "━"*50 + "\033[0m")
@@ -2472,5 +2596,99 @@ class Manager:
         if songs_updated_in_sheet > 0:
             print(f"\n📝 Updating {songs_updated_in_sheet} records in Songs sheet with fresh scrobbles...")
             self.sheets.overwrite_songs(sheet_songs)
+    def sync_genre_summary(self):
+        """
+        Aggregates all genres from the Songs sheet, counts them,
+        and updates the 'Genre' summary sheet. Includes interactive filtering.
+        """
+        from collections import Counter
+        import string
+        import json
+        import os
 
-        print(f"\n✅ Cleanup complete. {unliked_count} songs unliked, {songs_updated_in_sheet} records updated in sheet.")
+        print("\n\033[96m" + "━"*50 + "\033[0m")
+        print("\033[1;96m📊 SYNCING GENRE SUMMARY (INTERACTIVE)\033[0m")
+        print("\033[96m" + "━"*50 + "\033[0m")
+
+        # 1. Load Preferences
+        prefs = {"ignored": [], "approved": []}
+        if os.path.exists(Config.GENRE_PREFS_FILE):
+            try:
+                with open(Config.GENRE_PREFS_FILE, 'r') as f:
+                    prefs = json.load(f)
+            except Exception as e:
+                print(f"  ⚠ Error loading genre preferences: {e}")
+
+        ignored = set(prefs.get("ignored", []))
+        approved = set(prefs.get("approved", []))
+        needs_save = False
+
+        # 2. Extract and Process Songs
+        all_songs = self.sheets.get_songs_records()
+        if not all_songs:
+            print("  ⚠ No songs found in the 'Songs' sheet.")
+            return
+
+        genre_counts = Counter()
+        
+        # Collect all raw candidate genres (normalized for case)
+        raw_candidates = set()
+        for s in all_songs:
+            genre_str = s.get('Genre', '')
+            if not genre_str: continue
+            parts = [p.strip() for p in genre_str.split(',') if p.strip()]
+            for p in parts:
+                raw_candidates.add(string.capwords(p.lower()))
+
+        # 3. Interactive Filter
+        print(f"  🔍 Found {len(raw_candidates)} total candidate genres.")
+        
+        for p in sorted(raw_candidates):
+            if p in ignored:
+                continue
+            if p in approved:
+                continue
+            
+            # Unknown genre! Ask user
+            print(f"\n  [?] New genre: '\033[1;95m{p}\033[0m'")
+            choice = input("      Track it? (y=Yes, n=No/Skip once, i=Ignore always, q=Quit/Save): ").lower().strip()
+            
+            if choice == 'y':
+                approved.add(p)
+                needs_save = True
+            elif choice == 'i':
+                ignored.add(p)
+                needs_save = True
+            elif choice == 'q':
+                print("  ⏹ Stopping prompt and saving progress...")
+                break
+            # 'n' or anything else skips this time but stays 'unknown'
+
+        # 4. Filter and Count
+        for s in all_songs:
+            genre_str = s.get('Genre', '')
+            if not genre_str: continue
+            parts = [string.capwords(p.strip().lower()) for p in genre_str.split(',') if p.strip()]
+            for p in parts:
+                if p in approved:
+                    genre_counts[p] += 1
+
+        # 5. Save Preferences
+        if needs_save:
+            prefs["ignored"] = sorted(list(ignored))
+            prefs["approved"] = sorted(list(approved))
+            with open(Config.GENRE_PREFS_FILE, 'w') as f:
+                json.dump(prefs, f, indent=4)
+            print(f"  ✓ Updated {os.path.basename(Config.GENRE_PREFS_FILE)}")
+
+        # 6. Update Sheet
+        sorted_genres = sorted(
+            genre_counts.items(), 
+            key=lambda item: (-item[1], item[0])
+        )
+
+        print(f"  ✓ Final summary includes {len(sorted_genres)} approved genres.")
+        print(f"  📝 Updating 'Genre' sheet...")
+        
+        self.sheets.overwrite_genre_sheet(sorted_genres)
+        print("\033[92m✅ Genre synchronization complete.\033[0m")

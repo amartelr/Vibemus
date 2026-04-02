@@ -125,6 +125,11 @@ Vibemus uses local JSON caches in the `data/` directory to optimize performance 
 *   **Purpose**: Stores artist and track tags fetched from MusicBrainz.
 *   **Validity**: **30 days** for artist info, **7 days** for track info. Helps respect the strict 1 req/s rate limit.
 
+### 5. Genre Preferences (`genre_preferences.json`)
+*   **Purpose**: Stores your "Approved" and "Ignored" genre lists for the `sync genre` command.
+*   **Usage**: Prevents clutter from geographical tags (e.g., "British") or generic terms.
+*   **Interactivity**: New genres found during sync will trigger a prompt to add them to either list.
+
 ---
 
 ## 💡 Sync Logic & Status Guide
@@ -249,6 +254,22 @@ vibemus sync new-releases
 
 ---
 
+#### `vibemus sync genre`
+Update the **Genre** summary sheet in your Google Spreadsheet.
+
+- **Interactive Filtering**: If it detects a genre not in your "Approved" or "Ignored" lists, it will prompt you:
+    - `y` (Yes): Track it (adds to Approved).
+    - `n` (No): Skip it this time.
+    - `i` (Ignore): Never track it (adds to Ignored).
+    - `q` (Quit): Save current decisions and exit.
+- **Normalization**: Automatically applies **Title Case** and splits multi-genre strings (e.g., `noise rock, indie` → `Noise Rock` + `Indie`).
+
+```bash
+vibemus sync genre
+```
+
+---
+
 
 
 > [!TIP]
@@ -277,13 +298,14 @@ vibemus playlist archive --name "Indie Folk" --year 2021
 
 ---
 
-#### `vibemus playlist apply-moves [--artist "Name"] [--refresh-cache]`
+#### `vibemus playlist apply-moves [--artist "Name"] [--playlist "Name"] [--refresh-cache]`
 Sync manual changes made to the "Playlist" column in your Google Sheet back to YouTube Music.
 
 - Scans the **Songs** sheet for songs whose playlist name differs from YouTube.
 - Automatically **removes** the song from the old playlist and **adds** it to the new one.
 - Ignores changes to/from the `#` playlist.
 - **`--artist "Name"`**: Process only moves for a specific artist.
+- **`--playlist "Name"`**: Process only moves where the target playlist in the sheet matches this name (e.g., "Crank Wave").
 - **`--refresh-cache`**: Forces a fresh download of playlist data from YouTube before starting. Recommended if you have made manual changes on the YouTube Music app.
 - **`--api {lastfm,musicbrainz}`**: Choose the metadata provider for genres and artist info. 
   - `lastfm` (default): Fast, includes scrobble counts.
@@ -383,7 +405,8 @@ Vibemus/
 ├── data/                    # Local caches (git-ignored)
 │   ├── source_cache.json
 │   ├── deep_sync_cache.json
-│   └── lastfm_cache.json
+│   ├── lastfm_cache.json
+│   └── genre_preferences.json # Your approved/ignored genre lists
 ├── src/
 │   ├── config.py            # App-wide settings
 │   ├── cli/

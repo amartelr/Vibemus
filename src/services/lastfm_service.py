@@ -169,12 +169,14 @@ class LastFMService:
         with self._lock:
             cached = self.cache.get(key)
         
-        # Fresh cache: always return it (even with force_scrobbles)
-        if cached and self._cache_is_fresh(cached, cache_ttl_days):
+        # If we have a fresh cache AND it has a genre, return it.
+        # IF IT HAS NO GENRE, we ignore the cache freshness to try and find it now.
+        if cached and self._cache_is_fresh(cached, cache_ttl_days) and cached.get("genre"):
             return cached
 
-        # Stale / missing — but if force_scrobbles=False and we have *any* cache, use it
-        if cached and not force_scrobbles:
+        # Stale / missing — but if force_scrobbles=False and we have ANY cache (and it's not a "no-genre" retry case), use it.
+        # BUT: if the user specifically wants the genre and we didn't have it, we keep going.
+        if cached and not force_scrobbles and cached.get("genre"):
             return cached
 
         existing_genre = cached.get("genre", "") if cached else ""
@@ -265,9 +267,11 @@ class LastFMService:
                 cache_ttl_days=cache_ttl_days,
             )
 
-            # Only update genre if it's empty
-            if not existing_genre:
-                song["Genre"] = info.get("genre", "")
+            # Update genre: Usually keep existing if it's already rich, 
+            # but if it's empty or we have a new one from info, update it.
+            new_genre = info.get("genre", "")
+            if new_genre:
+                song["Genre"] = new_genre
 
             song["Scrobble"] = int(info.get("scrobble", 0))
             # Prefer listener count; fall back to global playcount
@@ -277,8 +281,9 @@ class LastFMService:
             )
             return True
 
-        # 10 workers — safe with 1 req/song and 0.25s throttle per thread
-        with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+        # Single worker (max_workers=1) combined with throttle is the safest way 
+        # to respect Last.fm's 5 req/s limit and avoid 503/403 errors.
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
             futures = {executor.submit(process_song, song): song for song in songs}
             for future in concurrent.futures.as_completed(futures):
                 if future.result():

@@ -129,6 +129,12 @@ def _register_sync(subparsers: argparse._SubParsersAction) -> None:
         help="Scan global new releases and all tracked artists for recent additions",
     )
 
+    # sync genre
+    sync_sub.add_parser(
+        "genre",
+        help="Update the 'Genre' summary sheet with counts from the 'Songs' catalog",
+    )
+
 
 
 # ── Playlist ──────────────────────────────────────────────────────────────────
@@ -168,6 +174,10 @@ def _register_playlist(subparsers: argparse._SubParsersAction) -> None:
     am_p.add_argument(
         "--refresh-cache", action="store_true",
         help="Refresh local source playlist cache before scanning",
+    )
+    am_p.add_argument(
+        "--playlist", type=str, metavar="NAME",
+        help="Apply moves only for this target playlist in the sheet (e.g. 'Crank Wave')",
     )
     am_p.add_argument(
         "--api", type=str, choices=["lastfm", "musicbrainz"], default="lastfm",

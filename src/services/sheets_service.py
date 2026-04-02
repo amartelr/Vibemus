@@ -72,6 +72,8 @@ class SheetsService:
                 ws = self.spreadsheet.add_worksheet(title=title, rows=1000, cols=10)
                 if title == "Artists":
                     ws.append_row(["Artist Name", "Artist ID", "Song Count", "Last Checked", "Status", "Genre", "Playlist"])
+                elif title == "Genre":
+                    ws.append_row(["Genre", "Count"])
                 elif title in ["Songs", "Archived"]:
                     ws.append_row(["Playlist", "Artist", "Title", "Album", "Year", "Genre", "Scrobble", "LastfmScrobble", "Video ID"])
                 else:
@@ -189,7 +191,7 @@ class SheetsService:
         """
         ws = self._get_worksheet("Artists")
         # Header
-        headers = ["Artist Name", "Artist ID", "Song Count", "Last Checked", "Status", "Genre", "Playlist"]
+        headers = ["Artist Name", "Artist ID", "Song Count", "Last Checked", "Status", "Genre", "Playlist", "Type"]
         
         # Prepare rows
         rows = [headers]
@@ -201,7 +203,8 @@ class SheetsService:
                 artist.get("Last Checked", ""),
                 artist.get("Status", ""),
                 artist.get("Genre", ""),
-                artist.get("Playlist", "")
+                artist.get("Playlist", ""),
+                artist.get("Type", "")
             ])
         
         ws.clear()
@@ -209,10 +212,33 @@ class SheetsService:
         self._artists_cache = artists_data
 
     def add_artist(self, artist_row):
-        """Appends a single artist row to the Artists sheet."""
+        """Appends a single artist row to the Artists sheet if not already present."""
         artists = self.get_artists()
-        artists.append(artist_row)
-        self.save_artists(artists)
+        
+        # Guard against duplications in memory
+        aid = str(artist_row.get("Artist ID", "")).strip()
+        name = str(artist_row.get("Artist Name", "")).strip()
+        norm_name = name.lower()
+        
+        exists = False
+        for a in artists:
+            # Check ID match
+            if aid and str(a.get("Artist ID", "")).strip() == aid:
+                exists = True
+                break
+            # Check exact Name match (fallback)
+            if str(a.get("Artist Name", "")).lower().strip() == norm_name:
+                exists = True
+                break
+                
+        if not exists:
+            artists.append(artist_row)
+            self.save_artists(artists)
+            print(f"      🆕 Artist '{name}' added to tracking list.")
+        else:
+            # If it already exists, just save artists to ensure sheet is in sync with memory
+            # (In case memory had the duplicate but sheet didn't, or vice-versa)
+            self.save_artists(artists)
 
     def update_artist_status(self, artist_name, status):
         """Updates the status of a specific artist."""
@@ -433,5 +459,15 @@ class SheetsService:
                 self._to_int(s.get('LastfmScrobble')),
                 s.get('Video ID', '')
             ])
+        ws.clear()
+        ws.update(range_name='A1', values=rows)
+
+    def overwrite_genre_sheet(self, genre_counts):
+        """Overwrites the Genre sheet with provided list of tuples (genre, count)."""
+        ws = self._get_worksheet("Genre")
+        header = ["Genre", "Count"]
+        rows = [header]
+        for genre, count in genre_counts:
+            rows.append([genre, count])
         ws.clear()
         ws.update(range_name='A1', values=rows)
