@@ -239,13 +239,34 @@ def _playlist_split(args, manager) -> int:
         return 1
     
     years = []
+    missing_years = []
     for s in pl_songs:
+        found_y = None
         y_str = str(s.get('Year', '')).strip()
         if y_str:
             match = re.search(r'(\d{4})', y_str)
             if match:
-                years.append(int(match.group(1)))
+                found_y = int(match.group(1))
+                years.append(found_y)
+        
+        if found_y is None:
+            missing_years.append(s)
     
+    # 3. Informar y Bloquear si faltan años
+    if missing_years:
+        print(f"\n⚠️  ALERTA DE SEGURIDAD: Se han detectado {len(missing_years)} canciones sin el metadato 'Year' en '{pl_name}':")
+        for s in missing_years[:10]:
+            artist = s.get('Artist', 'Unknown Artist')
+            title = s.get('Title', 'Unknown Title')
+            print(f"   - 🚫 {artist} - {title}")
+        
+        if len(missing_years) > 10:
+            print(f"   ... y otras {len(missing_years) - 10} canciones más.")
+            
+        print(f"\n❌ Error: No se puede proceder con el 'split' porque hay canciones sin año.")
+        print(f"💡 Por favor, completa la columna 'Year' en el Google Sheet para estas canciones y vuelve a intentarlo.")
+        return 1
+
     min_y = min(years) if years else 0
     max_y = max(years) if years else 0
     
