@@ -124,14 +124,12 @@ def handle_sync(args, manager) -> int:
         return _sync_deep(args, manager)
     elif action == "playlist":
         return _sync_playlist(args, manager)
-    elif action == "new-releases":
-        return _sync_new_releases(args, manager)
     elif action == "artist":
         return _sync_artist(args, manager)
     elif action == "genre":
         return _sync_genre(args, manager)
     else:
-        print("Usage: vibemus sync <deep|playlist|new-releases|artist|genre>")
+        print("Usage: vibemus sync <deep|playlist|artist|genre>")
         print("Run 'vibemus sync --help' for details.")
         return 1
 
@@ -149,10 +147,6 @@ def _sync_playlist(args, manager) -> int:
     )
     return 0
 
-
-def _sync_new_releases(args, manager) -> int:
-    manager.sync_new_releases(interactive=not getattr(args, "auto", False))
-    return 0
 
 
 def _sync_artist(args, manager) -> int:

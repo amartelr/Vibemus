@@ -123,11 +123,6 @@ def _register_sync(subparsers: argparse._SubParsersAction) -> None:
         help="Skip playlist cover generation (reordering)",
     )
 
-    # sync new-releases
-    sync_sub.add_parser(
-        "new-releases",
-        help="Scan global new releases and all tracked artists for recent additions",
-    )
 
     # sync genre
     sync_sub.add_parser(
@@ -235,7 +230,7 @@ _LEGACY_MAP = {
 
 
     "--deep-sync": ("sync", "deep"),
-    "--sync-new-releases": ("sync", "new-releases"),
+    "--sync-new-releases": ("sync", "deep"),
     "--sync-playlist": ("sync", "playlist"),
     "--cleanup-inbox": ("playlist", "cleanup-inbox"),
 

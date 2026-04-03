@@ -1930,9 +1930,6 @@ class Manager:
 
 
 
-    def sync_new_releases(self, interactive=True):
-        """Simula una sincronización general delegando en deep_sync."""
-        self.deep_sync_all_artists(interactive=interactive)
 
     def _load_deep_sync_cache(self):
         try:
