@@ -3010,3 +3010,103 @@ class Manager:
         
         self.sheets.overwrite_genre_sheet(sorted_genres)
         print("\033[92m✅ Genre synchronization complete.\033[0m")
+
+    def list_playlists_counts(self):
+        """Displays total song counts for each playlist in YT and Sheet."""
+        print("\n\033[94m📊 OBTENIENDO ESTADO GLOBAL DE PLAYLISTS...\033[0m")
+        
+        # 1. Get YouTube counts
+        try:
+            yt_playlists = self.yt.get_library_playlists()
+            yt_data = {p['title'].lower().strip(): p for p in yt_playlists}
+        except Exception as e:
+            print(f"❌ Error al conectar con YouTube Music: {e}")
+            return
+
+        # 2. Get Sheet counts
+        try:
+            songs_records = self.sheets.get_songs_records()
+            from collections import Counter
+            sheet_counts = Counter(str(s.get('Playlist', '')).strip() for s in songs_records)
+        except Exception as e:
+            print(f"❌ Error al conectar con Google Sheets: {e}")
+            return
+
+        # 3. Identify the Inbox title in YT
+        inbox_id = Config.PLAYLIST_ID
+        inbox_title_in_yt = None
+        for p in yt_playlists:
+            p_id = p.get('playlistId') or p.get('browseId', '').replace('VL', '')
+            if p_id == inbox_id:
+                inbox_title_in_yt = p['title']
+                break
+
+        # 4. Prepare data for display
+        all_playlist_names = set(Config.SOURCE_PLAYLISTS)
+        for base, intervals in self._archiving_config.items():
+            all_playlist_names.add(base)
+            for start, end in intervals:
+                all_playlist_names.add(f"{base} ({start}-{end})")
+        
+        for pl_name in sheet_counts.keys():
+            if pl_name: all_playlist_names.add(pl_name)
+
+        # Sort names: # first, then alphabetically
+        def sort_key(name):
+            if name == '#': return '0000_inbox'
+            return name.lower()
+        
+        sorted_names = sorted(list(all_playlist_names), key=sort_key)
+
+        print(f"\n\033[1m{'PLAYLIST':<35} | {'YT':>5} | {'SHEET':>5} | {'STATUS'}\033[0m")
+        print("-" * 75)
+
+        mismatched = []
+        for pl_name in sorted_names:
+            # Resolve YT name
+            query_name = pl_name
+            if pl_name == '#' and inbox_title_in_yt:
+                query_name = inbox_title_in_yt
+            
+            yt_info = yt_data.get(query_name.lower().strip())
+            yt_count = int(yt_info['count']) if yt_info and str(yt_info.get('count', '')).isdigit() else 0
+            sheet_count = sheet_counts.get(pl_name, 0)
+
+            diff = yt_count - sheet_count
+            status = "\033[92m✅ OK\033[0m"
+            
+            color_pl = "\033[1m" # Bold
+            if yt_count != sheet_count:
+                color_pl = "\033[93m" # Yellow warning
+                mismatched.append(pl_name)
+                if diff > 0:
+                    status = f"\033[93m⚠️  Sheet lacks {diff}\033[0m"
+                else:
+                    status = f"\033[93m⚠️  YT lacks {abs(diff)}\033[0m"
+            
+            if yt_count == 0 and sheet_count == 0:
+                color_pl = "\033[90m"
+                status = "\033[90m-\033[0m"
+
+            # Skip empty entries that are not in source playlists
+            if yt_count == 0 and sheet_count == 0 and pl_name not in Config.SOURCE_PLAYLISTS:
+                continue
+
+            print(f"{color_pl}{pl_name:<35}\033[0m | {yt_count:>5} | {sheet_count:>5} | {status}")
+        
+        print("-" * 75)
+        print(f"\033[90mResumen total: {len(sorted_names)} colecciones rastreadas.\033[0m")
+        
+        # 5. Interactive correction
+        if mismatched:
+            print(f"\n\033[93m⚠️  Se han detectado {len(mismatched)} playlists con diferencias: {', '.join(mismatched)}\033[0m")
+            confirm = input(f"👉 ¿Deseas corregir SOLO ESTAS {len(mismatched)} lanzando 'sync playlist --skip-lastfm'? (s/n): ").strip().lower()
+            if confirm in ['s', 'si', 'y', 'yes']:
+                for pl in mismatched:
+                    print(f"\n🚀 Sincronizando '{pl}'...")
+                    self.sync_playlist(playlist_name=pl, skip_lastfm=True)
+                print(f"\n✅ Proceso de corrección finalizado.")
+            else:
+                print("🛑 Operación de corrección omitida.")
+        else:
+            print(f"\033[92m✅ Todas las playlists están en sincronía.\033[0m\n")

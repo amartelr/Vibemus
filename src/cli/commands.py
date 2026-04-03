@@ -177,10 +177,12 @@ def handle_playlist(args, manager) -> int:
         return _playlist_apply_moves(args, manager)
     elif action == "split":
         return _playlist_split(args, manager)
+    elif action == "list":
+        return _playlist_list(manager)
     else:
         print(
             "Usage: vibemus playlist "
-            "<cleanup-inbox|cleanup-likes|apply-moves|split>"
+            "<cleanup-inbox|cleanup-likes|apply-moves|split|list>"
         )
         print("Run 'vibemus playlist --help' for details.")
         return 1
@@ -302,6 +304,10 @@ def _playlist_split(args, manager) -> int:
         # pero como ya es required en el parser, esto es solo por seguridad.
         print("❌ Error: El parámetro --parts es obligatorio para el comando split.")
         return 1
+
+def _playlist_list(manager) -> int:
+    manager.list_playlists_counts()
+    return 0
 
 def _calculate_year_buckets(years, num_parts):
     """Calculates approximately equal year buckets from a list of years.

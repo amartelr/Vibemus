@@ -193,6 +193,12 @@ def _register_playlist(subparsers: argparse._SubParsersAction) -> None:
         help="Divide the entire collection into N approximately equal parts",
     )
 
+    # playlist list
+    pl_sub.add_parser(
+        "list",
+        help="List all playlists with their song counts in YouTube Music and Google Sheet",
+    )
+
 
 
 

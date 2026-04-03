@@ -287,6 +287,19 @@ vibemus sync genre
 
 ### `playlist` — Playlist Operations
 
+#### `vibemus playlist list`
+Displays a comparative table of all your playlists (including historical archives), contrasting the total song count in **YouTube Music** vs. your **Google Sheet (Songs)**.
+
+- **Difference Detection**: Highlights mismatched playlists in yellow and shows exactly how many songs are missing on either side.
+- **Interactive Correction**: If discrepancies are found, it offers to automatically run `sync playlist --skip-lastfm` for the affected collections only, ensuring your catalog is perfectly aligned.
+
+```bash
+# View global status and (optionally) fix mismatched playlists
+vibemus playlist list
+```
+
+---
+
 #### `vibemus playlist split --name "Playlist" --parts N`
 Divide una colección (playlist principal y sus archivos) en **N partes aproximadamente iguales** basadas en el año de lanzamiento.
 

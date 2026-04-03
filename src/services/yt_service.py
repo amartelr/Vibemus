@@ -36,9 +36,9 @@ class YTMusicService:
         """
         return self.yt.get_library_songs(limit=limit)
 
-    def get_library_playlists(self):
+    def get_library_playlists(self, limit=1000):
         """Fetches all playlists in the user's library."""
-        return self.yt.get_library_playlists()
+        return self.yt.get_library_playlists(limit=limit)
         
     def get_song(self, video_id):
         """Fetches details for a specific song."""
