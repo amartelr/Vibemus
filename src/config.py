@@ -14,6 +14,7 @@ class Config:
     LASTFM_CACHE_FILE = os.path.join(DATA_DIR, 'lastfm_cache.json')
     MUSICBRAINZ_CACHE_FILE = os.path.join(DATA_DIR, 'musicbrainz_cache.json')
     GENRE_PREFS_FILE = os.path.join(DATA_DIR, 'genre_preferences.json')
+    ARCHIVING_CONFIG_FILE = os.path.join(CONFIG_DIR, 'archiving.json')
     
     # Last.fm
     LASTFM_API_KEY = "affe9034dbe45ea2941b4697369ea607"
@@ -34,13 +35,11 @@ class Config:
     UNLIKE_THRESHOLD = 10
 
     SOURCE_PLAYLISTS = [
-        "#", "Indie Pop", "Indie Rock", "Garage Rock", "Shoegaze", "Post-punk", "Synthpop", "Emo", "Indie Folk",
-        "Español", "Indie Pop $", "Indie Rock $", "Indie Folk $", "Post-punk $", "Español $", "Crank Wave", "Crank Wave $"
+        "#", "Pop", "Rock", "Garage", "Shoegaze", "Post-punk", "Emo", "Folk",
+        "Español", "Crank"
     ]
 
-
-
-    ARCHIVABLE_PLAYLISTS = ["Indie Pop", "Indie Rock", "Indie Folk", "Post-punk", "Español", "Crank Wave"]
+    ARCHIVABLE_PLAYLISTS = ["Pop", "Rock", "Folk", "Post-punk", "Español", "Crank", "Garage"]
     
     MAX_NEW_RELEASE_SONGS = 3  # Max top songs to add from a new album release
     MAX_NEW_RELEASE_YEARS = 1  # Límite de años hacia atrás para buscar novedades

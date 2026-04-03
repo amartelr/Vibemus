@@ -331,17 +331,17 @@ class SheetsService:
         return records
 
     def overwrite_songs(self, records):
-        """Clears and rewrites the entire Songs sheet with correct headers."""
+        """Rewrites the entire Songs sheet using an atomic update for performance and reliability."""
         ws = self._get_worksheet("Songs")
         header = ["Playlist", "Artist", "Title", "Album", "Year", "Genre", "Scrobble", "LastfmScrobble", "Video ID"]
-        rows = []
+        rows = [header]
         for r in records:
             rows.append([
                 r.get('Playlist', ''),
                 r.get('Artist', ''),
                 r.get('Title', ''),
                 r.get('Album', ''),
-                r.get('Year', ''),
+                str(r.get('Year', '')),
                 r.get('Genre', ''),
                 self._to_int(r.get('Scrobble')),
                 self._to_int(r.get('LastfmScrobble')),
@@ -349,9 +349,8 @@ class SheetsService:
             ])
         try:
             ws.clear()
-            ws.append_row(header)
-            if rows:
-                ws.append_rows(rows)
+            # Use batch update for atomicity
+            ws.update(range_name='A1', values=rows)
         except Exception as e:
             print(f"Error overwriting Songs: {e}")
 

@@ -179,6 +179,12 @@ class YTMusicService:
         """Rates a song. rating: 'LIKE', 'DISLIKE', or 'INDIFFERENT'."""
         return self.yt.rate_song(video_id, rating)
 
+    def delete_playlist(self, playlist_id):
+        """Deletes a playlist."""
+        if not playlist_id:
+            return
+        return self.yt.delete_playlist(playlist_id)
+
     def edit_playlist(self, playlist_id, title=None, description=None, privacyStatus=None, moveItem=None, add_to_top=None):
         """Edits a playlist's metadata or reorders its items."""
         return self.yt.edit_playlist(

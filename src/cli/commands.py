@@ -175,12 +175,12 @@ def handle_playlist(args, manager) -> int:
         return _playlist_cleanup_likes(args, manager)
     elif action == "apply-moves":
         return _playlist_apply_moves(args, manager)
-    elif action == "archive":
-        return _playlist_archive(args, manager)
+    elif action == "split":
+        return _playlist_split(args, manager)
     else:
         print(
             "Usage: vibemus playlist "
-            "<cleanup-inbox|cleanup-likes|apply-moves|archive>"
+            "<cleanup-inbox|cleanup-likes|apply-moves|split>"
         )
         print("Run 'vibemus playlist --help' for details.")
         return 1
@@ -210,12 +210,118 @@ def _playlist_apply_moves(args, manager) -> int:
 
 
 
-def _playlist_archive(args, manager) -> int:
-    manager.archive_playlist_by_year(
-        playlist_name=getattr(args, "name", None),
-        year=args.year,
-    )
-    return 0
+
+def _playlist_split(args, manager) -> int:
+    import re
+    pl_name = args.name
+    
+    # 0. Validación de seguridad: Nunca permitir split en la Inbox (#)
+    if pl_name == "#":
+        print("❌ Error: No se puede dividir la playlist de Inbox '#'. Solo se pueden dividir playlists principales (ej. 'Rock').")
+        return 1
+
+    # 1. Obtener todas las playlists relacionadas (principal + archivos configurados)
+    related_playlists = [pl_name]
+    intervals = manager._archiving_config.get(pl_name, [])
+    for start, end in intervals:
+        related_playlists.append(f"{pl_name} ({start}-{end})")
+    
+    # 2. Recopilar canciones de la principal y de CUALQUIER archivo que siga el patrón (Nombre (...))
+    all_songs = manager.sheets.get_songs_records()
+    prefix = f"{pl_name} ("
+    pl_songs = [
+        s for s in all_songs 
+        if s.get('Playlist') == pl_name or (s.get('Playlist', '').startswith(prefix) and s.get('Playlist', '').endswith(")"))
+    ]
+    
+    if not pl_songs:
+        print(f"❌ No se han encontrado canciones para '{pl_name}' (ni en sus archivos) en el Sheet.")
+        return 1
+    
+    years = []
+    for s in pl_songs:
+        y_str = str(s.get('Year', '')).strip()
+        if y_str:
+            match = re.search(r'(\d{4})', y_str)
+            if match:
+                years.append(int(match.group(1)))
+    
+    min_y = min(years) if years else 0
+    max_y = max(years) if years else 0
+    
+    print(f"\n📊 Análisis de colección global para '{pl_name}':")
+    print(f"   - Canciones totales (Principal + {len(related_playlists)-1} Archivos): {len(pl_songs)}")
+    print(f"   - Rango detectado: {min_y} - {max_y}")
+    
+    # 3. Datos de la división (Automática por partes o Manual por flags)
+    if args.parts and args.parts > 1:
+        suggested_buckets = _calculate_year_buckets(years, args.parts)
+        print(f"\n📋 Sugerencia de división en {args.parts} partes:")
+        for i, (s, e, count) in enumerate(suggested_buckets, 1):
+            print(f"   {i}. [{s} - {e}]: {count} canciones")
+        
+        confirm = input(f"\n👉 ¿Estás de acuerdo con esta división? (s/n): ").strip().lower()
+        if confirm in ['s', 'si', 'y', 'yes']:
+            print(f"\n🚀 Iniciando división automática en {args.parts} bloques...")
+            # Aplicamos todos los rangos excepto el último (que queda en la playlist principal)
+            for s_year, e_year, _ in suggested_buckets[:-1]:
+                manager.split_playlist_by_year(pl_name, s_year, e_year)
+            
+            # Rebalanceo final automático
+            print("\n🕵️  Verificando consistencia de años en las nuevas playlists...")
+            manager.rebalance_playlist_archives(pl_name)
+            
+            print(f"\n✅ Proceso de división automática finalizado.")
+            return 0
+        else:
+            print("🛑 Operación cancelada.")
+            return 0
+    else:
+        # Si llegamos aquí sin --parts es porque el parser falló o algo raro pasó,
+        # pero como ya es required en el parser, esto es solo por seguridad.
+        print("❌ Error: El parámetro --parts es obligatorio para el comando split.")
+        return 1
+
+def _calculate_year_buckets(years, num_parts):
+    """Calculates approximately equal year buckets from a list of years.
+    
+    Ensures that a whole year belongs to exactly one bucket.
+    """
+    if not years or num_parts < 1:
+        return []
+    
+    years.sort()
+    total = len(years)
+    part_size = total / num_parts
+    
+    buckets = []
+    current_start_idx = 0
+    
+    for i in range(num_parts):
+        if current_start_idx >= total:
+            break
+            
+        target_end_idx = min(int((i + 1) * part_size), total - 1)
+        
+        # El año de fin de este bucket
+        end_year = years[target_end_idx]
+        
+        # Ajustar para incluir TODAS las canciones del mismo año en este bucket
+        # (Si no es el último bucket)
+        if i < num_parts - 1:
+            while target_end_idx + 1 < total and years[target_end_idx + 1] == end_year:
+                target_end_idx += 1
+        else:
+            target_end_idx = total - 1
+            end_year = years[-1]
+
+        start_year = years[current_start_idx]
+        count = target_end_idx - current_start_idx + 1
+        buckets.append((start_year, end_year, count))
+        
+        current_start_idx = target_end_idx + 1
+        
+    return buckets
 
 
 

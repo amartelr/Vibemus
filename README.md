@@ -274,26 +274,29 @@ vibemus sync genre
 
 > [!TIP]
 > **Recommended Weekly Routine**
-> If you have been manually moving songs around in YouTube Music during the week, run these two commands to leave everything perfectly synced:
+> Si has estado moviendo canciones en la app de YouTube Music, sigue este flujo para sincronizar todo:
 > 
-> 1. **Process your Inbox**: `vibemus sync playlist --name "#" --skip-lastfm`
->    *This empties the Inbox by processing your Likes (moving them to their definitive playlists) and Dislikes (archiving them).*
-> 2. **Sync the General Catalog**: `vibemus sync playlist --skip-lastfm`
->    *This generic command scans all your other tracked playlists. It will detect manual moves between playlists, deletions (archiving them), and additions, reflecting everything accurately in the Google Sheet.*
+> 1. **Vacía tu Inbox**: `vibemus sync playlist --name "#" --skip-lastfm`
+>    *Procesa tus Likes (moviéndolos a sus listas definitivas) y Dislikes (archivándolos).*
+> 2. **Sincroniza el Catálogo**: `vibemus sync playlist --skip-lastfm`
+>    *Actualiza el Google Sheet con cualquier cambio manual que hayas hecho (borrados, movimientos).*
+> 3. **Mantén el Orden por Años**: `vibemus playlist split --name "Pop" --parts 3`
+>    *Usa el motor de división automática para repartir tus listas grandes en bloques históricos equilibrados.*
 
 ---
 
 ### `playlist` — Playlist Operations
 
-#### `vibemus playlist archive --name "Playlist Name" --year YYYY`
-Archive songs from a specific playlist that were released on or before a given year.
+#### `vibemus playlist split --name "Playlist" --parts N`
+Divide una colección (playlist principal y sus archivos) en **N partes aproximadamente iguales** basadas en el año de lanzamiento.
 
-- Moves qualifying songs to a parallel `<PlaylistName> $` playlist.
-- Removes them from the original playlist to keep it fresh and concise.
-- **⚠️ Important Warning:** After running this command, YouTube Music servers might need a few minutes to process the changes across all caches. **Do not run `vibemus sync playlist` immediately** after an archive operation. Doing so might cause the sync to misinterpret the delayed API response and permanently move your songs to the 'Archived' sheet. Wait roughly 3 to 5 minutes before syncing.
+- **Diferencial**: El sistema analiza la densidad de canciones en toda tu base de datos para proponer cortes cronológicos inteligentes.
+- **Doble Verificación**: Al finalizar, ejecuta un motor de consistencia que asegura que cada canción esté en el "cubo" temporal correcto según su metadato de año.
+- **Higiene de Playlists**: Borra automáticamente listas vacías y obsoletas tras los movimientos.
 
 ```bash
-vibemus playlist archive --name "Indie Folk" --year 2021
+# Divide la colección "Rock" en 3 bloques temporales equilibrados
+vibemus playlist split --name "Rock" --parts 3
 ```
 
 ---

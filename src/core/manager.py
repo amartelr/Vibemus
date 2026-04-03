@@ -11,6 +11,38 @@ class Manager:
         self.sheets = sheets_service
         self.lastfm = lastfm_service
         self.musicbrainz = musicbrainz_service
+        self._archiving_config = self._load_archiving_config()
+
+    def _load_archiving_config(self):
+        """Loads the year interval configuration for archiving."""
+        if os.path.exists(Config.ARCHIVING_CONFIG_FILE):
+            with open(Config.ARCHIVING_CONFIG_FILE, 'r') as f:
+                return json.load(f)
+        return {}
+
+    def _save_archiving_config(self):
+        """Saves current archiving config to JSON."""
+        with open(Config.ARCHIVING_CONFIG_FILE, 'w') as f:
+            json.dump(self._archiving_config, f, indent=2)
+
+    def get_target_playlist_by_year(self, base_playlist, year):
+        """Resolves target playlist name based on base name and release year.
+        
+        Example: 'Pop' and 2019 -> 'Pop (0-2021)' if 2019 is in that range.
+        If no range is found or year is 0, it defaults to the base_playlist.
+        """
+        if not base_playlist or not year:
+            return base_playlist
+            
+        intervals = self._archiving_config.get(base_playlist)
+        if not intervals:
+            return base_playlist
+            
+        for start_y, end_y in intervals:
+            if start_y <= year <= end_y:
+                return f"{base_playlist} ({start_y}-{end_y})"
+                
+        return base_playlist
 
     def _resolve_playlist_id(self, pl_name):
         if not pl_name: return None
@@ -306,7 +338,14 @@ class Manager:
         print("\033[90mFetching library playlists...\033[0m")
         
         source_cache = {}
-        for pl_name in Config.SOURCE_PLAYLISTS:
+        all_to_fetch = list(Config.SOURCE_PLAYLISTS)
+        for base_pl, intervals in self._archiving_config.items():
+            for start_y, end_y in intervals:
+                archive_name = f"{base_pl} ({start_y}-{end_y})"
+                if archive_name not in all_to_fetch:
+                    all_to_fetch.append(archive_name)
+
+        for pl_name in all_to_fetch:
             print(f"  Fetching '{pl_name}'...")
             playlist_id = None
             if pl_name == '#':
@@ -482,10 +521,23 @@ class Manager:
             
             # Interactive Logic: Skip prompt if target_playlist_name or target_artist_name is set
             auto_mode = (target_playlist_name is not None)
+
+            # ── Archive routing check ──
+            original_target_pl = target_pl
+            if target_pl in Config.ARCHIVABLE_PLAYLISTS and song_year:
+                resolved_target = self.get_target_playlist_by_year(target_pl, int(song_year))
+                if resolved_target != target_pl:
+                    print(f"    \033[93m📦 Redirigiendo por año ({song_year}): '{target_pl}' → '{resolved_target}'\033[0m")
+                    target_pl = resolved_target
+                    target_pl_lower = target_pl.lower()
+                    # Actualizamos la hoja de cálculo para que refleje el destino exacto (archivo)
+                    song['Playlist'] = target_pl
+                    sheet_changed = True
+                    print(f"    \033[93m📝 Sheet: Actualizado a destino de archivo '{target_pl}'\033[0m")
             
             if auto_mode:
                 user_input = "" # Treat as Enter
-                if not is_synced:
+                if not is_synced or target_pl != original_target_pl:
                     print(f"    🚀 Automatic Reposition to '{target_pl}'...")
             else:
                 prompt = f"    📍 Destino (Enter=OK/Saltar, 'q'=salir, NuevaPL): "
@@ -874,8 +926,8 @@ class Manager:
                 
                 # ── 1. ARCHIVADO AUTOMÁTICO DESDE PLAYLISTS DE GÉNERO (No Inbox) ──
                 # Si estamos sincronizando una playlist normal (ej: 'Español') y es archivable,
-                # comprobamos si alguna canción debería ir ya a su versión de catálogo '$'.
-                if not is_hash and pl_name in Config.ARCHIVABLE_PLAYLISTS and not pl_name.endswith('$'):
+                # comprobamos si alguna canción debería ir ya a su versión de catálogo.
+                if not is_hash and pl_name in Config.ARCHIVABLE_PLAYLISTS:
                     song_year = 0
                     y_str = (existing_vids.get(vid) or {}).get('Year') or item.get('year')
                     if not y_str:
@@ -886,13 +938,11 @@ class Manager:
                         if match: song_year = int(match.group(1))
                     
                     if song_year:
-                        archive_name = f"{pl_name} $"
-                        archive_threshold = self._get_archive_threshold(archive_name)
-                        if archive_threshold and song_year <= archive_threshold:
-                            print(f"    \033[93m📦 Propuesta de Archivo: Año {song_year} ≤ {archive_threshold}\033[0m")
+                        archive_name = self.get_target_playlist_by_year(pl_name, song_year)
+                        if archive_name != pl_name:
+                            print(f"    \033[93m📦 Propuesta de Archivo: Año {song_year} → '{archive_name}'\033[0m")
                             ans = input(f"      ¿Mover '{song_title} ({song_year})' de '{pl_name}' a '{archive_name}'? [S/n]: ").strip().lower()
 
-                            
                             if ans != 'n':
                                 target_pid = self._resolve_playlist_id(archive_name)
                                 if target_pid:
@@ -914,6 +964,8 @@ class Manager:
                                         continue # Siguiente canción
                                     except Exception as e:
                                         print(f"      ✗ Error al auto-archivar: {e}")
+                                else:
+                                    print(f"      ⚠ No se pudo encontrar el ID de la playlist '{archive_name}'")
                             else:
                                 print(f"      ⏭  Canción mantenida en '{pl_name}'.")
 
@@ -1006,14 +1058,14 @@ class Manager:
                         # ── Archive routing check ──
                         final_target_pl = actual_target_pl
                         if actual_target_pl in Config.ARCHIVABLE_PLAYLISTS and song_year:
-                            archive_name = f"{actual_target_pl} $"
-                            archive_threshold = self._get_archive_threshold(archive_name)
-                            if archive_threshold and song_year <= archive_threshold:
-                                final_target_pl = archive_name
-                                print(f"    \033[93m📦 Año {song_year} ≤ {archive_threshold} → redirigiendo a '{archive_name}'\033[0m")
+                            # Re-resolver destino según el año
+                            final_target_pl = self.get_target_playlist_by_year(actual_target_pl, song_year)
+                            if final_target_pl != actual_target_pl:
+                                print(f"    \033[93m📦 Año {song_year} → redirigiendo a '{final_target_pl}'\033[0m")
 
                         # ── Final Unliking Logic ──
-                        if final_target_pl.endswith('$'):
+                        # Si el destino es una playlist de archivo (detectada por el nombre con años)
+                        if '(' in final_target_pl and ')' in final_target_pl:
                             print(f"    \033[93m⚠ Archivo catalogado → Quitando Like:\033[0m \033[92m{main_artist} - {song_title}\033[0m")
                             try:
                                 self.yt.rate_song(vid, 'INDIFFERENT')
@@ -2146,6 +2198,265 @@ class Manager:
             return "archived"
         
         return "completed"
+
+    def split_playlist_by_year(self, playlist_name, start_year, end_year):
+        """Splits a playlist into a new year-based archive interval.
+        
+        1. Updates the archiving configuration.
+        2. Moves songs from any related playlist (base or old archives) to the new interval playlist.
+        3. Updates the Google Sheet records.
+        """
+        import re
+        if playlist_name == "#":
+            print("  \033[91m✗ Error: No se permite dividir la playlist de Inbox '#'.\033[0m")
+            return
+
+        print(f"\n\033[96m" + "━"*50 + "\033[0m")
+        print(f"\033[1;96m✂ GLOBAL SPLITTING: {playlist_name} ({start_year}-{end_year})\033[0m")
+        print("\033[96m" + "━"*50 + "\033[0m")
+
+        # 1. Check for Overlaps and Update Config
+        if playlist_name not in self._archiving_config:
+            self._archiving_config[playlist_name] = []
+        
+        new_interval = [int(start_year), int(end_year)]
+        
+        # Check for overlaps
+        for existing_s, existing_e in self._archiving_config[playlist_name]:
+            if max(start_year, existing_s) <= min(end_year, existing_e):
+                if [start_year, end_year] == [existing_s, existing_e]:
+                    continue  # Es el mismo, está bien (reagrupación global)
+                print(f"  \033[93m⚠️ Advertencia: El nuevo rango {start_year}-{end_year} solapa con el existente {existing_s}-{existing_e}.\033[0m")
+        if new_interval not in self._archiving_config[playlist_name]:
+            self._archiving_config[playlist_name].append(new_interval)
+            self._archiving_config[playlist_name].sort(key=lambda x: x[0])
+            self._save_archiving_config()
+            print(f"  ✓ Configuración actualizada: {playlist_name} -> {self._archiving_config[playlist_name]}")
+        else:
+            print(f"  ℹ El intervalo {start_year}-{end_year} ya existe para '{playlist_name}'.")
+
+        target_name = f"{playlist_name} ({start_year}-{end_year})"
+        
+        # 2. Identificar TODAS las playlists relacionadas en YouTube (Principal + Archivos existentes/huérfanos)
+        related_playlists = [playlist_name]
+        related_pids = {} # {nombre: pid}
+        try:
+            # Buscamos en la biblioteca todas las playlists que sigan el patrón Nombre (...)
+            search_results = self.yt.yt.search(playlist_name, filter='playlists', scope='library')
+            prefix = f"{playlist_name} ("
+            for r in search_results:
+                title = r.get('title', '')
+                pid = r.get('playlistId') or r.get('browseId', '').replace('VL', '')
+                if not pid: continue
+                
+                if title == playlist_name:
+                    related_pids[title] = pid
+                elif title.startswith(prefix) and title.endswith(")"):
+                    related_pids[title] = pid
+                    if title != target_name: 
+                        related_playlists.append(title)
+            
+            # 3. Resolve/Create Target Playlist
+            target_pid = related_pids.get(target_name) or self._resolve_playlist_id(target_name)
+            if not target_pid:
+                print(f"  📝 Creando playlist de destino '{target_name}'...")
+                target_pid = self.yt.create_playlist(target_name, f"Archivo {playlist_name}: {start_year}-{end_year}")
+                if not target_pid:
+                    print(f"  \033[91m✗ Error creando playlist '{target_name}'.\033[0m")
+                    return
+            related_pids[target_name] = target_pid
+
+            # 4. Identify songs to move (from Sheet)
+            all_songs = self.sheets.get_songs_records()
+            move_map = {} # {playlist_source_name: [song_records]}
+            
+            for s in all_songs:
+                current_pl = s.get('Playlist')
+                if current_pl in related_playlists and current_pl != target_name:
+                    y = str(s.get('Year', '')).strip()
+                    if y:
+                        match = re.search(r'(\d{4})', y)
+                        if match:
+                            year = int(match.group(1))
+                            if start_year <= year <= end_year:
+                                if current_pl not in move_map:
+                                    move_map[current_pl] = []
+                                move_map[current_pl].append(s)
+
+            if not move_map:
+                print(f"  ℹ No hay nuevas canciones para mover a '{target_name}' desde las playlists analizadas.")
+            else:
+                total_to_move = sum(len(songs) for songs in move_map.values())
+                print(f"  ➕ Movimiento detectado: {total_to_move} canciones desde {len(move_map)} fuentes.")
+
+                # 5. Execute moves in YouTube Music and Sheet
+                for source_name, songs in move_map.items():
+                    print(f"  📦 Procesando origen: '{source_name}' ({len(songs)} canciones)...")
+                    source_pid = related_pids.get(source_name) or self._resolve_playlist_id(source_name)
+                    vids = [s.get('Video ID') for s in songs if s.get('Video ID')]
+                    
+                    if not vids: continue
+
+                    # Add to Target
+                    self.yt.add_playlist_items(target_pid, vids)
+                    
+                    # Remove from Source
+                    if source_pid:
+                        source_items = self.yt.get_playlist_items(source_pid, limit=2000)
+                        vid_to_items = {}
+                        for it in source_items:
+                            v = it.get('videoId')
+                            if v not in vid_to_items: vid_to_items[v] = []
+                            vid_to_items[v].append(it)
+                        
+                        items_to_remove = []
+                        for v in vids:
+                            if v in vid_to_items and vid_to_items[v]:
+                                items_to_remove.append(vid_to_items[v].pop(0))
+                        
+                        if items_to_remove:
+                            self.yt.remove_playlist_items(source_pid, items_to_remove)
+                            print(f"    ✅ YT: Movidas de '{source_name}' a '{target_name}'.")
+                    
+                    # Quitar Likes (siempre que se archiva)
+                    for v in vids:
+                        self.yt.rate_song(v, 'INDIFFERENT')
+                    
+                    # Update Sheet records in memory
+                    for s in songs:
+                        s['Playlist'] = target_name
+
+            # 6. Limpieza final: Eliminar playlists de archivo que ya no están en config y están vacías
+            print(f"  🧹 Revisando limpieza de archivos obsoletos...")
+            current_archives = {f"{playlist_name} ({s}-{e})" for s, e in self._archiving_config.get(playlist_name, [])}
+            for pl_candidate, pid in related_pids.items():
+                if pl_candidate == playlist_name or pl_candidate == target_name:
+                    continue
+                
+                if pl_candidate.startswith(f"{playlist_name} (") and pl_candidate not in current_archives:
+                    items = self.yt.get_playlist_items(pid, limit=1)
+                    if not items:
+                        print(f"    🗑  Eliminando playlist obsoleta y vacía: '{pl_candidate}'...")
+                        self.yt.delete_playlist(pid)
+
+            # Commit sheet changes
+            self.sheets.overwrite_songs(all_songs)
+            print(f"  ✅ Proceso de división global finalizado.")
+
+        except Exception as e:
+            print(f"  \033[91m✗ Error durante el movimiento global: {e}\033[0m")
+
+    def rebalance_playlist_archives(self, playlist_name):
+        """Redistributes ALL songs in the pool (base + archives) according to current buckets."""
+        import re
+        print(f"\n🔄 REBALANCEANDO ARCHIVOS PARA: {playlist_name}...")
+        
+        # 1. Discover ALL current related playlists in YT
+        related_pids = {} # {nombre: pid}
+        try:
+            search_results = self.yt.yt.search(playlist_name, filter='playlists', scope='library')
+            prefix = f"{playlist_name} ("
+            for r in search_results:
+                title = r.get('title', '')
+                pid = r.get('playlistId') or r.get('browseId', '').replace('VL', '')
+                if not pid: continue
+                if title == playlist_name or (title.startswith(prefix) and title.endswith(")")):
+                    related_pids[title] = pid
+        except:
+            pass
+            
+        if playlist_name not in related_pids:
+            pid = self._resolve_playlist_id(playlist_name)
+            if pid: related_pids[playlist_name] = pid
+
+        # 2. Identify all songs in Sheet the belong to this collection
+        all_songs = self.sheets.get_songs_records()
+        moves_needed = [] # List of (song_record, source_name, target_name)
+        
+        registered_archives = {f"{playlist_name} ({s}-{e})" for s, e in self._archiving_config.get(playlist_name, [])}
+        
+        for s in all_songs:
+            current_pl = s.get('Playlist', '')
+            is_pool = current_pl == playlist_name or (current_pl.startswith(playlist_name + " (") and current_pl.endswith(")"))
+            if not is_pool: continue
+            
+            y_str = str(s.get('Year', '')).strip()
+            year = 0
+            if y_str:
+                match = re.search(r'(\d{4})', y_str)
+                if match: year = int(match.group(1))
+            
+            correct_pl = self.get_target_playlist_by_year(playlist_name, year)
+            if current_pl != correct_pl:
+                moves_needed.append((s, current_pl, correct_pl))
+        
+        if not moves_needed:
+            print(f"  ✨ Todo está en su sitio. No se requieren movimientos.")
+            return
+
+        print(f"  📦 Se han detectado {len(moves_needed)} canciones fuera de lugar.")
+        
+        # 3. Execute moves
+        sources = sorted(list(set(m[1] for m in moves_needed)))
+        for source_name in sources:
+            source_pid = related_pids.get(source_name) or self._resolve_playlist_id(source_name)
+            source_moves = [m for m in moves_needed if m[1] == source_name]
+            
+            targets = sorted(list(set(m[2] for m in source_moves)))
+            for target_name in targets:
+                target_songs = [m[0] for m in source_moves if m[2] == target_name]
+                vids = [s.get('Video ID') for s in target_songs if s.get('Video ID')]
+                
+                print(f"    ➡️ Moviendo {len(vids)} canciones: '{source_name}' -> '{target_name}'...")
+                target_pid = related_pids.get(target_name) or self._resolve_playlist_id(target_name)
+                if not target_pid:
+                    target_pid = self.yt.create_playlist(target_name)
+                
+                if not target_pid:
+                    print(f"      ✗ Error: No se pudo resolver o crear '{target_name}'.")
+                    continue
+                
+                # Actualizar catálogo para asegurar limpieza posterior
+                related_pids[target_name] = target_pid
+                related_pids[source_name] = source_pid # Registrar la fuente también
+
+                self.yt.add_playlist_items(target_pid, vids)
+                if source_pid:
+                    # Remove from source
+                    source_items = self.yt.get_playlist_items(source_pid, limit=2000)
+                    vid_to_items = {}
+                    for it in source_items:
+                        v = it.get('videoId')
+                        if v not in vid_to_items: vid_to_items[v] = []
+                        vid_to_items[v].append(it)
+                    
+                    items_to_remove = []
+                    for v in vids:
+                        if v in vid_to_items and vid_to_items[v]:
+                            items_to_remove.append(vid_to_items[v].pop(0))
+                    
+                    if items_to_remove:
+                        self.yt.remove_playlist_items(source_pid, items_to_remove)
+
+                for s in target_songs:
+                    s['Playlist'] = target_name
+
+        # 4. Persistence: Update Sheet before cleanup
+        print(f"  📝 Actualizando columna 'Playlist' en el Sheet para {len(moves_needed)} canciones...")
+        self.sheets.overwrite_songs(all_songs)
+
+        # 5. Final Cleanup
+        print(f"  🧹 Limpiando posibles archivos vacíos en YouTube Music...")
+        for pl_name, pid in related_pids.items():
+            if pl_name == playlist_name: continue
+            if pl_name in registered_archives: continue
+            
+            items = self.yt.get_playlist_items(pid, limit=1)
+            if not items:
+                print(f"    🗑  Eliminando archivo huérfano y vacío: '{pl_name}'...")
+                self.yt.delete_playlist(pid)
+
+        print(f"  ✅ Rebalanceo completado.")
 
     def archive_playlist_by_year(self, playlist_name=None, year=None):
         """Archive songs from large playlists into '$' playlists based on year.

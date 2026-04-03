@@ -20,7 +20,7 @@ def build_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
             "Examples:\n"
-            "  vibemus artist add \"Radiohead\" --playlist \"Indie Rock\"\n"
+            "  vibemus artist add \"Radiohead\" --playlist \"Rock\"\n"
             "  vibemus sync deep --auto\n"
             "  vibemus playlist cleanup-inbox\n"
             "  vibemus system refresh-cache\n"
@@ -172,27 +172,28 @@ def _register_playlist(subparsers: argparse._SubParsersAction) -> None:
     )
     am_p.add_argument(
         "--playlist", type=str, metavar="NAME",
-        help="Apply moves only for this target playlist in the sheet (e.g. 'Crank Wave')",
+        help="Apply moves only for this target playlist in the sheet (e.g. 'Crank')",
     )
     am_p.add_argument(
         "--api", type=str, choices=["lastfm", "musicbrainz"], default="lastfm",
         help="API service to use for metadata (default: lastfm)",
     )
 
+    # playlist split
+    split_p = pl_sub.add_parser(
+        "split",
+        help="Split a main playlist (and its archives) into N balanced parts by year",
+    )
+    split_p.add_argument(
+        "--name", type=str, metavar="PL", required=True,
+        help="Base playlist to split (e.g. 'Pop')",
+    )
+    split_p.add_argument(
+        "--parts", type=int, required=True,
+        help="Divide the entire collection into N approximately equal parts",
+    )
 
-    # playlist archive
-    ar_p = pl_sub.add_parser(
-        "archive",
-        help="Archive old songs from large playlists into '$' playlists by year",
-    )
-    ar_p.add_argument(
-        "--name", type=str, metavar="PL",
-        help="Playlist to archive (default: all archivable playlists)",
-    )
-    ar_p.add_argument(
-        "--year", type=int, required=True,
-        help="Move songs with Year <= this value to the archive playlist",
-    )
+
 
 
 # ── System ────────────────────────────────────────────────────────────────────
