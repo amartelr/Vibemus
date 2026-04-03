@@ -179,8 +179,18 @@ class Manager:
 
         # If not found, start onboarding
         default_pl = pl_name.replace(' $', '')
+        # El Inbox '#' nunca debe ser el hogar permanente de un artista.
+        if default_pl == "#":
+            default_pl = ""
+            
         print(f"    \033[93m🆕 Nuevo artista detectado en playlist: \033[1m'{main_artist}'\033[0m")
-        res_pl = input(f"      ¿A qué playlist enviamos sus novedades por defecto? [\033[92m{default_pl}\033[0m]: ").strip()
+        prompt = f"      ¿A qué playlist enviamos sus novedades por defecto? "
+        if default_pl:
+            prompt += f"[\033[92m{default_pl}\033[0m]: "
+        else:
+            prompt += "(ej. Rock, Pop, Indie): "
+            
+        res_pl = input(prompt).strip()
         final_pl = res_pl if res_pl else default_pl
         
         if not final_pl:
