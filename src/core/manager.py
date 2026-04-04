@@ -12,6 +12,21 @@ class Manager:
         self.lastfm = lastfm_service
         self.musicbrainz = musicbrainz_service
         self._archiving_config = self._load_archiving_config()
+        self.library_catalog = None
+
+    def _get_library_catalog(self):
+        """Fetches and caches a map of all video IDs to their items in the user's YouTube Library."""
+        if self.library_catalog is None:
+            print("  \033[93m⌛ Fetching YouTube Library index for safe removal...\033[0m")
+            try:
+                songs = self.yt.get_library_songs(limit=None)
+                # Map videoId to the whole item so we can access feedbackTokens
+                self.library_catalog = {s.get('videoId'): s for s in songs if s.get('videoId')}
+                print(f"    \033[92m✓\033[0m Loaded {len(self.library_catalog)} library tracks.")
+            except Exception as e:
+                print(f"    \033[91m✗ Error fetching library: {e}\033[0m")
+                self.library_catalog = {}
+        return self.library_catalog
 
     def _load_archiving_config(self):
         """Loads the year interval configuration for archiving."""
@@ -988,8 +1003,23 @@ class Manager:
                     print(f"    \033[91m✗ {reason} → Archiving:\033[0m \033[92m{artists_str} - {item.get('title')}\033[0m")
                     try:
                         self.yt.remove_playlist_items(pid, [item])
-                        if status == 'DISLIKE': self.yt.rate_song(vid, 'INDIFFERENT')
-                    except: pass
+                        if status == 'DISLIKE': 
+                            self.yt.rate_song(vid, 'INDIFFERENT')
+                            # Also remove from YouTube Library if present
+                            lib_catalog = self._get_library_catalog()
+                            if vid in lib_catalog:
+                                lib_item = lib_catalog[vid]
+                                remove_token = lib_item.get('feedbackTokens', {}).get('remove')
+                                if remove_token:
+                                    self.yt.edit_song_library_status(feedback_tokens=[remove_token])
+                                else:
+                                    # Fallback to videoId toggle if token not found
+                                    self.yt.edit_song_library_status(video_ids=[vid])
+                                
+                                del lib_catalog[vid] # Remove from local cache
+                                print(f"      🗑 YT: Removed from Library (via {'token' if remove_token else 'toggle'})")
+                    except Exception as e:
+                        print(f"      ⚠ Error during YouTube archive/remove: {e}")
                     
                     # Use scrobbles from Last.fm if available, fallback to sheet
                     scrobble_val = item.get('Scrobble', 0)
@@ -1514,6 +1544,15 @@ class Manager:
                 if pl and pl != '#':
                     # Normalize playlist name: use base name even if it's an archive list (Ending in ' $')
                     base_pl = pl.replace(' $', '').strip()
+                    
+                    # REGLA: Si es una playlist de archivo tipo "Rock (1994-2010)", la reducimos a la principal "Rock"
+                    # para que la sugerencia de nuevas incorporaciones sea siempre la playlist base.
+                    for source in Config.SOURCE_PLAYLISTS:
+                        if source == "#": continue
+                        if base_pl.startswith(source + " ("):
+                            base_pl = source
+                            break
+                            
                     if norm_art not in artist_pl_matrix:
                         artist_pl_matrix[norm_art] = {}
                     artist_pl_matrix[norm_art][base_pl] = artist_pl_matrix[norm_art].get(base_pl, 0) + 1

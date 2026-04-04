@@ -157,6 +157,12 @@ def _register_playlist(subparsers: argparse._SubParsersAction) -> None:
         help="Interactively unlike songs from 'LM' (or Liked Songs) if plays > threshold",
     )
 
+    # playlist cleanup-library
+    pl_sub.add_parser(
+        "cleanup-library",
+        help="Remove songs from library that are NOT in any playlist (respects LIKE status)",
+    )
+
     # playlist apply-moves
     am_p = pl_sub.add_parser(
         "apply-moves",

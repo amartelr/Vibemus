@@ -44,6 +44,18 @@ class YTMusicService:
         """Fetches details for a specific song."""
         return self.yt.get_song(video_id)
 
+    def edit_song_library_status(self, video_ids=None, feedback_tokens=None):
+        """Adds or removes songs from the user library.
+        video_ids (list): NOT SUPPORTED directly by this method for explicit removal.
+        feedback_tokens (list): Explicitly adds or removes based on provided tokens.
+        """
+        if not feedback_tokens:
+            if video_ids:
+                print(f"⚠️ Warning: video_ids passed to edit_song_library_status but only feedback_tokens are supported for explicit removal.")
+            return
+        # ytmusicapi expects 'feedbackTokens' keyword argument.
+        return self.yt.edit_song_library_status(feedbackTokens=feedback_tokens)
+
     
     def get_artist_new_releases(self, artist_id):
         """
