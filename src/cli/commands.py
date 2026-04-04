@@ -27,8 +27,10 @@ def handle_artist(args, manager) -> int:
 
     elif action == "cleanup-collabs":
         return _artist_cleanup_collabs(manager)
+    elif action == "sync":
+        return _artist_sync(args, manager)
     else:
-        print("Usage: vibemus artist <add|remove|cleanup-collabs>")
+        print("Usage: vibemus artist <add|remove|cleanup-collabs|sync>")
         print("Run 'vibemus artist --help' for details.")
         return 1
 
@@ -113,6 +115,11 @@ def _artist_cleanup_collabs(manager) -> int:
     return 0
 
 
+def _artist_sync(args, manager) -> int:
+    manager.sync_artists_from_songs()
+    return 0
+
+
 # ── Sync ──────────────────────────────────────────────────────────────────────
 
 
@@ -124,12 +131,14 @@ def handle_sync(args, manager) -> int:
         return _sync_deep(args, manager)
     elif action == "playlist":
         return _sync_playlist(args, manager)
-    elif action == "artist":
-        return _sync_artist(args, manager)
+    elif action == "releases":
+        return _sync_releases(args, manager)
+    elif action == "new-releases":
+        return _sync_new_releases(args, manager)
     elif action == "genre":
         return _sync_genre(args, manager)
     else:
-        print("Usage: vibemus sync <deep|playlist|artist|genre>")
+        print("Usage: vibemus sync <deep|playlist|releases|new-releases|genre>")
         print("Run 'vibemus sync --help' for details.")
         return 1
 
@@ -149,13 +158,25 @@ def _sync_playlist(args, manager) -> int:
 
 
 
-def _sync_artist(args, manager) -> int:
-    manager.sync_artists_from_songs()
-    return 0
 
 
 def _sync_genre(args, manager) -> int:
     manager.sync_genre_summary()
+    return 0
+
+
+def _sync_releases(args, manager) -> int:
+    """Sync all artists for new releases (ignores 30-day window if forced)."""
+    manager.sync_all_artist_releases(
+        force=getattr(args, "force", False),
+        interactive=not getattr(args, "auto", False)
+    )
+    return 0
+
+
+def _sync_new_releases(args, manager) -> int:
+    """Sync global new releases shelf and check if any tracked artists have updates."""
+    manager.sync_global_new_releases(interactive=not getattr(args, "auto", False))
     return 0
 
 

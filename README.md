@@ -189,6 +189,20 @@ vibemus artist remove "Band of Horses"
 
 ---
 
+#### `vibemus artist sync`
+Synchronize your **Artists** tracking list based on your existing **Songs** catalog (excluding Inbox songs).
+
+- **Discovery**: Automatically identifies artists present in your 'Songs' sheet that are not yet being tracked.
+- **Onboarding**: Interactively asks for a default playlist for each new artist found.
+- **Cleanup**: Updates the `Song Count` for all artists based on the total number of entries in the spreadsheet.
+- **Enrichment**: Fetches YouTube Artist IDs and Last.fm Genres for new artists.
+
+```bash
+vibemus artist sync
+```
+
+---
+
 
 
 ---
@@ -230,17 +244,6 @@ vibemus sync playlist --name "#" --skip-lastfm
 
 ---
 
-#### `vibemus sync artist`
-Synchronize your **Artists** tracking list based on your existing **Songs** catalog (excluding Inbox songs).
-
-- **Discovery**: Automatically identifies artists present in your 'Songs' sheet that are not yet being tracked.
-- **Onboarding**: Interactively asks for a default playlist for each new artist found.
-- **Cleanup**: Updates the `Song Count` for all artists based on the total number of entries in the spreadsheet.
-- **Enrichment**: Fetches YouTube Artist IDs and Last.fm Genres for new artists.
-
-```bash
-vibemus sync artist
-```
 
 
 ---

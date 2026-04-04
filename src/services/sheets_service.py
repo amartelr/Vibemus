@@ -191,8 +191,13 @@ class SheetsService:
         """
         ws = self._get_worksheet("Artists")
         # Header
-        headers = ["Artist Name", "Artist ID", "Song Count", "Last Checked", "Status", "Genre", "Playlist", "Type"]
+        headers = ["Artist Name", "Artist ID", "Song Count", "Last Checked", "Status", "Genre", "Playlist"]
         
+        # Safety check: if artists_data is empty but we HAD artists before, abort to prevent wiping.
+        if not artists_data and self._artists_cache:
+            print("  \033[91m🛑 ERROR: Attempted to save an empty artist list. Aborting to save data.\033[0m")
+            return
+
         # Prepare rows
         rows = [headers]
         for artist in artists_data:
@@ -203,8 +208,7 @@ class SheetsService:
                 artist.get("Last Checked", ""),
                 artist.get("Status", ""),
                 artist.get("Genre", ""),
-                artist.get("Playlist", ""),
-                artist.get("Type", "")
+                artist.get("Playlist", "")
             ])
         
         ws.clear()
@@ -244,8 +248,9 @@ class SheetsService:
         """Updates the status of a specific artist."""
         artists = self.get_artists()
         updated = False
+        norm_target = str(artist_name).lower().strip()
         for a in artists:
-            if a.get("Artist Name") == artist_name:
+            if str(a.get("Artist Name", "")).lower().strip() == norm_target:
                 a["Status"] = status
                 updated = True
                 break
@@ -256,8 +261,9 @@ class SheetsService:
         """Updates the last checked date of a specific artist."""
         artists = self.get_artists()
         updated = False
+        norm_target = str(artist_name).lower().strip()
         for a in artists:
-            if a.get("Artist Name") == artist_name:
+            if str(a.get("Artist Name", "")).lower().strip() == norm_target:
                 a["Last Checked"] = date_str
                 updated = True
                 break

@@ -2206,6 +2206,204 @@ class Manager:
 
         print("\n✅ Deep Sync Completado.")
 
+
+    def sync_all_artist_releases(self, force=False, interactive=False):
+        """Quickly scans all tracked artists for new releases without complex deep sync filters."""
+        print("\n" + "="*50)
+        print(f"🚀 SYNCING ALL ARTIST RELEASES (Force: {force})")
+        print("="*50)
+        
+        artists = self.sheets.get_artists()
+        if not artists:
+            print("No artists found in the sheet.")
+            return
+
+        now = datetime.now()
+        added_total = 0
+        
+        for idx, a in enumerate(artists, 1):
+            name = a.get("Artist Name", "")
+            if a.get("Status") == "Archived":
+                continue
+            
+            last_checked = str(a.get("Last Checked", "")).strip()
+            if not force and last_checked:
+                try:
+                    last_date = datetime.strptime(last_checked, "%d/%m/%Y")
+                    if (now - last_date).days < 7:
+                        continue
+                except:
+                    pass
+
+            print(f"[{idx}/{len(artists)}] Checking {name}...")
+            count = self.check_new_releases(
+                Config.PLAYLIST_ID, 
+                force=force, 
+                target_artist_name=name, 
+                target_artist_id=a.get("Artist ID"),
+                interactive=interactive 
+            )
+            if count > 0:
+                added_total += count
+                self.sheets.update_artist_last_checked(name, now.strftime("%d/%m/%Y"))
+                self.sheets.update_artist_status(name, "Done")
+
+        print(f"\n✅ Finished. Total new songs found across all artists: {added_total}")
+
+
+    def sync_global_new_releases(self, interactive=False):
+        """Scans the global YouTube Music 'New Releases' shelf for tracked artists."""
+        print("\n" + "="*50)
+        print("🌍 SCANNING GLOBAL NEW RELEASES (YouTube Music Explore)")
+        print("="*50)
+
+        artists = self.sheets.get_artists()
+        tracked_ids = {a.get('Artist ID') for a in artists if a.get('Artist ID') and a.get('Status') != 'Archived'}
+        tracked_names = {self._normalize(a.get('Artist Name')) for a in artists if a.get('Status') != 'Archived'}
+        
+        print(f"   Tracking {len(tracked_ids)} artists with IDs and {len(tracked_names)} names.")
+        print("   Fetching new releases from YouTube Explore...")
+        
+        global_albums = self.yt.get_new_releases()
+        if not global_albums:
+            print("   ✗ Could not fetch global new releases shelf.")
+            return
+
+        print(f"   Found {len(global_albums)} albums in the global shelf.")
+        matches = []
+        for album in global_albums:
+            album_artists = album.get('artists', [])
+            matched_artist = None
+            for art in album_artists:
+                if art.get('id') in tracked_ids or self._normalize(art.get('name')) in tracked_names:
+                    matched_artist = art.get('name')
+                    break
+            if matched_artist:
+                matches.append((matched_artist, album))
+
+        if not matches:
+            print("   ✨ No new releases found from your tracked artists in the global shelf.")
+            return
+
+        print(f"\n   🎯 Found {len(matches)} relevant new releases!")
+        added_total = 0
+        existing_vids = self.sheets.get_all_video_ids()
+        existing_vids.update(self.sheets.get_archived_vids())
+        
+        existing_keys = set()
+        for r in self.sheets.get_songs_records() + self.sheets.get_archived_records():
+            art = self._normalize(r.get('Artist', ''))
+            tit = self._normalize(r.get('Title', ''))
+            existing_keys.add(f"{art} - {tit}")
+
+        for art_name, album in matches:
+            browse_id = album.get('browseId')
+            if not browse_id: continue
+            
+            print(f"\n   💿 processing {art_name} - {album.get('title')}...")
+            try:
+                album_detail = self.yt.yt.get_album(browse_id)
+            except Exception as e:
+                print(f"      ✗ Error fetching album details: {e}")
+                continue
+
+            tracks = album_detail.get('tracks', [])
+            album_title = album.get('title')
+            album_year = str(album_detail.get('year', ''))
+            
+            candidate_tracks = []
+            for t in tracks:
+                vid = t.get('videoId')
+                title = t.get('title')
+                key = f"{self._normalize(art_name)} - {self._normalize(title)}"
+                
+                if vid and vid not in existing_vids and key not in existing_keys:
+                    t['Artist'] = art_name
+                    t['Title'] = title
+                    candidate_tracks.append(t)
+            
+            if not candidate_tracks:
+                continue
+
+            # Enriquecemos con Last.fm siempre para tener los metadatos (Género, Scrobbles...)
+            # aunque solo usemos los listeners para el prompt en interactivo
+            print(f"    🔎 Buscando popularidad y género en Last.fm para {len(candidate_tracks)} pistas...")
+            self.lastfm.enrich_songs(candidate_tracks, force_scrobbles=False)
+
+            if interactive:
+                # Ordenar por popularidad
+                candidate_tracks = sorted(candidate_tracks, key=lambda x: int(x.get('LastfmScrobble', 0)), reverse=True)
+
+                print(f"    \033[95m📀 Lanzamiento detectado ({album_year}):\033[0m \033[1m'{album_title}'\033[0m")
+                to_add_this_album = []
+                for t in candidate_tracks:
+                    listeners = int(t.get('LastfmScrobble', 0))
+                    listeners_fmt = f"{listeners:,}".replace(",", ".")
+                    ans = input(f"      - \033[92m'{t.get('Title')}'\033[0m \033[90m[{listeners_fmt}🎧]\033[0m. ¿Añadir? [S/n/q]: ").strip().lower()
+                    if ans == 'q':
+                        print("\n🛑 Sincronización cancelada por el usuario.")
+                        return
+                    if ans != 'n':
+                        to_add_this_album.append(t)
+                
+                final_new_songs = []
+                for t in to_add_this_album:
+                    final_new_songs.append({
+                        'Playlist': '#',
+                        'Artist': art_name,
+                        'Title': t.get('Title'),
+                        'Album': album_title,
+                        'Year': album_year,
+                        'Genre': t.get('Genre', ''),
+                        'Scrobble': t.get('Scrobble', 0),
+                        'LastfmScrobble': t.get('LastfmScrobble', 0),
+                        'Video ID': t.get('videoId')
+                    })
+            else:
+                final_new_songs = []
+                for t in candidate_tracks:
+                    print(f"      + New track: {t.get('Title')}")
+                    final_new_songs.append({
+                        'Playlist': '#',
+                        'Artist': art_name,
+                        'Title': t.get('Title'),
+                        'Album': album_title,
+                        'Year': album_year,
+                        'Genre': t.get('Genre', ''),
+                        'Scrobble': t.get('Scrobble', 0),
+                        'LastfmScrobble': t.get('LastfmScrobble', 0),
+                        'Video ID': t.get('videoId')
+                    })
+
+            if final_new_songs:
+                try:
+                    self.yt.add_playlist_items(Config.PLAYLIST_ID, [s['Video ID'] for s in final_new_songs])
+                    self.sheets.add_to_songs_batch(final_new_songs)
+                    added_total += len(final_new_songs)
+                    
+                    # Update artist locally in the sheet service's cache
+                    # This avoids saving the whole sheet 66 times!
+                    artists = self.sheets.get_artists()
+                    norm_art = self._normalize(art_name)
+                    for a in artists:
+                        if self._normalize(a.get("Artist Name", "")) == norm_art:
+                            a["Last Checked"] = datetime.now().strftime("%d/%m/%Y")
+                            a["Status"] = "Done"
+                            break
+                    
+                    # We will save at the end of the global scan instead of every artist
+                    for s in final_new_songs:
+                        existing_vids.add(s['Video ID'])
+                except Exception as e:
+                    print(f"      ✗ Error añadiendo canciones: {e}")
+
+        # Final save of all artist updates done during the global scan
+        if added_total > 0:
+            print(f"\n   💾 Saving artist updates to spreadsheet...")
+            self.sheets.save_artists(self.sheets.get_artists())
+
+        print(f"\n✅ Global scan complete. Added {added_total} new songs.")
+
     def deep_sync_single_artist(self, artist_name):
         """Runs the deep sync interactive logic for a single artist name."""
         artists = self.sheets.get_artists()

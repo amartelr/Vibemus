@@ -47,6 +47,13 @@ def _register_artist(subparsers: argparse._SubParsersAction) -> None:
     )
     artist_sub = artist_parser.add_subparsers(dest="action")
 
+    # artist list
+    artist_sub.add_parser("list", help="List all tracked artists and their status")
+
+    # artist search
+    search_p = artist_sub.add_parser("search", help="Search for artists in YT/Sheet")
+    search_p.add_argument("query", type=str, help="Search string")
+
     # artist add
     add_p = artist_sub.add_parser(
         "add",
@@ -77,6 +84,30 @@ def _register_artist(subparsers: argparse._SubParsersAction) -> None:
         help="Interactive cleanup of collaborative artists",
     )
 
+    # artist sync
+    artist_sub.add_parser(
+        "sync",
+        help="Synchronize tracked artists with the 'Songs' catalog, performing onboarding for new ones",
+    )
+
+    # artist import
+    artist_sub.add_parser(
+        "import",
+        help="Import artists from the YouTube library (based on count of your tracks they have)",
+    )
+
+    # artist reset-empty
+    artist_sub.add_parser(
+        "reset-empty",
+        help="Reset 'Last Checked' for artists with NO songs yet (useful to retry scanning)",
+    )
+
+    # artist archive-inactive
+    artist_sub.add_parser(
+        "archive-inactive",
+        help="Move artists with no activity in Last.fm/YT for X years to Archives",
+    )
+
 
 # ── Sync ──────────────────────────────────────────────────────────────────────
 
@@ -99,10 +130,27 @@ def _register_sync(subparsers: argparse._SubParsersAction) -> None:
         help="Skip interactive prompts and auto-add all candidates",
     )
 
-    # sync artist
-    sync_sub.add_parser(
-        "artist",
-        help="Synchronize tracked artists with the 'Songs' catalog, performing onboarding for new ones",
+    # sync releases / new-releases
+    rel_p = sync_sub.add_parser(
+        "releases",
+        help="Check for new releases from tracked artists",
+    )
+    rel_p.add_argument(
+        "--force", action="store_true",
+        help="Force re-scan even if checked recently",
+    )
+    rel_p.add_argument(
+        "--auto", action="store_true",
+        help="Skip interactive prompts and auto-add all found songs",
+    )
+
+    nr_p = sync_sub.add_parser(
+        "new-releases",
+        help="Scan global new releases from YouTube Music for tracked artists",
+    )
+    nr_p.add_argument(
+        "--auto", action="store_true",
+        help="Skip interactive prompts and auto-add all found songs",
     )
 
     # sync playlist (was --sync-playlist)
@@ -149,6 +197,28 @@ def _register_playlist(subparsers: argparse._SubParsersAction) -> None:
     pl_sub.add_parser(
         "cleanup-inbox",
         help="Remove songs from '#' already in other playlists",
+    )
+
+    # playlist clean
+    pl_sub.add_parser(
+        "clean",
+        help="Remove songs from playlists that are not in the 'Songs' sheet",
+    )
+
+    # playlist undo-old
+    pl_sub.add_parser(
+        "undo-old",
+        help="Experimental: undoing old processing tasks",
+    )
+
+    # playlist export
+    ex_p = pl_sub.add_parser(
+        "export",
+        help="Export a YT playlist to a Google sheet page",
+    )
+    ex_p.add_argument(
+        "playlist_id", nargs="?",
+        help="YouTube ID of the playlist to export (defaults to current target)",
     )
 
     # playlist cleanup-likes
@@ -238,18 +308,20 @@ def _register_system(subparsers: argparse._SubParsersAction) -> None:
 
 # Mapping: old flag -> (new command words, extra processing-key or None)
 _LEGACY_MAP = {
+    "--list-artists": ("artist", "list"),
     "--add-artist": ("artist", "add"),
     "--remove-artist": ("artist", "remove"),
-
+    "--import-artists": ("artist", "import"),
+    "--archive-inactive": ("artist", "archive-inactive"),
+    "--reset-empty-artists": ("artist", "reset-empty"),
 
     "--deep-sync": ("sync", "deep"),
-    "--sync-new-releases": ("sync", "deep"),
+    "--sync-new-releases": ("sync", "new-releases"),
     "--sync-playlist": ("sync", "playlist"),
+
     "--cleanup-inbox": ("playlist", "cleanup-inbox"),
-
-
-
-
+    "--clean-playlist": ("playlist", "clean"),
+    "--cleanup-library": ("playlist", "cleanup-library"),
     "--apply-moves": ("playlist", "apply-moves"),
     "--refresh-source-cache": ("system", "refresh-cache"),
 
