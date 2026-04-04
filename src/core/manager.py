@@ -905,15 +905,18 @@ class Manager:
                 except Exception:
                     pass
 
-            # ── 2c. Last.fm Enrichment ──
+            # ── 2c. Metadata Preparation & Last.fm Enrichment ──
+            # Always ensure Artist/Title keys are set for archiving and internal logic, even if skipping Last.fm
+            for item in fresh_items:
+                art_list = item.get('artists', [])
+                if art_list:
+                    item['Artist'] = ", ".join([a.get('name', '') for a in art_list])
+                else:
+                    item['Artist'] = 'Unknown'
+                item['Title'] = item.get('title', 'Unknown')
+
             if not skip_lastfm:
                 print(f"  \033[93m⌛ Fetching scrobbles from Last.fm for {len(fresh_items)} songs...\033[0m")
-                # Add Artist/Title for enrich_songs compatibility
-                for item in fresh_items:
-                    art_list = item.get('artists', [])
-                    item['Artist'] = art_list[0]['name'] if art_list else 'Unknown'
-                    item['Title'] = item.get('title', 'Unknown')
-                
                 self.lastfm.enrich_songs(fresh_items, force_scrobbles=False)
 
             print(f"  Checking {len(fresh_items)} songs for likes/dislikes...")
@@ -976,12 +979,16 @@ class Manager:
                                         self.yt.remove_playlist_items(pid, [item])
                                         self.yt.rate_song(vid, 'INDIFFERENT') # Quitar like al archivar
                                         
-                                        # Actualizar registro para la hoja de cálculo
-                                        new_rec = dict(existing_vids.get(vid) or {
-                                            'Playlist': archive_name, 'Artist': item.get('Artist', ''),
-                                            'Title': song_title, 'Album': (item.get('album') or {}).get('name', ''),
-                                            'Year': str(y_str), 'Video ID': vid
-                                        })
+                                        # Construct robust record for the archive
+                                        base_row = existing_vids.get(vid) or {}
+                                        new_rec = {
+                                            'Playlist': archive_name,
+                                            'Artist': base_row.get('Artist') or item.get('Artist', 'Unknown'),
+                                            'Title': base_row.get('Title') or song_title,
+                                            'Album': base_row.get('Album') or (item.get('album') or {}).get('name', ''),
+                                            'Year': base_row.get('Year') or str(y_str),
+                                            'Video ID': vid
+                                        }
                                         new_rec['Playlist'] = archive_name
                                         moved_for_sheet.append(new_rec)
                                         
@@ -1028,15 +1035,19 @@ class Manager:
                     if not scrobble_val and vid in existing_vids:
                         scrobble_val = existing_vids[vid].get('Scrobble', 0)
                     
-                    row = dict(existing_vids.get(vid) or {
-                        'Playlist': pl_name, 'Artist': item.get('Artist', ''),
-                        'Title': item.get('title'), 'Album': item.get('album', {}).get('name', ''),
-                        'Year': str(item.get('year', '')), 'Video ID': vid, 
-                        'Scrobble': scrobble_val, 'LastfmScrobble': lastfm_val, 'Genre': genre_val
-                    })
-                    row['Scrobble'] = scrobble_val
-                    row['LastfmScrobble'] = lastfm_val
-                    if genre_val: row['Genre'] = genre_val
+                    # Construct robust record for the Archive sheet
+                    base_row = existing_vids.get(vid) or {}
+                    row = {
+                        'Playlist': pl_name,
+                        'Artist': base_row.get('Artist') or item.get('Artist', 'Unknown'),
+                        'Title': base_row.get('Title') or item.get('Title', 'Unknown'),
+                        'Album': base_row.get('Album') or (item.get('album', {}) or {}).get('name', ''),
+                        'Year': base_row.get('Year') or str(item.get('year', '')),
+                        'Video ID': vid, 
+                        'Scrobble': scrobble_val,
+                        'LastfmScrobble': lastfm_val,
+                        'Genre': genre_val or base_row.get('Genre', '')
+                    }
                     disliked_for_archive.append(row)
                     disliked_vids_global.add(vid)
                     if vid in yt_vid_map: del yt_vid_map[vid]
@@ -1126,7 +1137,7 @@ class Manager:
                                     sc_val = existing_vids[vid].get('Scrobble', 0)
 
                                 new_record = dict(existing_vids.get(vid) or {
-                                    'Playlist': final_target_pl, 'Artist': main_artist,
+                                    'Playlist': final_target_pl, 'Artist': item.get('Artist', main_artist),
                                     'Title': item.get('title'), 'Album': item.get('album', {}).get('name', ''),
                                     'Year': str(y_str or ''), 'Video ID': vid, 'Scrobble': sc_val,
                                     'LastfmScrobble': lsc_val, 'Genre': gen_val
@@ -2049,6 +2060,32 @@ class Manager:
         except Exception:
             pass
 
+    def _prompt_for_default_playlist(self, name):
+        """Asks the user to select a default playlist for an artist."""
+        print(f"\n  \033[93m💡 El artista '{name}' no tiene una playlist por defecto asignada.\033[0m")
+        print(f"  Selecciona una para futuros syncs automáticos:")
+        
+        # Opciones basadas en Config.SOURCE_PLAYLISTS (excluyendo Inbox '#')
+        options = [p for p in Config.SOURCE_PLAYLISTS if p != '#']
+        
+        for i, opt in enumerate(options, 1):
+            print(f"    {i}. {opt}")
+        print(f"    0. Saltear (Dejar en blanco)")
+        
+        while True:
+            ans = input(f"\n  Selecciona una opción [0-{len(options)}]: ").strip()
+            if not ans:
+                return None
+            if ans == '0':
+                return ""
+            try:
+                idx = int(ans)
+                if 1 <= idx <= len(options):
+                    return options[idx-1]
+            except ValueError:
+                pass
+            print(f"  Entrada no válida. Por favor, introduce un número entre 0 y {len(options)}.")
+
     def deep_sync_all_artists(self, interactive=True):
         print("\n" + "="*50)
         print("🚀 STARTING DEEP SYNC FOR PENDING ARTISTS")
@@ -2220,8 +2257,10 @@ class Manager:
         # Actualizamos el Sheet SIEMPRE (haya o no canciones nuevas)
         self.sheets.update_artist_last_checked(name, check_time.strftime("%d/%m/%Y"))
         
+        should_check_playlist = False
         if not is_archived:
             self.sheets.update_artist_status(name, "Done")
+            should_check_playlist = True
         else:
             # Si era un artista archivado, le preguntamos si quiere reactivarlo
             print(f"\n  \033[93m💡 Este artista estaba 'Archived'.\033[0m")
@@ -2229,8 +2268,25 @@ class Manager:
             if reactivate == 'y':
                 print(f"  \033[92m✓ Artista reactivado como 'Done'.\033[0m")
                 self.sheets.update_artist_status(name, "Done")
+                should_check_playlist = True
             else:
                 print(f"  \033[90m• Se mantiene como 'Archived'.\033[0m")
+
+        # COMPROBACIÓN DE PLAYLIST POR DEFECTO
+        # Si el artista no tiene playlist asignada y va a estar activo (Done), preguntamos.
+        if should_check_playlist:
+            # Buscamos el registro más actual en memoria a través de sheets service
+            artists_in_memory = self.sheets.get_artists()
+            # Intentamos encontrar el registro actualizado (que puede tener la playlist)
+            current_row = next((a for a in artists_in_memory if a.get("Artist Name") == name), artist)
+            
+            if not current_row.get("Playlist", "").strip():
+                new_pl = self._prompt_for_default_playlist(name)
+                if new_pl is not None:
+                    print(f"  \033[92m✓ Playlist '{new_pl}' asignada a {name}.\033[0m")
+                    self.sheets.update_artist_playlist(name, new_pl)
+                    # Actualizamos el objeto local por si se usa más adelante en esta función
+                    artist["Playlist"] = new_pl
 
         while True:
             ans = input(f"\n  \033[1;93m🎯 Artista completado. ¿Siguiente paso?\033[0m (\033[92m[C]ontinuar\033[0m | \033[91m[a]rchivar\033[0m | [q]uit): ").strip().lower()
