@@ -1,0 +1,9 @@
+{
+    "python.defaultInterpreterPath": "./.venv/bin/python",
+    "python.analysis.exclude": [
+        "**/node_modules",
+        "**/__pycache__",
+        ".venv"
+    ],
+    "python.terminal.activateEnvInCurrentTerminal": true
+}

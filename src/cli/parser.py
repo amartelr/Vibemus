@@ -21,16 +21,20 @@ def build_parser() -> argparse.ArgumentParser:
         epilog=(
             "Examples:\n"
             "  vibemus artist add \"Radiohead\" --playlist \"Rock\"\n"
-            "  vibemus sync deep --auto\n"
-            "  vibemus playlist cleanup-inbox\n"
+            "  vibemus deep sync --auto\n"
+            "  vibemus playlist sync\n"
             "  vibemus system refresh-cache\n"
         ),
     )
     subparsers = parser.add_subparsers(dest="command", help="Available commands")
 
     _register_artist(subparsers)
-    _register_sync(subparsers)
+    _register_releases(subparsers)
     _register_playlist(subparsers)
+    _register_library(subparsers)
+    _register_deep(subparsers)
+    _register_new_releases(subparsers)
+    _register_genre(subparsers)
     _register_system(subparsers)
 
     return parser
@@ -109,73 +113,29 @@ def _register_artist(subparsers: argparse._SubParsersAction) -> None:
     )
 
 
-# ── Sync ──────────────────────────────────────────────────────────────────────
+# ── Releases ──────────────────────────────────────────────────────────────────
 
 
-def _register_sync(subparsers: argparse._SubParsersAction) -> None:
-    sync_parser = subparsers.add_parser(
-        "sync",
-        help="Discovery and synchronization",
-        description="Check for new releases and synchronize playlists.",
-    )
-    sync_sub = sync_parser.add_subparsers(dest="action")
-
-    # sync deep (was --deep-sync)
-    deep_p = sync_sub.add_parser(
-        "deep",
-        help="Deep sync all artists not checked in 6 months",
-    )
-    deep_p.add_argument(
-        "--auto", action="store_true",
-        help="Skip interactive prompts and auto-add all candidates",
-    )
-
-    # sync releases / new-releases
-    rel_p = sync_sub.add_parser(
+def _register_releases(subparsers: argparse._SubParsersAction) -> None:
+    rel_parser = subparsers.add_parser(
         "releases",
+        help="Artist release monitoring",
+        description="Check for new albums and singles from tracked artists.",
+    )
+    rel_sub = rel_parser.add_subparsers(dest="action")
+
+    # releases sync (was sync releases)
+    sync_p = rel_sub.add_parser(
+        "sync",
         help="Check for new releases from tracked artists",
     )
-    rel_p.add_argument(
+    sync_p.add_argument(
         "--force", action="store_true",
         help="Force re-scan even if checked recently",
     )
-    rel_p.add_argument(
+    sync_p.add_argument(
         "--auto", action="store_true",
         help="Skip interactive prompts and auto-add all found songs",
-    )
-
-    nr_p = sync_sub.add_parser(
-        "new-releases",
-        help="Scan global new releases from YouTube Music for tracked artists",
-    )
-    nr_p.add_argument(
-        "--auto", action="store_true",
-        help="Skip interactive prompts and auto-add all found songs",
-    )
-
-    # sync playlist (was --sync-playlist)
-    sp_p = sync_sub.add_parser(
-        "playlist",
-        help="Sync playlist(s) with Songs sheet and enrich with Last.fm",
-    )
-    sp_p.add_argument(
-        "--name", type=str, metavar="PL",
-        help="Sync only this playlist (default: all source playlists)",
-    )
-    sp_p.add_argument(
-        "--skip-lastfm", action="store_true",
-        help="Skip Last.fm enrichment (faster)",
-    )
-    sp_p.add_argument(
-        "--no-covers", action="store_true",
-        help="Skip playlist cover generation (reordering)",
-    )
-
-
-    # sync genre
-    sync_sub.add_parser(
-        "genre",
-        help="Update the 'Genre' summary sheet with counts from the 'Songs' catalog",
     )
 
 
@@ -190,6 +150,24 @@ def _register_playlist(subparsers: argparse._SubParsersAction) -> None:
         description="Clean, export, and process playlists.",
     )
     pl_sub = pl_parser.add_subparsers(dest="action")
+
+    # playlist sync (was sync playlist)
+    sp_p = pl_sub.add_parser(
+        "sync",
+        help="Sync playlist(s) with Songs sheet and enrich with Last.fm",
+    )
+    sp_p.add_argument(
+        "--name", type=str, metavar="PL",
+        help="Sync only this playlist (default: all source playlists)",
+    )
+    sp_p.add_argument(
+        "--skip-lastfm", action="store_true",
+        help="Skip Last.fm enrichment (faster)",
+    )
+    sp_p.add_argument(
+        "--no-covers", action="store_true",
+        help="Skip playlist cover generation (reordering)",
+    )
 
 
 
@@ -227,10 +205,10 @@ def _register_playlist(subparsers: argparse._SubParsersAction) -> None:
         help="Interactively unlike songs from 'LM' (or Liked Songs) if plays > threshold",
     )
 
-    # playlist cleanup-library
+    # playlist cleanup-library (DEPRECATED → vibemus library sync)
     pl_sub.add_parser(
         "cleanup-library",
-        help="Remove songs from library that are NOT in any playlist (respects LIKE status)",
+        help="[DEPRECATED] Use 'vibemus library sync' instead",
     )
 
     # playlist apply-moves
@@ -278,6 +256,86 @@ def _register_playlist(subparsers: argparse._SubParsersAction) -> None:
 
 
 
+# ── Library ───────────────────────────────────────────────────────────────────
+
+
+def _register_library(subparsers: argparse._SubParsersAction) -> None:
+    lib_parser = subparsers.add_parser(
+        "library",
+        help="YouTube Music Library management",
+        description="Synchronize your YouTube Music Library with your playlists.",
+    )
+    lib_sub = lib_parser.add_subparsers(dest="action")
+
+    # library sync
+    lib_sub.add_parser(
+        "sync",
+        help="Sync library: add missing playlist songs to library & remove orphaned ones",
+    )
+
+
+# ── Deep ──────────────────────────────────────────────────────────────────────
+
+
+def _register_deep(subparsers: argparse._SubParsersAction) -> None:
+    deep_parser = subparsers.add_parser(
+        "deep",
+        help="Deep scanning and maintenance",
+        description="Comprehensive analysis of your collection.",
+    )
+    deep_sub = deep_parser.add_subparsers(dest="action")
+
+    # deep sync (was sync deep)
+    ds_p = deep_sub.add_parser(
+        "sync",
+        help="Deep sync all artists not checked in 6 months",
+    )
+    ds_p.add_argument(
+        "--auto", action="store_true",
+        help="Skip interactive prompts and auto-add all candidates",
+    )
+
+
+# ── New Releases ──────────────────────────────────────────────────────────────
+
+
+def _register_new_releases(subparsers: argparse._SubParsersAction) -> None:
+    nr_parser = subparsers.add_parser(
+        "new-releases",
+        help="Discovery of latest drops",
+        description="Scan the global new releases shelf.",
+    )
+    nr_sub = nr_parser.add_subparsers(dest="action")
+
+    # new-releases sync (was sync new-releases)
+    sync_p = nr_sub.add_parser(
+        "sync",
+        help="Scan global new releases from YouTube Music for tracked artists",
+    )
+    sync_p.add_argument(
+        "--auto", action="store_true",
+        help="Skip interactive prompts and auto-add all found songs",
+    )
+
+
+# ── Genre ───────────────────────────────────────────────────────────────────
+
+
+def _register_genre(subparsers: argparse._SubParsersAction) -> None:
+    genre_parser = subparsers.add_parser(
+        "genre",
+        help="Genre taxonomy management",
+        description="Categorize and audit your artists by genre.",
+    )
+    genre_sub = genre_parser.add_subparsers(dest="action")
+
+    # genre sync
+    genre_sub.add_parser(
+        "sync",
+        help="Synthesize and update the Genre summary sheet",
+    )
+
+
 # ── System ────────────────────────────────────────────────────────────────────
 
 
@@ -315,13 +373,14 @@ _LEGACY_MAP = {
     "--archive-inactive": ("artist", "archive-inactive"),
     "--reset-empty-artists": ("artist", "reset-empty"),
 
-    "--deep-sync": ("sync", "deep"),
-    "--sync-new-releases": ("sync", "new-releases"),
-    "--sync-playlist": ("sync", "playlist"),
+    "--deep-sync": ("deep", "sync"),
+    "--sync-releases": ("releases", "sync"),
+    "--sync-new-releases": ("new-releases", "sync"),
+    "--sync-playlist": ("playlist", "sync"),
 
     "--cleanup-inbox": ("playlist", "cleanup-inbox"),
     "--clean-playlist": ("playlist", "clean"),
-    "--cleanup-library": ("playlist", "cleanup-library"),
+    "--cleanup-library": ("library", "sync"),
     "--apply-moves": ("playlist", "apply-moves"),
     "--refresh-source-cache": ("system", "refresh-cache"),
 
@@ -338,7 +397,7 @@ def rewrite_legacy_args(argv: list[str]) -> list[str]:
         return argv
 
     # If the first arg already looks like a subcommand, skip
-    if argv[0] in ("artist", "sync", "playlist", "system"):
+    if argv[0] in ("artist", "releases", "playlist", "library", "system", "deep", "new-releases", "genre"):
         return argv
 
     new_argv: list[str] = []

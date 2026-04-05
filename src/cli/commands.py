@@ -120,26 +120,18 @@ def _artist_sync(args, manager) -> int:
     return 0
 
 
-# ── Sync ──────────────────────────────────────────────────────────────────────
+# ── Releases ──────────────────────────────────────────────────────────────────
 
 
-def handle_sync(args, manager) -> int:
-    """Dispatch sync sub-actions."""
+def handle_releases(args, manager) -> int:
+    """Dispatch releases sub-actions."""
     action = getattr(args, "action", None)
 
-    if action == "deep":
-        return _sync_deep(args, manager)
-    elif action == "playlist":
-        return _sync_playlist(args, manager)
-    elif action == "releases":
+    if action == "sync":
         return _sync_releases(args, manager)
-    elif action == "new-releases":
-        return _sync_new_releases(args, manager)
-    elif action == "genre":
-        return _sync_genre(args, manager)
     else:
-        print("Usage: vibemus sync <deep|playlist|releases|new-releases|genre>")
-        print("Run 'vibemus sync --help' for details.")
+        print("Usage: vibemus releases sync")
+        print("Run 'vibemus releases --help' for details.")
         return 1
 
 
@@ -166,7 +158,7 @@ def _sync_genre(args, manager) -> int:
 
 
 def _sync_releases(args, manager) -> int:
-    """Sync all artists for new releases (ignores 30-day window if forced)."""
+    """Sync all artists for new releases (skips artists checked in the last 7 days unless forced)."""
     manager.sync_all_artist_releases(
         force=getattr(args, "force", False),
         interactive=not getattr(args, "auto", False)
@@ -190,7 +182,9 @@ def handle_playlist(args, manager) -> int:
     """Dispatch playlist sub-actions."""
     action = getattr(args, "action", None)
 
-    if action == "cleanup-inbox":
+    if action == "sync":
+        return _sync_playlist(args, manager)
+    elif action == "cleanup-inbox":
         return _playlist_cleanup_inbox(manager)
     elif action == "cleanup-likes":
         return _playlist_cleanup_likes(args, manager)
@@ -199,13 +193,19 @@ def handle_playlist(args, manager) -> int:
     elif action == "split":
         return _playlist_split(args, manager)
     elif action == "cleanup-library":
-        return _playlist_cleanup_library(manager)
+        import warnings
+        warnings.warn(
+            "'playlist cleanup-library' is deprecated. Use: vibemus library sync",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return _library_sync(manager)
     elif action == "list":
         return _playlist_list(manager)
     else:
         print(
             "Usage: vibemus playlist "
-            "<cleanup-inbox|cleanup-likes|apply-moves|split|list>"
+            "<sync|cleanup-inbox|cleanup-likes|apply-moves|split|list>"
         )
         print("Run 'vibemus playlist --help' for details.")
         return 1
@@ -329,93 +329,8 @@ def _playlist_split(args, manager) -> int:
         return 1
 
 def _playlist_cleanup_library(manager) -> int:
-    print("\n" + "━"*60)
-    print("🧹 VIBEMUS LIBRARY CLEANUP (Songs NOT in Playlists)")
-    print("━"*60)
-
-    # 1. Get Authorized set from Google Sheet
-    print("\n1. Scanning Google Sheet (Songs)...")
-    all_songs_in_sheet = manager.sheets.get_songs_records()
-    
-    sheet_vids = set()
-    for s in all_songs_in_sheet:
-        vid = s.get('Video ID')
-        pl = s.get('Playlist')
-        if vid and pl != '#':
-            sheet_vids.add(vid)
-    
-    print(f"   Collected {len(sheet_vids)} unique songs from the 'Songs' sheet (excluding '#').")
-
-    # 2. Get total library scan
-    print("\n2. Scanning YouTube Music Library (Songs section)...")
-    library_songs = manager.yt.get_library_songs(limit=None)
-    print(f"   Found {len(library_songs)} songs in the Library.")
-
-    # 3. Identify candidates for removal
-    print("\n3. Identifying items to remove...")
-    to_remove = []
-    liked_to_keep = 0
-    for s in library_songs:
-        vid = s.get('videoId')
-        if not vid: continue
-        
-        # Rule: Not in our Sheets AND not Liked
-        in_sheet = vid in sheet_vids
-        is_liked = s.get('likeStatus') == 'LIKE'
-        
-        if not in_sheet:
-            if is_liked:
-                liked_to_keep += 1
-            else:
-                to_remove.append(s)
-
-    print(f"   Songs in Library NOT found in Sheet: {len(to_remove) + liked_to_keep}")
-    print(f"   - To keep (Liked): {liked_to_keep}")
-    print(f"   - To remove:      {len(to_remove)}")
-
-    if not to_remove:
-        print("\n✨ Library is already clean! No songs to remove.")
-        return 0
-
-    # 4. Show Preview (Top 20)
-    print("\n4. Preview of removal list:")
-    for s in to_remove[:20]:
-        artist = s.get('artists', [{}])[0].get('name', 'Unknown')
-        title = s.get('title', 'Unknown')
-        print(f"   - {artist} - {title}")
-    
-    if len(to_remove) > 20:
-        print(f"   ... and {len(to_remove) - 20} more.")
-
-    # 5. Final Confirmation
-    confirm = input(f"\n👉 Do you want to REMOVE {len(to_remove)} songs from your library? (s/n): ").strip().lower()
-    if confirm not in ['s', 'si', 'y', 'yes', '']:
-        print("🛑 Cleanup cancelled.")
-        return 0
-
-    # 6. Execute removal in batches
-    print(f"\n5. Executing removal of {len(to_remove)} songs...")
-    batch_size = 25
-    
-    for i in range(0, len(to_remove), batch_size):
-        batch_items = to_remove[i:i+batch_size]
-        batch_tokens = [it.get('feedbackTokens', {}).get('remove') for it in batch_items if it.get('feedbackTokens', {}).get('remove')]
-        batch_vids = [it['videoId'] for it in batch_items if not it.get('feedbackTokens', {}).get('remove')]
-        
-        try:
-            print(f"   Removing batch {i//batch_size + 1}/{(len(to_remove)-1)//batch_size + 1}...")
-            if batch_tokens:
-                manager.yt.edit_song_library_status(feedback_tokens=batch_tokens)
-            if batch_vids:
-                # Fallback for any itesm missing remove tokens
-                manager.yt.edit_song_library_status(video_ids=batch_vids)
-        except Exception as e:
-            print(f"   ❌ Error removing batch starting at {i}: {e}")
-
-    print("\n" + "━"*60)
-    print(f"✅ CLEANUP COMPLETED: {len(vids_to_remove)} songs removed.")
-    print("━"*60 + "\n")
-    return 0
+    """Deprecated: redirects to library sync."""
+    return _library_sync(manager)
 
 def _playlist_list(manager) -> int:
     manager.list_playlists_counts()
@@ -464,6 +379,271 @@ def _calculate_year_buckets(years, num_parts):
 
 
 
+
+
+# ── Deep ──────────────────────────────────────────────────────────────────────
+
+
+def handle_deep(args, manager) -> int:
+    """Dispatch deep sub-actions."""
+    action = getattr(args, "action", None)
+
+    if action == "sync":
+        return _sync_deep(args, manager)
+    else:
+        print("Usage: vibemus deep <sync>")
+        print("Run 'vibemus deep --help' for details.")
+        return 1
+
+
+# ── Library ───────────────────────────────────────────────────────────────────
+
+
+def handle_library(args, manager) -> int:
+    """Dispatch library sub-actions."""
+    action = getattr(args, "action", None)
+
+    if action == "sync":
+        return _library_sync(manager)
+    else:
+        print("Usage: vibemus library <sync>")
+        print("Run 'vibemus library --help' for details.")
+        return 1
+
+
+def _library_sync(manager) -> int:
+    """Bidirectional library sync:
+    1. ADD to library: songs in playlists (Songs sheet, excl. #) not saved in library.
+    2. REMOVE from library: songs in library not in any playlist (and not Liked).
+    """
+    print("\n" + "━"*60)
+    print("📚 VIBEMUS LIBRARY SYNC")
+    print("━"*60)
+
+    # ── Step 1: Gather data ──────────────────────────────────────────────────
+    print("\n\033[1m1. Scanning Google Sheet (Songs)...\033[0m")
+    all_songs_in_sheet = manager.sheets.get_songs_records()
+
+    sheet_vids = {}  # vid -> song record (for display purposes)
+    for s in all_songs_in_sheet:
+        vid = s.get('Video ID')
+        pl = s.get('Playlist')
+        if vid and pl != '#':
+            sheet_vids[vid] = s
+
+    print(f"   Collected \033[1m{len(sheet_vids)}\033[0m unique songs from Songs sheet (excluding '#').")
+
+    print("\n\033[1m2. Scanning YouTube Music Library...\033[0m")
+    library_songs = manager.yt.get_library_songs(limit=None)
+    library_vids = {s.get('videoId'): s for s in library_songs if s.get('videoId')}
+    print(f"   Found \033[1m{len(library_vids)}\033[0m songs in the Library.")
+
+    # ── Step 2: Identify MISSING (in playlists but not in library) ───────────
+    print("\n\033[1m3. Analyzing differences...\033[0m")
+    missing_from_library = []
+    for vid, song_rec in sheet_vids.items():
+        if vid not in library_vids:
+            missing_from_library.append(song_rec)
+
+    # ── Step 3: Identify ORPHANED (in library but not in playlists, not liked)
+    to_remove = []
+    liked_to_keep = 0
+    for vid, lib_item in library_vids.items():
+        if vid not in sheet_vids:
+            is_liked = lib_item.get('likeStatus') == 'LIKE'
+            if is_liked:
+                liked_to_keep += 1
+            else:
+                to_remove.append(lib_item)
+
+    print(f"\n   \033[92m📥 To ADD to library:\033[0m   {len(missing_from_library)} songs (in playlists but not saved)")
+    print(f"   \033[91m📤 To REMOVE:\033[0m          {len(to_remove)} songs (not in any playlist, not liked)")
+    if liked_to_keep:
+        print(f"   \033[93m💛 Keeping (Liked):\033[0m    {liked_to_keep} songs")
+
+    # ── Step 4: Show previews ────────────────────────────────────────────────
+    if missing_from_library:
+        print(f"\n\033[1;92m── Songs to ADD to library ({len(missing_from_library)}) ──\033[0m")
+        for s in missing_from_library[:25]:
+            artist = s.get('Artist', 'Unknown')
+            title = s.get('Title', 'Unknown')
+            pl = s.get('Playlist', '?')
+            print(f"   + \033[1;96m{artist}\033[0m \033[90m-\033[0m \033[1;92m{title}\033[0m \033[35m[{pl}]\033[0m")
+        if len(missing_from_library) > 25:
+            print(f"   ... y {len(missing_from_library) - 25} más.")
+
+    if to_remove:
+        print(f"\n\033[1;91m── Songs to REMOVE from library ({len(to_remove)}) ──\033[0m")
+        for s in to_remove[:25]:
+            artist = s.get('artists', [{}])[0].get('name', 'Unknown')
+            title = s.get('title', 'Unknown')
+            print(f"   - \033[96m{artist}\033[0m \033[90m-\033[0m {title}")
+        if len(to_remove) > 25:
+            print(f"   ... y {len(to_remove) - 25} más.")
+
+    if not missing_from_library and not to_remove:
+        print("\n\033[92m✨ Library is perfectly in sync! Nothing to do.\033[0m")
+        return 0
+
+    # ── Step 5: Confirm ──────────────────────────────────────────────────────
+    confirm = input(f"\n👉 ¿Proceder con la sincronización? (s/n): ").strip().lower()
+    if confirm not in ['s', 'si', 'y', 'yes', '']:
+        print("🛑 Sync cancelled.")
+        return 0
+
+    # ── Step 6: ADD missing songs to library ─────────────────────────────────
+    added_count = 0
+    add_errors = 0
+    if missing_from_library:
+        print(f"\n\033[1m4. Adding {len(missing_from_library)} songs to library...\033[0m")
+        batch_size = 10
+        for i in range(0, len(missing_from_library), batch_size):
+            batch = missing_from_library[i:i+batch_size]
+            batch_vids = [s.get('Video ID') for s in batch if s.get('Video ID')]
+            if not batch_vids:
+                continue
+
+            add_tokens = []
+            for vid in batch_vids:
+                try:
+                    # Search for the song to get its feedbackTokens
+                    results = manager.yt.yt.search(vid, filter='songs')
+                    found = False
+                    for r in results:
+                        if r.get('videoId') == vid:
+                            token = r.get('feedbackTokens', {}).get('add')
+                            if token:
+                                add_tokens.append(token)
+                                found = True
+                            break
+                    
+                    if not found:
+                        # Fallback: get_song and try album feedbackTokens
+                        song_data = manager.yt.yt.get_song(vid)
+                        # Try to get the album to find the add token
+                        album_id = None
+                        vd = song_data.get('videoDetails', {})
+                        if vd:
+                            album_id = vd.get('albumId')
+                        if not album_id:
+                            pv = song_data.get('playabilityStatus', {}).get('miniplayer', {}).get('miniplayerRenderer', {}).get('playbackMode', {})
+
+                        if album_id:
+                            try:
+                                album_data = manager.yt.yt.get_album(album_id)
+                                for t in album_data.get('tracks', []):
+                                    if t.get('videoId') == vid:
+                                        token = t.get('feedbackTokens', {}).get('add')
+                                        if token:
+                                            add_tokens.append(token)
+                                            found = True
+                                        break
+                            except:
+                                pass
+                        
+                        if not found:
+                            # Last resort: use get_watch_playlist
+                            try:
+                                wp = manager.yt.yt.get_watch_playlist(videoId=vid)
+                                for t in wp.get('tracks', []):
+                                    if t.get('videoId') == vid:
+                                        token = t.get('feedbackTokens', {}).get('add')
+                                        if token:
+                                            add_tokens.append(token)
+                                        break
+                            except:
+                                pass
+
+                except Exception as e:
+                    add_errors += 1
+
+            if add_tokens:
+                try:
+                    manager.yt.edit_song_library_status(feedback_tokens=add_tokens)
+                    added_count += len(add_tokens)
+                    print(f"   \033[92m✓\033[0m Batch {i//batch_size + 1}: added {len(add_tokens)} songs")
+                except Exception as e:
+                    print(f"   \033[91m✗\033[0m Error adding batch {i//batch_size + 1}: {e}")
+                    add_errors += len(add_tokens)
+            else:
+                skipped = len(batch_vids)
+                print(f"   \033[93m⚠\033[0m Batch {i//batch_size + 1}: no add tokens found for {skipped} songs (may already be in library or unavailable)")
+                add_errors += skipped
+
+            import time
+            time.sleep(0.5)  # Rate limiting
+
+    # ── Step 7: REMOVE orphaned songs from library ───────────────────────────
+    removed_count = 0
+    remove_errors = 0
+    if to_remove:
+        print(f"\n\033[1m5. Removing {len(to_remove)} orphaned songs from library...\033[0m")
+        batch_size = 25
+        for i in range(0, len(to_remove), batch_size):
+            batch_items = to_remove[i:i+batch_size]
+            batch_tokens = [
+                it.get('feedbackTokens', {}).get('remove')
+                for it in batch_items
+                if it.get('feedbackTokens', {}).get('remove')
+            ]
+
+            if batch_tokens:
+                try:
+                    manager.yt.edit_song_library_status(feedback_tokens=batch_tokens)
+                    removed_count += len(batch_tokens)
+                    print(f"   \033[92m✓\033[0m Batch {i//batch_size + 1}: removed {len(batch_tokens)} songs")
+                except Exception as e:
+                    print(f"   \033[91m✗\033[0m Error removing batch {i//batch_size + 1}: {e}")
+                    remove_errors += len(batch_tokens)
+            else:
+                no_token_count = len(batch_items)
+                print(f"   \033[93m⚠\033[0m Batch {i//batch_size + 1}: no remove tokens for {no_token_count} songs")
+                remove_errors += no_token_count
+
+    # ── Summary ──────────────────────────────────────────────────────────────
+    print("\n" + "━"*60)
+    print("\033[1m📊 SYNC SUMMARY\033[0m")
+    if added_count:
+        print(f"   \033[92m📥 Added to library:   {added_count}\033[0m")
+    if removed_count:
+        print(f"   \033[91m📤 Removed from library: {removed_count}\033[0m")
+    if add_errors or remove_errors:
+        print(f"   \033[93m⚠  Errors/skipped:     {add_errors + remove_errors}\033[0m")
+    if not added_count and not removed_count:
+        print("   ✨ No changes were made.")
+    print("━"*60 + "\n")
+    return 0
+
+
+
+# ── New Releases ──────────────────────────────────────────────────────────────
+
+
+def handle_new_releases(args, manager) -> int:
+    """Dispatch new-releases sub-actions."""
+    action = getattr(args, "action", None)
+
+    if action == "sync":
+        return _sync_new_releases(args, manager)
+    else:
+        print("Usage: vibemus new-releases <sync>")
+        print("Run 'vibemus new-releases --help' for details.")
+        return 1
+
+
+# ── Genre ───────────────────────────────────────────────────────────────────
+
+
+def handle_genre(args, manager) -> int:
+    """Dispatch genre sub-actions."""
+    action = getattr(args, "action", None)
+
+    if action == "sync":
+        return _sync_genre(args, manager)
+    else:
+        print("Usage: vibemus genre <sync>")
+        print("Run 'vibemus genre --help' for details.")
+        return 1
 
 
 # ── System ────────────────────────────────────────────────────────────────────

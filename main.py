@@ -9,8 +9,12 @@ import warnings
 from src.cli.commands import (
     handle_artist,
     handle_playlist,
-    handle_sync,
+    handle_library,
+    handle_releases,
     handle_system,
+    handle_deep,
+    handle_new_releases,
+    handle_genre,
 )
 from src.cli.parser import build_parser, rewrite_legacy_args
 from src.config import Config
@@ -18,8 +22,12 @@ from src.config import Config
 
 _HANDLERS = {
     "artist": handle_artist,
-    "sync": handle_sync,
+    "releases": handle_releases,
     "playlist": handle_playlist,
+    "library": handle_library,
+    "deep": handle_deep,
+    "new-releases": handle_new_releases,
+    "genre": handle_genre,
     "system": handle_system,
 }
 

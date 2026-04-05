@@ -10,13 +10,19 @@
 2. [Installation](#installation)
 3. [Authentication](#authentication)
 4. [Configuration](#configuration)
-5. [CLI Reference](#cli-reference)
+5. [💡 Sync Logic & Status Guide](#-sync-logic--status-guide)
+   - [🔄 Sync Commands Comparison](#-sync-commands-comparison)
+6. [CLI Reference](#cli-reference)
    - [artist](#artist--manage-tracked-artists)
-   - [sync](#sync--discovery--synchronization)
+   - [releases](#releases--artist-release-monitoring)
+   - [deep](#deep--deep-scanning--maintenance)
+   - [new-releases](#new-releases--latest-drops)
+   - [genre](#genre--genre-taxonomy-management)
+   - [library](#library--youtube-music-library-sync)
    - [playlist](#playlist--playlist-operations)
    - [system](#system--utilities)
-6. [Legacy Commands](#legacy-commands)
-7. [Project Structure](#project-structure)
+7. [Legacy Commands](#legacy-commands)
+8. [Project Structure](#project-structure)
 
 ---
 
@@ -137,7 +143,7 @@ Vibemus uses local JSON caches in the `data/` directory to optimize performance 
 Vibemus uses a **double-layer filtering system** to optimize discovery operations and respect API rate limits.
 
 ### The "Double-Layer" Filter
-When running `vibemus sync deep`, the system evaluates artists in two steps:
+When running `vibemus deep sync`, the system evaluates artists in two steps:
 
 1.  **Google Sheet Check (Persistent)**: 
     - The program looks for artists with `Status: Pending` or an empty `Last Checked` field in your spreadsheet.
@@ -151,8 +157,21 @@ When running `vibemus sync deep`, the system evaluates artists in two steps:
 - **`Done`**: Exploration finished. The system has successfully scanned their discography and added any chosen songs.
 - **`Archived`**: You've decided to stop tracking this artist. They won't appear in any sync commands.
 
+---
+
+### 🔄 Sync Commands Comparison
+Vibemus offers three different ways to discover and sync music. Use this table to choose the right command based on your needs:
+
+| Command | Frequency | Scan Method | Scope | Best for... |
+|:---|:---|:---|:---|:---|
+| **`new-releases sync`** | **Daily** | Global "New Releases" shelf | Top global hits from your artists | ⚡ Instant daily catch-up (seconds). |
+| **`releases sync`** | **Weekly** | Individual artist profiles | Every new single/album from your list | 🎯 Full monitoring of your specific artists. |
+| **`deep sync`** | **Monthly** | Discography & Top Tracks | Entire catalog + Pending artists | 💎 Onboarding new artists or catalog gems. |
+
 > [!TIP]
-> **Force a re-scan**: If an artist is being skipped because of the 30-day cooling period, you can force a fresh start by deleting the local cache: `rm data/deep_sync_cache.json`.
+> **Workflow Suggestion**: Use `new-releases` daily to catch big drops instantly. Run `releases` once a week to ensure nothing was missed. Use `deep` only for new artists or when you want a thorough review of your collection.
+
+---
 
 ---
 
@@ -203,15 +222,29 @@ vibemus artist sync
 
 ---
 
-
-
----
-
-### `sync` — Discovery & Synchronization
+### `releases` — Artist Release Monitoring
 
 ---
 
-#### `vibemus sync deep [--auto]`
+#### `vibemus releases sync [--force] [--auto]`
+Scan for new albums and singles from **all tracked artists**.
+
+- **Targeted Scan**: Directly visits the profile of every artist in your 'Artists' sheet.
+- **Filtering**: Automatically excludes songs already in your library or archive.
+- **Metadata**: Shows Last.fm scrobble counts for new discoveries.
+- **`--force`**: Re-scans all artists even if they were checked recently (ignores the 24h window).
+- **`--auto`**: Skips interactive prompts and adds all found songs to the `#` playlist.
+
+```bash
+vibemus releases sync
+vibemus releases sync --force --auto
+```
+
+### `deep` — Deep Scanning & Maintenance
+
+---
+
+#### `vibemus deep sync [--auto]`
 **Deep maintenance sync** — scans all artists not checked in the last 6 months.
 
 - Applies intelligent deduplication.
@@ -220,44 +253,33 @@ vibemus artist sync
 - `--auto` skips all prompts and processes all candidates automatically.
 
 ```bash
-vibemus sync deep
-vibemus sync deep --auto
+vibemus deep sync
+vibemus deep sync --auto
 ```
 
 ---
 
-#### `vibemus sync playlist [--name "Name"] [--skip-lastfm]`
-Reconcile one or all source playlists against your `Songs` sheet.
-
-- Updates scrobble counts, like status, and metadata.
-- Moves **liked songs** to the artist's target playlist (from `#` only).
-- Archives **disliked songs** (from any playlist).
-- `--name` limits the sync to a single named playlist.
-- `--skip-lastfm` skips Last.fm enrichment for a faster run.
-- **🛡️ Data Safety**: If a song is present in the `Songs` sheet but cannot be found in the corresponding YouTube playlist, the system considers it "Missing from YouTube" and moves it to the `Archived` sheet to keep your catalog clean without losing metadata.
-
-```bash
-vibemus sync playlist
-vibemus sync playlist --name "#"
-vibemus sync playlist --name "#" --skip-lastfm
-```
+### `new-releases` — Latest Drops
 
 ---
 
-
-
----
-
-#### `vibemus sync new-releases`
+#### `vibemus new-releases sync [--auto]`
 Scan global new releases from YouTube Music and check for updates from all your tracked artists.
 
+- `--auto` skips all prompts and processes all candidates automatically.
+
 ```bash
-vibemus sync new-releases
+vibemus new-releases sync
+vibemus new-releases sync --auto
 ```
 
 ---
 
-#### `vibemus sync genre`
+### `genre` — Genre Taxonomy Management
+
+---
+
+#### `vibemus genre sync`
 Update the **Genre** summary sheet in your Google Spreadsheet.
 
 - **Interactive Filtering**: If it detects a genre not in your "Approved" or "Ignored" lists, it will prompt you:
@@ -268,33 +290,60 @@ Update the **Genre** summary sheet in your Google Spreadsheet.
 - **Normalization**: Automatically applies **Title Case** and splits multi-genre strings (e.g., `noise rock, indie` → `Noise Rock` + `Indie`).
 
 ```bash
-vibemus sync genre
+vibemus genre sync
 ```
 
 ---
 
+### `library` — YouTube Music Library Sync
 
+---
+
+#### `vibemus library sync`
+Bidirectional synchronization between your YouTube Music Library and your playlists (Songs sheet).
+
+- **📥 ADD**: Songs that are in playlists (Songs sheet, excluding `#`) but NOT saved in your YouTube library will be added.
+- **📤 REMOVE**: Songs that are in your library but NOT in any playlist (and not Liked) will be removed.
+- **💛 Liked Protection**: Liked songs are never removed, even if they aren't in any playlist.
+- **Preview**: Shows a preview of all additions and removals before executing.
+- **Confirmation**: Requires explicit confirmation before making any changes.
+
+```bash
+vibemus library sync
+```
 
 > [!TIP]
-> **Recommended Weekly Routine**
-> Si has estado moviendo canciones en la app de YouTube Music, sigue este flujo para sincronizar todo:
-> 
-> 1. **Vacía tu Inbox**: `vibemus sync playlist --name "#" --skip-lastfm`
->    *Procesa tus Likes (moviéndolos a sus listas definitivas) y Dislikes (archivándolos).*
-> 2. **Sincroniza el Catálogo**: `vibemus sync playlist --skip-lastfm`
->    *Actualiza el Google Sheet con cualquier cambio manual que hayas hecho (borrados, movimientos).*
-> 3. **Mantén el Orden por Años**: `vibemus playlist split --name "Pop" --parts 3`
->    *Usa el motor de división automática para repartir tus listas grandes en bloques históricos equilibrados.*
+> Run this after `playlist sync` or `apply-moves` to ensure your YouTube Music library is fully in sync with your curated playlists.
 
 ---
 
 ### `playlist` — Playlist Operations
 
+---
+
+#### `vibemus playlist sync [--name "Name"] [--skip-lastfm]`
+Reconcile one or all source playlists against your `Songs` sheet.
+
+- Updates scrobble counts, like status, and metadata.
+- Moves **liked songs** to the artist's target playlist (from `#` only).
+- Archives **disliked songs** (from any playlist).
+- `--name` limits the sync to a single named playlist.
+- `--skip-lastfm` skips Last.fm enrichment for a faster run.
+- **🛡️ Data Safety**: If a song is present in the `Songs` sheet but cannot be found in the corresponding YouTube playlist, the system considers it "Missing from YouTube" and moves it to the `Archived` sheet to keep your catalog clean without losing metadata.
+
+```bash
+vibemus playlist sync
+vibemus playlist sync --name "#"
+vibemus playlist sync --name "#" --skip-lastfm
+```
+
+---
+
 #### `vibemus playlist list`
 Displays a comparative table of all your playlists (including historical archives), contrasting the total song count in **YouTube Music** vs. your **Google Sheet (Songs)**.
 
 - **Difference Detection**: Highlights mismatched playlists in yellow and shows exactly how many songs are missing on either side.
-- **Interactive Correction**: If discrepancies are found, it offers to automatically run `sync playlist --skip-lastfm` for the affected collections only, ensuring your catalog is perfectly aligned.
+- **Interactive Correction**: If discrepancies are found, it offers to automatically run `playlist sync --skip-lastfm` for the affected collections only, ensuring your catalog is perfectly aligned.
 
 ```bash
 # View global status and (optionally) fix mismatched playlists
@@ -388,7 +437,7 @@ vibemus system auth
 Old-style flags (`--deep-sync`, `--add-artist`, etc.) still work and are automatically translated. A deprecation warning shows the equivalent new command:
 
 ```
-⚠ '--deep-sync' is deprecated. Use: vibemus sync deep
+⚠ '--deep-sync' is deprecated. Use: vibemus deep sync
 ```
 
 | Old command | New command |
@@ -398,13 +447,12 @@ Old-style flags (`--deep-sync`, `--add-artist`, etc.) still work and are automat
 
 
 
-| `--deep-sync` | `vibemus sync deep` |
-| `--sync-new-releases` | `vibemus sync new-releases` |
-| `--sync-playlist` | `vibemus sync playlist` |
+| `--deep-sync` | `vibemus deep sync` |
+| `--sync-releases` | `vibemus releases sync` |
+| `--sync-new-releases` | `vibemus new-releases sync` |
+| `--sync-playlist` | `vibemus playlist sync` |
 | `--cleanup-inbox` | `vibemus playlist cleanup-inbox` |
-
-
-
+| `--cleanup-library` | `vibemus library sync` |
 | `--refresh-source-cache` | `vibemus system refresh-cache` |
 
 ---
