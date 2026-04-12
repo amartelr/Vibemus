@@ -200,12 +200,14 @@ def handle_playlist(args, manager) -> int:
             stacklevel=2,
         )
         return _library_sync(manager)
+    elif action == "review-pending":
+        return _playlist_review_pending(manager, args.threshold)
     elif action == "list":
         return _playlist_list(manager)
     else:
         print(
             "Usage: vibemus playlist "
-            "<sync|cleanup-inbox|cleanup-likes|apply-moves|split|list>"
+            "<sync|cleanup-inbox|cleanup-likes|apply-moves|split|review-pending|list>"
         )
         print("Run 'vibemus playlist --help' for details.")
         return 1
@@ -334,6 +336,10 @@ def _playlist_cleanup_library(manager) -> int:
 
 def _playlist_list(manager) -> int:
     manager.list_playlists_counts()
+    return 0
+
+def _playlist_review_pending(manager, threshold) -> int:
+    manager.sync_pending_playlist(threshold)
     return 0
 
 def _calculate_year_buckets(years, num_parts):

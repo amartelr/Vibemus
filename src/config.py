@@ -15,17 +15,27 @@ class Config:
     MUSICBRAINZ_CACHE_FILE = os.path.join(DATA_DIR, 'musicbrainz_cache.json')
     GENRE_PREFS_FILE = os.path.join(DATA_DIR, 'genre_preferences.json')
     ARCHIVING_CONFIG_FILE = os.path.join(CONFIG_DIR, 'archiving.json')
+    KEYS_FILE = os.path.join(CONFIG_DIR, 'keys.json')
     
+    # Internal cache for keys
+    _keys = {}
+    if os.path.exists(KEYS_FILE):
+        try:
+            with open(KEYS_FILE, 'r') as f:
+                _keys = json.load(f)
+        except Exception as e:
+            print(f"Warning: Could not load {KEYS_FILE}: {e}")
+
     # Last.fm
-    LASTFM_API_KEY = "affe9034dbe45ea2941b4697369ea607"
-    LASTFM_API_SECRET = "6b9a082897806a37c4e97af9b0765f64"
-    LASTFM_USERNAME = "amartelr"
+    LASTFM_API_KEY = _keys.get("LASTFM_API_KEY") or os.getenv("LASTFM_API_KEY")
+    LASTFM_API_SECRET = _keys.get("LASTFM_API_SECRET") or os.getenv("LASTFM_API_SECRET")
+    LASTFM_USERNAME = _keys.get("LASTFM_USERNAME", "amartelr")
     
     # MusicBrainz / AcoustID
     MUSICBRAINZ_APP = "vibemus"
     MUSICBRAINZ_VERSION = "1.0"
-    MUSICBRAINZ_CONTACT = "amartelr@users.noreply.github.com"
-    ACOUSTID_API_KEY = "VAcPhH9RYY"
+    MUSICBRAINZ_CONTACT = _keys.get("MUSICBRAINZ_CONTACT", "amartelr@users.noreply.github.com")
+    ACOUSTID_API_KEY = _keys.get("ACOUSTID_API_KEY") or os.getenv("ACOUSTID_API_KEY")
     
     # Sheets
     SPREADSHEET_TITLE = "YouTube Music Vibemus"
@@ -33,6 +43,7 @@ class Config:
     PLAYLIST_ID = "PL2_CnmTxHQ0Cnmzx13a1EL_3nrqr1wCkr" 
     SCROBBLE_THRESHOLD = 13
     UNLIKE_THRESHOLD = 10
+    PENDING_AUTO_ADD_THRESHOLD = 1
 
     SOURCE_PLAYLISTS = [
         "#", "Pop", "Rock", "Garage", "Shoegaze", "Post-punk", "Emo", "Folk",

@@ -247,6 +247,16 @@ def _register_playlist(subparsers: argparse._SubParsersAction) -> None:
         help="Divide the entire collection into N approximately equal parts",
     )
 
+    # playlist review-pending
+    rp_p = pl_sub.add_parser(
+        "review-pending",
+        help="Crea y actualiza una playlist 'Pendiente' según el número de reproducciones (default: <= 2).",
+    )
+    rp_p.add_argument(
+        "threshold", type=int, nargs="?", default=None,
+        help="Límite máximo de reproducciones para incluir en la lista (omitir para no añadir canciones nuevas)",
+    )
+
     # playlist list
     pl_sub.add_parser(
         "list",

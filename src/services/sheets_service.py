@@ -15,21 +15,36 @@ class SheetsService:
         self._songs_vid_cache = None  # replaces History cache
 
     def _get_or_create_spreadsheet(self):
-        retries = 3
-        delay = 2
-        
-        while retries > 0:
+        def _open():
             try:
                 return self.client.open(Config.SPREADSHEET_TITLE)
             except gspread.SpreadsheetNotFound:
                 return self.client.create(Config.SPREADSHEET_TITLE)
+        
+        return self._execute_with_retry(_open)
+
+    def _execute_with_retry(self, func, *args, **kwargs):
+        """Helper to execute gspread calls with exponential backoff on transient API errors."""
+        retries = 5
+        delay = 2
+        while retries > 0:
+            try:
+                return func(*args, **kwargs)
             except gspread.exceptions.APIError as e:
-                # Catch 500 errors and retry
-                if getattr(e.response, 'status_code', None) == 500 and retries > 1:
-                    print(f"Warning: Sheet API 500 error, retrying in {delay}s... ({retries-1} left)")
-                    time.sleep(delay)
+                code = getattr(e.response, 'status_code', None)
+                # 429: Too Many Requests, 500/502/503: Server errors
+                if code in [429, 500, 502, 503] and retries > 1:
+                    wait = delay
+                    if code == 429:
+                        wait = 30 # Quota hits usually need more time
+                        print(f"  \033[93m⚠ Quota exceeded (429), waiting {wait}s to resume...\033[0m")
+                    else:
+                        print(f"  \033[93m⚠ Sheet API {code} error, retrying in {wait}s... ({retries-1} left)\033[0m")
+                    
+                    time.sleep(wait)
                     retries -= 1
-                    delay *= 2 # Exponential backoff
+                    if code != 429:
+                        delay *= 2
                 else:
                     raise
             except Exception:
@@ -63,9 +78,7 @@ class SheetsService:
             return 0
 
     def _get_worksheet(self, title):
-        retries = 3
-        delay = 2
-        while retries > 0:
+        def _fetch():
             try:
                 return self.spreadsheet.worksheet(title)
             except gspread.WorksheetNotFound:
@@ -80,16 +93,8 @@ class SheetsService:
                     # Default header for playlist exports
                     ws.append_row(["Playlist", "Artist", "Album", "Title", "Views"])
                 return ws
-            except gspread.exceptions.APIError as e:
-                if getattr(e.response, 'status_code', None) == 500 and retries > 1:
-                    print(f"Warning: Sheet API 500 error in worksheet '{title}', retrying in {delay}s... ({retries-1} left)")
-                    time.sleep(delay)
-                    retries -= 1
-                    delay *= 2
-                else:
-                    raise
-            except Exception:
-                raise
+        
+        return self._execute_with_retry(_fetch)
 
     def export_playlist_to_sheet(self, songs, sheet_name="Songs"):
         """
@@ -153,8 +158,8 @@ class SheetsService:
             ])
             
         print(f"Updating sheet... (Total rows: {len(new_rows)})")
-        ws.clear()
-        ws.update(range_name='A1', values=new_rows)
+        self._execute_with_retry(ws.clear)
+        self._execute_with_retry(ws.update, range_name='A1', values=new_rows)
         
         # Move sheet to be after 'History' if possible
         
@@ -181,7 +186,7 @@ class SheetsService:
             return self._artists_cache
             
         ws = self._get_worksheet("Artists")
-        self._artists_cache = ws.get_all_records()
+        self._artists_cache = self._execute_with_retry(ws.get_all_records)
         return self._artists_cache
 
     def save_artists(self, artists_data):
@@ -211,8 +216,8 @@ class SheetsService:
                 artist.get("Playlist", "")
             ])
         
-        ws.clear()
-        ws.update(range_name='A1', values=rows)
+        self._execute_with_retry(ws.clear)
+        self._execute_with_retry(ws.update, range_name='A1', values=rows)
         self._artists_cache = artists_data
 
     def add_artist(self, artist_row):
@@ -324,7 +329,7 @@ class SheetsService:
         """Returns all records from the Songs sheet as a list of dictionaries."""
         ws = self._get_worksheet("Songs")
         # Use UNFORMATTED_VALUE to get raw numbers instead of locale-formatted strings
-        data = ws.get_all_values(value_render_option='UNFORMATTED_VALUE')
+        data = self._execute_with_retry(ws.get_all_values, value_render_option='UNFORMATTED_VALUE')
         if not data:
             return []
         headers = data[0]
@@ -354,9 +359,9 @@ class SheetsService:
                 r.get('Video ID', '')
             ])
         try:
-            ws.clear()
+            self._execute_with_retry(ws.clear)
             # Use batch update for atomicity
-            ws.update(range_name='A1', values=rows)
+            self._execute_with_retry(ws.update, range_name='A1', values=rows)
         except Exception as e:
             print(f"Error overwriting Songs: {e}")
 
@@ -379,7 +384,7 @@ class SheetsService:
                 s.get('Video ID', '')
             ])
         if new_rows:
-            ws.append_rows(new_rows)
+            self._execute_with_retry(ws.append_rows, new_rows)
 
     def overwrite_archived(self, archived_data):
         """Overwrites the Archived sheet with the provided data, preserving headers."""
@@ -399,10 +404,10 @@ class SheetsService:
                     self._to_int(s.get('LastfmScrobble')),
                     s.get('Video ID', '')
                 ])
-            ws.clear()
-            ws.append_row(header)
+            self._execute_with_retry(ws.clear)
+            self._execute_with_retry(ws.append_row, header)
             if rows:
-                ws.append_rows(rows)
+                self._execute_with_retry(ws.append_rows, rows)
         except Exception as e:
             print(f"Error overwriting Archived: {e}")
 
@@ -425,7 +430,7 @@ class SheetsService:
                 s.get('Video ID', '')
             ])
         if new_rows:
-            ws.append_rows(new_rows)
+            self._execute_with_retry(ws.append_rows, new_rows)
 
     def get_archived_vids(self):
         """Returns a set of Video IDs from the Archived sheet."""
@@ -435,7 +440,7 @@ class SheetsService:
     def get_archived_records(self):
         """Returns all records from the Archived sheet as a list of dictionaries."""
         ws = self._get_worksheet("Archived")
-        data = ws.get_all_values(value_render_option='UNFORMATTED_VALUE')
+        data = self._execute_with_retry(ws.get_all_values, value_render_option='UNFORMATTED_VALUE')
         if not data:
             return []
         headers = data[0]
@@ -464,8 +469,8 @@ class SheetsService:
                 self._to_int(s.get('LastfmScrobble')),
                 s.get('Video ID', '')
             ])
-        ws.clear()
-        ws.update(range_name='A1', values=rows)
+        self._execute_with_retry(ws.clear)
+        self._execute_with_retry(ws.update, range_name='A1', values=rows)
 
     def overwrite_genre_sheet(self, genre_counts):
         """Overwrites the Genre sheet with provided list of tuples (genre, count)."""
@@ -474,5 +479,5 @@ class SheetsService:
         rows = [header]
         for genre, count in genre_counts:
             rows.append([genre, count])
-        ws.clear()
-        ws.update(range_name='A1', values=rows)
+        self._execute_with_retry(ws.clear)
+        self._execute_with_retry(ws.update, range_name='A1', values=rows)

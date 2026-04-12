@@ -231,7 +231,7 @@ Scan for new albums and singles from **all tracked artists**.
 
 - **Targeted Scan**: Directly visits the profile of every artist in your 'Artists' sheet.
 - **Filtering**: Automatically excludes songs already in your library or archive.
-- **Metadata**: Shows Last.fm scrobble counts for new discoveries.
+- **Metadata**: Shows Last.fm scrobble counts directly in the prompt: `[Listeners🎧 | Your Plays👤]`.
 - **`--force`**: Re-scans all artists even if they were checked recently (ignores the 24h window).
 - **`--auto`**: Skips interactive prompts and adds all found songs to the `#` playlist.
 
@@ -326,6 +326,8 @@ Reconcile one or all source playlists against your `Songs` sheet.
 
 - Updates scrobble counts, like status, and metadata.
 - Moves **liked songs** to the artist's target playlist (from `#` only).
+  - *Si el destino final de la canción es una playlist de archivo (fuera de SOURCE_PLAYLISTS), automáticamente le quitará el Like en YouTube.*
+  - *Si además la canción tiene muy pocas reproducciones (<= 1 scrobble por defecto), la enviará también a la lista reservada **Pendiente**.*
 - Archives **disliked songs** (from any playlist).
 - `--name` limits the sync to a single named playlist.
 - `--skip-lastfm` skips Last.fm enrichment for a faster run.
@@ -335,6 +337,35 @@ Reconcile one or all source playlists against your `Songs` sheet.
 vibemus playlist sync
 vibemus playlist sync --name "#"
 vibemus playlist sync --name "#" --skip-lastfm
+```
+
+---
+
+#### `vibemus playlist review-pending [N]`
+**Bandeja de revisión de biblioteca antigua** — localiza canciones "olvidadas" para decidir si mantenerlas o eliminarlas.
+
+- **Criterio de Selección**: Busca canciones con **reproducciones menores o iguales al número indicado** (`Scrobble <= N`). Si no se indica nada, el valor por defecto es **2**.
+- **Alcance Inteligente**: Solo escanea playlists que tengan un **intervalo de años** en su título (ej. `2010-2015`), ignorando tus listas activas y la bandeja de entrada `#`.
+- **Limpieza de Dislikes**: Si marcas una canción como "No me gusta" (Dislike) dentro de la playlist `Pendiente`:
+    - El script la **eliminará de todas tus playlists** de YouTube Music.
+    - La marcará como **"Indiferente"** en YouTube para limpiar tu algoritmo.
+    - La moverá a la pestaña **Archived** de tu Google Sheet.
+- **Detección de Likes**: Si la marcas como "Me gusta" (Like):
+    - La eliminará de tu lista `Pendiente` (porque ya ha sido evaluada positivamente).
+    - Te la mantendrá como Like en YouTube para mejorar tus recomendaciones.
+    - Pondrá el contador de reproducciones en el Sheet automáticamente a **4** (para evitar que en el futuro vuelva a entrar en esta bandeja de revisión).
+- **Auto-Graduación**: Si una canción sigue evaluándose y escuchándola orgánicamente supera el límite que has introducido en el comando, el bot la considerará "graduada" y la eliminará silenciosamente de la lista Pendiente.
+- **Independencia**: La playlist `Pendiente` es totalmente independiente y no se sincroniza con tus listas de género habituales.
+
+```bash
+# Busca canciones con 0, 1 o 2 reproducciones (default)
+vibemus playlist review-pending
+
+# Busca canciones que nunca has escuchado (0 reproducciones)
+vibemus playlist review-pending 0
+
+# Busca canciones con 5 reproducciones o menos
+vibemus playlist review-pending 5
 ```
 
 ---

@@ -161,6 +161,14 @@ class YTMusicService:
             print(f"Error fetching playlist {playlist_id}: {e}")
             return []
 
+    def get_liked_songs(self, limit=None):
+        """Returns the user's liked songs."""
+        try:
+            return self.yt.get_liked_songs(limit=limit)
+        except Exception as e:
+            print(f"Error fetching liked songs: {e}")
+            return {}
+
     def get_playlist_items_with_status(self, playlist_id, limit=None):
         """Returns items in a playlist with accurate likeStatus via browser auth."""
         if self.yt_browser:

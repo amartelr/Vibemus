@@ -6,6 +6,10 @@ __pycache__/
 chrome_auth_profile/
 node_modules/
 data/*.json
+config/*
+!config/archiving.json
+!config/*.example
+.env
 *.pyc
 .DS_Store
 *.log
