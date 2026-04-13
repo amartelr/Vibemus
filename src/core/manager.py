@@ -1053,6 +1053,19 @@ class Manager:
                         self.yt.remove_playlist_items(pid, [item])
                         if status == 'DISLIKE': 
                             self.yt.rate_song(vid, 'INDIFFERENT')
+                            # Eliminar también de la biblioteca
+                            try:
+                                remove_token = (item.get('feedbackTokens') or {}).get('remove')
+                                if not remove_token:
+                                    lib = self._get_library_catalog()
+                                    lib_item = lib.get(vid)
+                                    if lib_item:
+                                        remove_token = (lib_item.get('feedbackTokens') or {}).get('remove')
+                                if remove_token:
+                                    self.yt.edit_song_library_status(feedback_tokens=[remove_token])
+                                    print(f"      🗑 Eliminado de la biblioteca")
+                            except Exception as lib_e:
+                                print(f"      ⚠ No se pudo eliminar de la biblioteca: {lib_e}")
                     except Exception as e:
                         print(f"      ⚠ Error during YouTube archive/remove: {e}")
                     
@@ -2148,6 +2161,19 @@ class Manager:
                     try:
                         self.yt.remove_playlist_items(target_pid, [item])
                         self.yt.rate_song(vid, 'INDIFFERENT')
+                        # Eliminar también de la biblioteca
+                        try:
+                            remove_token = (item.get('feedbackTokens') or {}).get('remove')
+                            if not remove_token:
+                                lib = self._get_library_catalog()
+                                lib_item = lib.get(vid)
+                                if lib_item:
+                                    remove_token = (lib_item.get('feedbackTokens') or {}).get('remove')
+                            if remove_token:
+                                self.yt.edit_song_library_status(feedback_tokens=[remove_token])
+                                print(f"      🗑 Eliminado de la biblioteca")
+                        except Exception as lib_e:
+                            print(f"      ⚠ No se pudo eliminar de la biblioteca: {lib_e}")
                     except Exception as e:
                         print(f"      ⚠ Error actualizando YouTube: {e}")
                     
