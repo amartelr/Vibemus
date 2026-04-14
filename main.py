@@ -12,7 +12,6 @@ from src.cli.commands import (
     handle_library,
     handle_releases,
     handle_system,
-    handle_deep,
     handle_new_releases,
     handle_genre,
 )
@@ -25,7 +24,6 @@ _HANDLERS = {
     "releases": handle_releases,
     "playlist": handle_playlist,
     "library": handle_library,
-    "deep": handle_deep,
     "new-releases": handle_new_releases,
     "genre": handle_genre,
     "system": handle_system,

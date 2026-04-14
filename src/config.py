@@ -57,8 +57,6 @@ class Config:
     SYNC_DELAY = 2 # Seconds between artists in batch operations
 
     # Local Caching
-    DEEP_SYNC_CACHE_FILE = os.path.join(DATA_DIR, 'deep_sync_cache.json')
-    DEEP_SYNC_CACHE_DAYS = 30
     RELEASES_SYNC_CACHE_FILE = os.path.join(DATA_DIR, 'releases_sync_cache.json')
     RELEASES_SYNC_CACHE_DAYS = 7
     

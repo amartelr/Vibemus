@@ -15,7 +15,6 @@
 6. [CLI Reference](#cli-reference)
    - [artist](#artist--manage-tracked-artists)
    - [releases](#releases--artist-release-monitoring)
-   - [deep](#deep--deep-scanning--maintenance)
    - [new-releases](#new-releases--latest-drops)
    - [genre](#genre--genre-taxonomy-management)
    - [library](#library--youtube-music-library-sync)
@@ -123,9 +122,6 @@ Vibemus uses local JSON caches in the `data/` directory to optimize performance 
 *   **Updates**: Refreshed via `vibemus system refresh-cache` or `--refresh-cache`. It is proactively updated (items removed) when songs are successfully moved.
 *   **⚠️ Stale Cache Warning**: If you manually remove or move songs using the YouTube Music app, the local cache will be out of sync. `apply-moves` might report songs as "Synced" when they are actually missing from YouTube. Always use `--refresh-cache` if you've made manual changes on YouTube recently.
 
-### 3. Deep Sync Cache (`deep_sync_cache.json`)
-*   **Purpose**: Tracks when each artist was last fully scanned during a deep sync.
-*   **Validity**: **30 days**. Artists scanned within the last month are skipped during general deep sync operations to save time.
 
 ### 4. MusicBrainz Cache (`musicbrainz_cache.json`)
 *   **Purpose**: Stores artist and track tags fetched from MusicBrainz.
@@ -142,18 +138,11 @@ Vibemus uses local JSON caches in the `data/` directory to optimize performance 
 
 Vibemus uses a **double-layer filtering system** to optimize discovery operations and respect API rate limits.
 
-### The "Double-Layer" Filter
-When running `vibemus deep sync`, the system evaluates artists in two steps:
-
-1.  **Google Sheet Check (Persistent)**: 
-    - The program looks for artists with `Status: Pending` or an empty `Last Checked` field in your spreadsheet.
-    - If an artist is marked as `Done` or `Archived`, they are skipped immediately.
-2.  **Local Cache Check (Temporal)**:
-    - If an artist is "Pending" in the sheet, the system checks the local `data/deep_sync_cache.json`.
-    - If the artist was already checked within the last **30 days** (configurable), they are skipped even if their field in the sheet is empty. This prevents infinite retries of artists with no new content.
+### Artist Sync Logic
+Vibemus uses the `releases sync` command to monitor your artists. It checks for new releases and updates the 'Last Checked' date in your spreadsheet.
 
 ### Artist Status Meanings
-- **`Pending`**: New artist or needs a deep scan.
+- **`Pending`**: New artist awaiting scan.
 - **`Done`**: Exploration finished. The system has successfully scanned their discography and added any chosen songs.
 - **`Archived`**: You've decided to stop tracking this artist. They won't appear in any sync commands.
 
@@ -166,10 +155,9 @@ Vibemus offers three different ways to discover and sync music. Use this table t
 |:---|:---|:---|:---|:---|
 | **`new-releases sync`** | **Daily** | Global "New Releases" shelf | Top global hits from your artists | ⚡ Instant daily catch-up (seconds). |
 | **`releases sync`** | **Weekly** | Individual artist profiles | Every new single/album from your list | 🎯 Full monitoring of your specific artists. |
-| **`deep sync`** | **Monthly** | Discography & Top Tracks | Entire catalog + Pending artists | 💎 Onboarding new artists or catalog gems. |
 
 > [!TIP]
-> **Workflow Suggestion**: Use `new-releases` daily to catch big drops instantly. Run `releases` once a week to ensure nothing was missed. Use `deep` only for new artists or when you want a thorough review of your collection.
+> **Workflow Suggestion**: Use `new-releases` daily to catch big drops instantly. Run `releases` once a week to ensure nothing was missed.
 
 ---
 
@@ -189,7 +177,7 @@ vibemus <group> <action> [options]
 Search YouTube Music and start tracking an artist.
 
 - **With `--playlist`**: Assigns the target playlist in the 'Artists' sheet and immediately migrates existing songs in the library to that playlist.
-- **Deep Sync Interactive**: After adding, it immediately launches the interactive deep sync logic to search for recent releases (2025/2026) and the most popular catalogue gems, allowing you to populate your library right away.
+- **Immediate Sync**: After adding, it immediately searches for recent releases and popular tracks to help you populate your library right away.
 
 **Examples:**
 ```bash
@@ -240,24 +228,6 @@ vibemus releases sync
 vibemus releases sync --force --auto
 ```
 
-### `deep` — Deep Scanning & Maintenance
-
----
-
-#### `vibemus deep sync [--auto]`
-**Deep maintenance sync** — scans all artists not checked in the last 6 months.
-
-- Applies intelligent deduplication.
-- Enriches songs with Last.fm tags.
-- Prompts interactively for each artist: **[c]ontinue**, **[s]kip**, or **[r]emove**.
-- `--auto` skips all prompts and processes all candidates automatically.
-
-```bash
-vibemus deep sync
-vibemus deep sync --auto
-```
-
----
 
 ### `new-releases` — Latest Drops
 
@@ -465,20 +435,10 @@ vibemus system auth
 
 ## Legacy Commands
 
-Old-style flags (`--deep-sync`, `--add-artist`, etc.) still work and are automatically translated. A deprecation warning shows the equivalent new command:
-
-```
-⚠ '--deep-sync' is deprecated. Use: vibemus deep sync
-```
-
 | Old command | New command |
 |-------------|-------------|
 | `--add-artist "X"` | `vibemus artist add "X"` |
 | `--remove-artist "X"` | `vibemus artist remove "X"` |
-
-
-
-| `--deep-sync` | `vibemus deep sync` |
 | `--sync-releases` | `vibemus releases sync` |
 | `--sync-new-releases` | `vibemus new-releases sync` |
 | `--sync-playlist` | `vibemus playlist sync` |
@@ -502,7 +462,6 @@ Vibemus/
 │   └── service_account.json
 ├── data/                    # Local caches (git-ignored)
 │   ├── source_cache.json
-│   ├── deep_sync_cache.json
 │   ├── lastfm_cache.json
 │   └── genre_preferences.json # Your approved/ignored genre lists
 ├── src/

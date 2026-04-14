@@ -301,9 +301,9 @@ class SheetsService:
                 "Artist Name": artist_name,
                 "Artist ID": artist_id or "",
                 "Playlist": playlist_name,
-                "Status": "Pending", # Set as pending for future deep syncs
+                "Status": "Pending", # Status for artists awaiting their first scan
                 "Song Count": song_count or 0,
-                "Last Checked": datetime.now().strftime("%d/%m/%Y") if not artist_id else "", # empty to trigger deep sync if sync was not done
+                "Last Checked": datetime.now().strftime("%d/%m/%Y") if not artist_id else "", # empty to trigger sync if not yet performed
                 "Genre": genre or ""
             }
 

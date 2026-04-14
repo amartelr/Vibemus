@@ -135,9 +135,6 @@ def handle_releases(args, manager) -> int:
         return 1
 
 
-def _sync_deep(args, manager) -> int:
-    manager.deep_sync_all_artists(interactive=not args.auto)
-    return 0
 
 
 def _sync_playlist(args, manager) -> int:
@@ -385,21 +382,6 @@ def _calculate_year_buckets(years, num_parts):
 
 
 
-
-
-# ── Deep ──────────────────────────────────────────────────────────────────────
-
-
-def handle_deep(args, manager) -> int:
-    """Dispatch deep sub-actions."""
-    action = getattr(args, "action", None)
-
-    if action == "sync":
-        return _sync_deep(args, manager)
-    else:
-        print("Usage: vibemus deep <sync>")
-        print("Run 'vibemus deep --help' for details.")
-        return 1
 
 
 # ── Library ───────────────────────────────────────────────────────────────────

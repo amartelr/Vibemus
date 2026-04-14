@@ -21,7 +21,7 @@ def build_parser() -> argparse.ArgumentParser:
         epilog=(
             "Examples:\n"
             "  vibemus artist add \"Radiohead\" --playlist \"Rock\"\n"
-            "  vibemus deep sync --auto\n"
+            "  vibemus releases sync\n"
             "  vibemus playlist sync\n"
             "  vibemus system refresh-cache\n"
         ),
@@ -32,7 +32,6 @@ def build_parser() -> argparse.ArgumentParser:
     _register_releases(subparsers)
     _register_playlist(subparsers)
     _register_library(subparsers)
-    _register_deep(subparsers)
     _register_new_releases(subparsers)
     _register_genre(subparsers)
     _register_system(subparsers)
@@ -284,28 +283,6 @@ def _register_library(subparsers: argparse._SubParsersAction) -> None:
     )
 
 
-# ── Deep ──────────────────────────────────────────────────────────────────────
-
-
-def _register_deep(subparsers: argparse._SubParsersAction) -> None:
-    deep_parser = subparsers.add_parser(
-        "deep",
-        help="Deep scanning and maintenance",
-        description="Comprehensive analysis of your collection.",
-    )
-    deep_sub = deep_parser.add_subparsers(dest="action")
-
-    # deep sync (was sync deep)
-    ds_p = deep_sub.add_parser(
-        "sync",
-        help="Deep sync all artists not checked in 6 months",
-    )
-    ds_p.add_argument(
-        "--auto", action="store_true",
-        help="Skip interactive prompts and auto-add all candidates",
-    )
-
-
 # ── New Releases ──────────────────────────────────────────────────────────────
 
 
@@ -383,7 +360,6 @@ _LEGACY_MAP = {
     "--archive-inactive": ("artist", "archive-inactive"),
     "--reset-empty-artists": ("artist", "reset-empty"),
 
-    "--deep-sync": ("deep", "sync"),
     "--sync-releases": ("releases", "sync"),
     "--sync-new-releases": ("new-releases", "sync"),
     "--sync-playlist": ("playlist", "sync"),
@@ -407,7 +383,7 @@ def rewrite_legacy_args(argv: list[str]) -> list[str]:
         return argv
 
     # If the first arg already looks like a subcommand, skip
-    if argv[0] in ("artist", "releases", "playlist", "library", "system", "deep", "new-releases", "genre"):
+    if argv[0] in ("artist", "releases", "playlist", "library", "system", "new-releases", "genre"):
         return argv
 
     new_argv: list[str] = []
