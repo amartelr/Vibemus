@@ -136,6 +136,10 @@ def _register_releases(subparsers: argparse._SubParsersAction) -> None:
         "--auto", action="store_true",
         help="Skip interactive prompts and auto-add all found songs",
     )
+    sync_p.add_argument(
+        "--liked-only", action="store_true",
+        help="Only check artists that have at least one song in your Liked Songs playlist",
+    )
 
 
 

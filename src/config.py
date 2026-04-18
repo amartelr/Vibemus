@@ -47,10 +47,10 @@ class Config:
 
     SOURCE_PLAYLISTS = [
         "#", "Pop", "Rock", "Garage", "Shoegaze", "Post-punk", "Emo", "Folk",
-        "Español", "Crank"
+        "Español", "Crank", "Hip Hop"
     ]
 
-    ARCHIVABLE_PLAYLISTS = ["Pop", "Rock", "Folk", "Post-punk", "Español", "Crank", "Garage"]
+    ARCHIVABLE_PLAYLISTS = ["Pop", "Rock", "Folk", "Post-punk", "Español", "Crank", "Garage", "Hip Hop"]
     
     MAX_NEW_RELEASE_SONGS = 3  # Max top songs to add from a new album release
     MAX_NEW_RELEASE_YEARS = 1  # Límite de años hacia atrás para buscar novedades

@@ -25,6 +25,27 @@
 
 ---
 
+## ⚡ Quick Reference Guide
+
+| Category | Command | Description |
+|:---|:---|:---|
+| **Discovery** | `releases sync` | Scan profile of every tracked artist (Full monitor). |
+| | `new-releases sync` | Scan global YouTube shelf for tracked artists (Fast scan). |
+| **Artist** | `artist add "Name"` | Start tracking a new artist and sync discography. |
+| | `artist sync` | Add missing artists found in your library to the tracking list. |
+| | `artist list` | Show all currently tracked artists and their status. |
+| **Playlist** | `playlist sync` | Consolidate inbox, move likes, and archive dislikes. |
+| | `playlist list` | Compare song counts between YT and Google Sheets. |
+| | `playlist apply-moves` | Push manual playlist changes from Sheets to YouTube. |
+| | `playlist review-pending` | Review low-listen songs in a dedicated tray. |
+| **Maintenance** | `library sync` | Add playlist songs to library / remove orphans. |
+| | `playlist cleanup-inbox` | Remove songs from '#' that are already organized. |
+| | `playlist split` | Split archives into year-based chunks (e.g., Pop 2010-2015). |
+| **System** | `system auth` | Refresh YouTube Music account authentication. |
+| | `system refresh-cache` | Force update of local playlist metadata cache. |
+
+---
+
 ## Requirements
 
 | Tool | Version |
@@ -222,6 +243,7 @@ Scan for new albums and singles from **all tracked artists**.
 - **Metadata**: Shows Last.fm scrobble counts directly in the prompt: `[Listeners🎧 | Your Plays👤]`.
 - **`--force`**: Re-scans all artists even if they were checked recently (ignores the 24h window).
 - **`--auto`**: Skips interactive prompts and adds all found songs to the `#` playlist.
+- **`--liked-only`**: Filtra los artistas para sincronizar solo aquellos que tienen al menos una canción en tu playlist de YouTube Music llamada **"LM"** (o en tu colección de "Me gusta" si "LM" no existe). Ideal para una revisión rápida de tus artistas más escuchados/recientes.
 
 ```bash
 vibemus releases sync

@@ -158,7 +158,8 @@ def _sync_releases(args, manager) -> int:
     """Sync all artists for new releases (skips artists checked in the last 7 days unless forced)."""
     manager.sync_all_artist_releases(
         force=getattr(args, "force", False),
-        interactive=not getattr(args, "auto", False)
+        interactive=not getattr(args, "auto", False),
+        liked_only=getattr(args, "liked_only", False),
     )
     return 0
 

@@ -214,67 +214,130 @@ class Manager:
         
         return None
 
+    # Regex that detects compound/collaboration separators in an artist name
+    _COLLAB_SEP_RE = re.compile(r'\s+(?:&|and|y)\s+', re.IGNORECASE)
+
     def _ensure_artist_tracked(self, artists_records, main_artist, artists_list, pl_name, all_songs):
-        """Ensures an artist is in the tracking list, prompts for onboarding if not."""
+        """Ensures an artist is in the tracking list, prompts for onboarding if not.
+
+        Before registering a new artist the method verifies that a YouTube Music
+        artist channel actually exists.  If none is found (common with collaboration
+        names like 'A & B' that have no standalone channel) the user is asked
+        whether to skip (default) or force-add the entry.
+        """
         artist_row = self._find_artist_row(artists_records, name=main_artist, artists_list=artists_list)
-        
         if artist_row:
-            # If name is different but ID matched, we could update it, but for now we trust the row
             return artist_row
 
-        # If not found, start onboarding
+        # ── Determine primary artist for onboarding ──
         onboarding_artist = main_artist
         onboarding_id = (artists_list[0].get('id') or artists_list[0].get('browseId')) if artists_list else None
 
-        # When multiple artists are present (collaboration), silently default to
-        # the primary artist (index 0) — never prompt the user for compound artists.
         if artists_list and len(artists_list) > 1:
-            collab_names = ", ".join([f"'{a['name']}'" for a in artists_list])
-            print(f"    \033[90mℹ Collaboration [{collab_names}] → using primary: '{onboarding_artist}'\033[0m")
-        
-        import re
+            collab_names = [a['name'] for a in artists_list]
+            # Solo preguntamos si el artista es nuevo (no está ya en tracking)
+            # Si ya está tracked, lo usamos directamente sin molestar al usuario
+            already_tracked = any(
+                self._normalize(a['name']) == self._normalize(main_artist)
+                for a in [{'name': r.get('Artist Name', '')} for r in artists_records]
+            )
+            if not already_tracked:
+                print(f"    \033[93m⚠ Artista múltiple detectado:\033[0m \033[1;96m{' & '.join(collab_names)}\033[0m")
+                print(f"      ¿Cuál usar como artista principal para el seguimiento?")
+                for i, name in enumerate(collab_names, 1):
+                    print(f"        {i}. {name}")
+                print(f"        0. Introducir nombre personalizado")
+                while True:
+                    ans_collab = input(f"      Selecciona [1-{len(collab_names)}/0, Enter={collab_names[0]}]: ").strip()
+                    if not ans_collab:
+                        # Default: primer artista
+                        break
+                    if ans_collab == '0':
+                        custom = input(f"      Nombre personalizado: ").strip()
+                        if custom:
+                            onboarding_artist = custom
+                            onboarding_id = None  # Force YT search for the custom name
+                        break
+                    try:
+                        idx = int(ans_collab)
+                        if 1 <= idx <= len(collab_names):
+                            onboarding_artist = collab_names[idx - 1]
+                            onboarding_id = (artists_list[idx - 1].get('id') or artists_list[idx - 1].get('browseId')) or None
+                            break
+                    except ValueError:
+                        pass
+                    print(f"      Opción no válida.")
+            else:
+                print(f"    \033[90mℹ Colaboración [{', '.join(repr(n) for n in collab_names)}] → usando: '{onboarding_artist}'\033[0m")
+
+        # ── YouTube channel verification ──
+        # If the browseId came from the track metadata AND the name looks like a
+        # real single artist, trust it and skip the extra search.
+        # For compound names (e.g. 'A & B') or when there is no browseId at all,
+        # perform an explicit search to confirm a channel exists.
+        is_compound = bool(self._COLLAB_SEP_RE.search(onboarding_artist))
+        channel_verified = bool(onboarding_id) and not is_compound
+
+        if not channel_verified:
+            yt_result = None
+            try:
+                yt_result = self.yt.search_artist(onboarding_artist)
+            except Exception:
+                pass
+
+            if yt_result:
+                found_name = (yt_result.get('artist') or '').strip()
+                query_tokens = set(onboarding_artist.lower().split())
+                found_tokens = set(found_name.lower().split())
+                overlap = query_tokens & found_tokens
+                good_match = len(query_tokens) > 0 and (len(overlap) / len(query_tokens)) >= 0.8
+                if good_match:
+                    onboarding_id = onboarding_id or yt_result.get('browseId')
+                else:
+                    yt_result = None  # treat as not found
+
+            if not onboarding_id:
+                print(f"    \033[91m⚠ No se encontró canal de YouTube para '\033[1m{onboarding_artist}\033[0;91m'.\033[0m")
+                ans = input(f"      ¿Añadir igualmente? [s=sí, Enter=no]: ").strip().lower()
+                if ans != 's':
+                    print(f"      ⏭  '{onboarding_artist}' omitido (sin canal de YouTube).")
+                    return None
+
+        # ── Playlist prompt ──
         default_pl = pl_name.replace(' $', '')
-        # Remove any interval trailing string like " (2015-2021)" or " (2006-2022)"
         default_pl = re.sub(r'\s*\(\d{4}-\d{4}\)$', '', default_pl).strip()
-        
-        # Inbox '#' should never be an artist's permanent home.
-        if default_pl == "#":
-            default_pl = ""
-            
+        if default_pl == '#':
+            default_pl = ''
+
         print(f"    \033[93m🆕 Tracking new artist: \033[1;96m'{onboarding_artist}'\033[0m")
         prompt = f"      Which playlist should receive their new releases? "
         if default_pl:
             prompt += f"[\033[92m{default_pl}\033[0m]: "
         else:
             prompt += "(e.g. Rock, Pop, Indie): "
-            
+
         res_pl = input(prompt).strip()
         final_pl = res_pl if res_pl else default_pl
-        
+
         if not final_pl:
             print(f"      ⏭  Artist '{onboarding_artist}' not registered (no default playlist).")
             return None
 
         print(f"      ✅ Registering '{onboarding_artist}' in Artists sheet with playlist '{final_pl}'.")
-        
-        # Get metadata for the chosen one
-        m_id = onboarding_id
-        
+
         # Genre lookup
         m_genre = None
         try:
             a_info = self.lastfm.get_artist_info(onboarding_artist)
             m_genre = a_info.get('genre', '')
-        except: pass
+        except Exception:
+            pass
 
         m_count = len([s for s in all_songs if self._normalize(s.get('Artist', '')) == self._normalize(onboarding_artist)])
-        
+
         # Persist to sheet
-        self.sheets.update_artist_playlist(onboarding_artist, final_pl, artist_id=m_id, genre=m_genre, song_count=m_count)
-        
-        # After update_artist_playlist, the local cache in self.sheets is updated.
-        # Since artists_records is a reference to that list, it already contains the new artist.
-        # We find and return that updated record to the caller.
+        self.sheets.update_artist_playlist(onboarding_artist, final_pl, artist_id=onboarding_id, genre=m_genre, song_count=m_count)
+
         return self._find_artist_row(artists_records, name=onboarding_artist, artists_list=artists_list)
 
     def _get_archive_threshold(self, archive_playlist_name):
@@ -571,6 +634,23 @@ class Manager:
                     sheet_changed = True
             year_str = f" \033[93m({song_year})\033[0m" if song_year else ""
 
+            # ── Archive routing check ──
+            # Move this before printing so the target_pl reflects the archive if needed
+            original_target_pl = target_pl
+            if target_pl and song_year:
+                # Check archivable (case-insensitive)
+                is_archivable = any(self._normalize(p) == self._normalize(target_pl) for p in Config.ARCHIVABLE_PLAYLISTS)
+                if is_archivable:
+                    resolved_target = self.get_target_playlist_by_year(target_pl, int(song_year))
+                    if resolved_target != target_pl:
+                        # Find the actual canonical name from ARCHIVABLE_PLAYLISTS to use in redirect message if it matches
+                        canonical_base = next((p for p in Config.ARCHIVABLE_PLAYLISTS if self._normalize(p) == self._normalize(target_pl)), target_pl)
+                        target_pl = resolved_target
+                        target_pl_lower = target_pl.lower()
+                        # Actualizamos la hoja de cálculo para que refleje el destino exacto (archivo)
+                        song['Playlist'] = target_pl
+                        sheet_changed = True
+
             # Cálculo de estado de sincronización previo al prompt
             already_in_target = vid in cache_vids.get(target_pl_lower, set())
             # Está en sync si está en la de destino y NO está en ninguna otra del catálogo
@@ -588,18 +668,9 @@ class Manager:
             # Interactive Logic: Skip prompt if target_playlist_name or target_artist_name is set
             auto_mode = (target_playlist_name is not None)
 
-            # ── Archive routing check ──
-            original_target_pl = target_pl
-            if target_pl in Config.ARCHIVABLE_PLAYLISTS and song_year:
-                resolved_target = self.get_target_playlist_by_year(target_pl, int(song_year))
-                if resolved_target != target_pl:
-                    print(f"    \033[93m📦 Redirigiendo por año ({song_year}): '{target_pl}' → '{resolved_target}'\033[0m")
-                    target_pl = resolved_target
-                    target_pl_lower = target_pl.lower()
-                    # Actualizamos la hoja de cálculo para que refleje el destino exacto (archivo)
-                    song['Playlist'] = target_pl
-                    sheet_changed = True
-                    print(f"    \033[93m📝 Sheet: Actualizado a destino de archivo '{target_pl}'\033[0m")
+            if target_pl != original_target_pl:
+                print(f"    \033[93m📦 Redirigiendo por año ({song_year}): '{original_target_pl}' → '{target_pl}'\033[0m")
+                print(f"    \033[93m📝 Sheet: Actualizado a destino de archivo '{target_pl}'\033[0m")
             
             if auto_mode:
                 user_input = "" # Treat as Enter
@@ -726,6 +797,14 @@ class Manager:
                 # Strip any trailing ' $' or ' #' from user preferences
                 suggestion = most_common_pl.rstrip(' #$').strip()
                 
+                # Normalización: Si la sugerencia no está en SOURCE_PLAYLISTS (ej. es un archivo con años),
+                # intentamos mapearla a la playlist "base" (ej. "Emo (2006-2022)" -> "Emo")
+                source_candidates = [p for p in Config.SOURCE_PLAYLISTS if p != "#"]
+                if suggestion not in source_candidates:
+                    matches = [p for p in source_candidates if suggestion.lower().startswith(p.lower())]
+                    if matches:
+                        suggestion = max(matches, key=len)
+
                 print(f"\n📢 Recomendación para Artista '{target_artist_name}':")
                 print(f"   La playlist más usada para sus canciones fue '{most_common_pl}'.")
                 confirm_prompt = f"   ¿Actualizar su playlist por defecto a \033[92m'{suggestion}'\033[0m? (Enter=Confirmar, escribe otra, 'n'=No): "
@@ -1844,7 +1923,7 @@ class Manager:
         self.sheets.add_to_songs_batch(tracks)
         return len(tracks)
 
-    def check_new_releases(self, playlist_id, force=False, target_artist_name=None, target_artist_id=None, clear_empty=False, interactive=False, skip_summary=False):
+    def check_new_releases(self, playlist_id, force=False, target_artist_name=None, target_artist_id=None, clear_empty=False, interactive=False, skip_summary=False, scope='all'):
         """Revisa la discografía del artista en YouTube y añade las canciones limitadas a MAX_NEW_RELEASE_SONGS."""
         if not target_artist_name:
             print("Se requiere el nombre del artista.")
@@ -1901,6 +1980,7 @@ class Manager:
         
         import re
         catalog_candidates = []
+        all_recent_interactive = []  # Acumula todos los tracks de lanzamientos recientes para preguntar de una vez
 
         # 1. Incluimos las "Top Songs" directamente como candidatos de catálogo
         top_songs = artist_data.get('songs', {}).get('results', [])
@@ -1986,50 +2066,10 @@ class Manager:
                 t['Artist'] = target_artist_name
                 t['Title'] = t.get('title', '')
 
-            # Pre-enriquecemos los datos de Last.fm SOLO de estas canciones nuevas
-            # para mostrar las reproducciones en el prompt
-            print(f"    🔎 Buscando popularidad en Last.fm para {len(top_missing_tracks)} canciones...")
-            self.lastfm.enrich_songs(top_missing_tracks, force_scrobbles=False)
-
-            if interactive:
-                # Ordenar por popularidad (oyentes en Last.fm) de mayor a menor
-                top_missing_tracks = sorted(top_missing_tracks, key=lambda x: int(x.get('LastfmScrobble', 0)), reverse=True)
-                
-                print(f"    \033[95m📀 Lanzamiento reciente ({album_year_str}):\033[0m \033[1m'{title}'\033[0m")
-                to_add_this_release = []
-                for t in top_missing_tracks:
-                    listeners = int(t.get('LastfmScrobble', 0))
-                    user_scrobbles = int(t.get('Scrobble', 0))
-                    listeners_fmt = f"{listeners:,}".replace(",", ".")
-                    ans = input(f"      - \033[1;96m{target_artist_name}\033[0m \033[90m-\033[0m \033[1;92m{t.get('title')}\033[0m \033[90m[{listeners_fmt}🎧 | {user_scrobbles}👤]\033[0m. ¿Añadir? [\033[92mS\033[0m/n/q]: ").strip().lower()
-                    if ans == 'q':
-                        return -1
-                    if ans != 'n':
-                        to_add_this_release.append(t)
-                
-                if not to_add_this_release:
-                    continue
-                
-                # Añadimos las confirmadas al lote general
-                for track in to_add_this_release:
-                    vid = track.get('videoId')
-                    year_val = str(album_info.get('year') or '')
-                    if not year_val and vid:
-                        year_val = self._fetch_song_year(vid, track.get('title', ''), target_artist_name)
-                    new_song = {
-                        'Playlist': '#',
-                        'Artist': target_artist_name,
-                        'Title': track.get('title', ''),
-                        'Album': title,
-                        'Year': year_val,
-                        'Genre': track.get('Genre', ''),
-                        'Scrobble': track.get('Scrobble', 0),
-                        'LastfmScrobble': track.get('LastfmScrobble', 0),
-                        'Video ID': vid
-                    }
-                    new_batch.append(new_song)
-                    existing_vids.add(vid)
-            else:
+            if interactive and scope in ('all', 'new'):
+                # Modo interactivo: acumular ahora, preguntar al final del loop (top 3)
+                all_recent_interactive.extend(top_missing_tracks)
+            elif not interactive:
                 print(f"    \033[90m+ Analizando lanzamiento: '{title}' ({album_year_str}). Extraídas {len(top_missing_tracks)} pistas...\033[0m")
                 for track in top_missing_tracks:
                     vid = track.get('videoId')
@@ -2051,22 +2091,76 @@ class Manager:
                     existing_vids.add(vid)
 
 
+        # Modo interactivo: enriquecemos una sola vez y preguntamos solo el Top 3 más popular
+        if interactive and all_recent_interactive:
+            print(f"    🔎 Buscando popularidad en Last.fm para {len(all_recent_interactive)} canciones de lanzamientos recientes...")
+            self.lastfm.enrich_songs(all_recent_interactive, force_scrobbles=False)
+            
+            # Deduplicar por título normalizado (un mismo single puede aparecer en varios releases)
+            seen_keys = set()
+            unique_recent = []
+            for t in all_recent_interactive:
+                k = f"{self._normalize(target_artist_name)} - {self._normalize(t.get('title', ''))}"
+                if k not in seen_keys:
+                    seen_keys.add(k)
+                    unique_recent.append(t)
+
+            # Ordenar por oyentes y presentar solo el Top 3
+            top3_recent = sorted(unique_recent, key=lambda x: int(x.get('LastfmScrobble', 0)), reverse=True)[:3]
+            
+            if top3_recent:
+                print(f"    \033[95m🎵 Top 3 pistas más populares de los lanzamientos recientes:\033[0m")
+                for t in top3_recent:
+                    listeners = int(t.get('LastfmScrobble', 0))
+                    user_scrobbles = int(t.get('Scrobble', 0))
+                    listeners_fmt = f"{listeners:,}".replace(",", ".")
+                    ans = input(f"      - \033[1;96m{target_artist_name}\033[0m \033[90m-\033[0m \033[1;92m{t.get('title')}\033[0m \033[90m[{listeners_fmt}🎧 | {user_scrobbles}👤]\033[0m. ¿Añadir? [\033[92mS\033[0m/n/q]: ").strip().lower()
+                    if ans == 'q':
+                        return -1
+                    if ans != 'n':
+                        vid = t.get('videoId')
+                        year_val = str(t.get('AlbumYear') or '')
+                        if not year_val and vid:
+                            year_val = self._fetch_song_year(vid, t.get('title', ''), target_artist_name)
+                        new_song = {
+                            'Playlist': '#',
+                            'Artist': target_artist_name,
+                            'Title': t.get('title', ''),
+                            'Album': t.get('AlbumTitle', ''),
+                            'Year': year_val,
+                            'Genre': t.get('Genre', ''),
+                            'Scrobble': t.get('Scrobble', 0),
+                            'LastfmScrobble': listeners,
+                            'Video ID': vid
+                        }
+                        new_batch.append(new_song)
+                        existing_vids.add(vid)
+
         # Añadimos las canciones de lanzamientos recientes antes de preguntar por el catálogo
         if interactive and new_batch:
             total_added += self._add_tracks_to_inbox(playlist_id, new_batch)
             new_batch = []
 
         # SEGUNDO PASE: Sugerimos las mejores del catálogo histórico si estamos en modo interactivo
-        if interactive and catalog_candidates:
-            if not new_batch:
-                prompt_msg = f"    ⚠ Sin novedades recientes. ¿Revisar las 3 más populares del catálogo antiguo? [s/N/q]: "
-            else:
-                prompt_msg = f"    ✨ ¿Revisar también las 3 más populares del catálogo antiguo? [s/N/q]: "
+        if interactive and catalog_candidates and scope in ('all', 'catalog'):
+            # Solo pedimos confirmación si el usuario eligió 'T'odas;
+            # si eligió 'a'nteriores directamente, mostramos sin preguntar
+            show_catalog = True
+            if scope == 'all':
+                if not new_batch:
+                    prompt_msg = f"    ⚠ Sin novedades recientes. ¿Revisar las 4 más populares del catálogo antiguo? [s/N/q]: "
+                else:
+                    prompt_msg = f"    ✨ ¿Revisar también las 4 más populares del catálogo antiguo? [s/N/q]: "
+                ans_cat = input(prompt_msg).strip().lower()
+                if ans_cat == 'q':
+                    return -1
+                show_catalog = (ans_cat == 's')
 
-            ans = input(prompt_msg).strip().lower()
-            if ans == 'q':
-                return -1
-            if ans == 's':
+            if show_catalog:
+                # Pre-filtrar candidatos que ya se añadieron en la fase de recientes
+                # (evita que YouTube rechace el lote entero por un duplicado)
+                catalog_candidates = [c for c in catalog_candidates if c.get('videoId') not in existing_vids]
+
                 # DEDUPLICADO: Evitar que la misma canción aparezca varias veces por estar en distintos álbumes/singles
                 unique_catalog = {}
                 for t in catalog_candidates:
@@ -2075,15 +2169,15 @@ class Manager:
                     key = f"{self._normalize(target_artist_name)} - {self._normalize(t['Title'])}"
                     if key not in unique_catalog:
                         unique_catalog[key] = t
-                
+
                 deduped_candidates = list(unique_catalog.values())
-                
+
                 print(f"    🔎 Analizando popularidad del catálogo ({len(deduped_candidates)} candidatos)...")
                 self.lastfm.enrich_songs(deduped_candidates, force_scrobbles=False)
-                
-                # Ordenar por oyentes y coger los 5 mejores (antes 3)
-                top_catalog = sorted(deduped_candidates, key=lambda x: int(x.get('LastfmScrobble', 0)), reverse=True)[:5]
-                
+
+                # Ordenar por oyentes y coger los 4 mejores
+                top_catalog = sorted(deduped_candidates, key=lambda x: int(x.get('LastfmScrobble', 0)), reverse=True)[:4]
+
                 print(f"    \033[95m📜 Joyas del catálogo antiguo (Top Popular):\033[0m")
                 for t in top_catalog:
                     listeners = int(t.get('LastfmScrobble', 0))
@@ -2110,7 +2204,7 @@ class Manager:
                         }
                         new_batch.append(new_song)
                         existing_vids.add(vid)
-                    
+
         if new_batch:
             total_added += self._add_tracks_to_inbox(playlist_id, new_batch)
             
@@ -2267,7 +2361,9 @@ class Manager:
                         # Regla de consolidación: >= 4 scrobbles propios → ya está asentada en tu biblioteca
                         _CONSOLIDATION_MIN = 4
                         consolidated = c_scrobbles >= _CONSOLIDATION_MIN
-                        exceeded_threshold = threshold is not None and c_scrobbles > threshold
+                        # Cuando se pasa threshold n, se elimina al superar n+3 (margen sobre el umbral de entrada)
+                        removal_threshold = (threshold + 3) if threshold is not None else None
+                        exceeded_threshold = removal_threshold is not None and c_scrobbles > removal_threshold
 
                         if consolidated or exceeded_threshold:
                             if consolidated:
@@ -2275,7 +2371,7 @@ class Manager:
                                 print(f"      → Alcanzó {_CONSOLIDATION_MIN}+ reproducciones, eliminando de Pendiente.")
                             else:
                                 print(f"    \033[93m🏆 Graduada ({c_scrobbles} scrobbles):\033[0m \033[92m{artist} - {title}\033[0m")
-                                print(f"      → Superó el límite (>{threshold}), eliminando de Pendiente.")
+                                print(f"      → Superó el límite (>{removal_threshold} = {threshold}+3), eliminando de Pendiente.")
                             try:
                                 self.yt.remove_playlist_items(target_pid, [item])
                             except Exception as e:
@@ -2416,10 +2512,12 @@ class Manager:
             print(f"  Entrada no válida. Por favor, introduce un número entre 0 y {len(options)}.")
 
 
-    def sync_all_artist_releases(self, force=False, interactive=False):
+    def sync_all_artist_releases(self, force=False, interactive=False, liked_only=False):
         """Scans all tracked artists for new releases (skips artists checked within the cache window)."""
         print(f"\n==================================================")
         print(f"🚀 SYNCING ALL ARTIST RELEASES (Force: {force})")
+        if liked_only:
+            print(f"   🎯 Modo: Solo artistas con canciones en 'Me gusta'")
         print(f"==================================================\n")
 
         # Filtrar artistas por fecha (solo si NO es force)
@@ -2481,6 +2579,43 @@ class Manager:
         if not force:
             artists.sort(key=_get_sort_date)
 
+        # ── Filtro --liked-only: solo artistas con ≥1 canción en la playlist "LM" (o Liked Songs) ──
+        if liked_only:
+            print("  🎵 Obteniendo artistas de tu colección 'LM' para filtrar...")
+            try:
+                # 1. Intentar resolver la playlist "LM"
+                target_pl_name = "LM"
+                playlist_id = self._resolve_playlist_id(target_pl_name)
+                
+                liked_tracks = []
+                if playlist_id:
+                    print(f"  → Playlist '{target_pl_name}' encontrada ({playlist_id}).")
+                    liked_tracks = self.yt.yt.get_playlist_items(playlist_id, limit=None)
+                else:
+                    print(f"  → Playlist '{target_pl_name}' no encontrada. Usando colección 'Me gusta' del sistema...")
+                    liked_data = self.yt.yt.get_liked_songs(limit=None)
+                    liked_tracks = liked_data.get("tracks", [])
+
+                if not liked_tracks:
+                    print("  ⚠ No se encontraron canciones en tu colección para filtrar.")
+                else:
+                    # Recogemos todos los nombres de artista
+                    liked_artist_names: set[str] = set()
+                    for t in liked_tracks:
+                        for art in t.get("artists", []):
+                            raw = art.get("name", "")
+                            if raw:
+                                liked_artist_names.add(self._normalize(raw))
+                    
+                    before = len(artists)
+                    artists = [
+                        a for a in artists
+                        if self._normalize(a.get("Artist Name", "")) in liked_artist_names
+                    ]
+                    print(f"  → {len(artists)} de {before} artistas tienen canciones en tu colección.\n")
+            except Exception as e:
+                print(f"  ⚠ Error al filtrar por colección: {e}. Procesando todos los artistas.\n")
+
         if not artists:
             print("✨ Todos tus artistas están al día. Nada que sincronizar hoy.")
             return
@@ -2492,6 +2627,7 @@ class Manager:
             last_checked = a.get("Last Checked", "Nunca")
             print(f"  ⌛ [{idx}/{len(artists)}] Checking \033[1m{name}\033[0m... (Última vez: {last_checked})")
             
+            sync_scope = 'all'  # default: new + catalog
             # --- NUEVO PROMPT PRE-SINCRONIZACIÓN ---
             if interactive:
                 # Mostramos un breve resumen antes de preguntar
@@ -2520,7 +2656,13 @@ class Manager:
                     releases_cache[name] = now.strftime("%Y-%m-%d")
                     self._save_releases_sync_cache(releases_cache)
                     continue
-                # Si es 's', continúa al check_new_releases
+                # Si es 's': elegir qué tipo de canciones revisar
+                while True:
+                    scope_ans = input(f"  \033[1;93m¿Qué canciones revisar?\033[0m (\033[92m[T]odas\033[0m | [n]uevas | [a]nteriores del catálogo): ").strip().lower()
+                    if not scope_ans: scope_ans = 't'
+                    if scope_ans in ['t', 'n', 'a']: break
+                    print("  Por favor responde con t/n/a.")
+                sync_scope = {'t': 'all', 'n': 'new', 'a': 'catalog'}[scope_ans]
 
             count = self.check_new_releases(
                 Config.PLAYLIST_ID, 
@@ -2528,7 +2670,8 @@ class Manager:
                 target_artist_name=name, 
                 target_artist_id=a.get("Artist ID"),
                 interactive=interactive,
-                skip_summary=True
+                skip_summary=True,
+                scope=sync_scope
             )
 
             if count == -1:
