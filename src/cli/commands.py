@@ -604,6 +604,88 @@ def _library_sync(manager) -> int:
     return 0
 
 
+# ── YouTube (Data API v3) ─────────────────────────────────────────────────────
+
+
+def handle_youtube(args, manager) -> int:
+    """Dispatch youtube sub-actions."""
+    action = getattr(args, "action", None)
+
+    if action == "sync-subs":
+        return _sync_subs(args)
+    elif action == "cleanup-shorts":
+        return _cleanup_shorts(args)
+    elif action == "cleanup-watched":
+        return _cleanup_watched(args)
+    else:
+        print("Usage: vibemus youtube <sync-subs|cleanup-shorts|cleanup-watched>")
+        print("Run 'vibemus youtube --help' for details.")
+        return 1
+
+
+def _sync_subs(args) -> int:
+    """Sync new subscription videos to the '📥 Para Ver' private playlist."""
+    from ..services.youtube_data_service import YouTubeDataService
+
+    print("\n" + "=" * 60)
+    print("📺 YOUTUBE SUBSCRIPTIONS → '📥 Para Ver'")
+    print("=" * 60)
+
+    try:
+        svc = YouTubeDataService()
+
+        # --reset: clear the saved checkpoint so we start from 24 h ago
+        if getattr(args, "reset", False):
+            svc._sync_state.pop("last_run", None)
+            print("  ⚠️  Checkpoint reiniciado. Se escanearán las últimas 24 horas.")
+
+        svc.sync_subscriptions(cleanup_inactive=getattr(args, "cleanup", False))
+        return 0
+    except FileNotFoundError as exc:
+        print(str(exc))
+        return 1
+    except Exception as exc:
+        import traceback
+        traceback.print_exc()
+        print(f"\n❌ Error inesperado: {exc}")
+        return 1
+
+
+def _cleanup_shorts(args) -> int:
+    """Find and remove Shorts already present in the '📥 Para Ver' playlist."""
+    from ..services.youtube_data_service import YouTubeDataService
+
+    print("\n" + "=" * 60)
+    print("🧹 LIMPIEZA DE SHORTS EN '📥 Para Ver'")
+    print("=" * 60)
+
+    try:
+        svc = YouTubeDataService()
+        svc.cleanup_playlist_shorts()
+        return 0
+    except Exception as exc:
+        import traceback
+        traceback.print_exc()
+        print(f"\n❌ Error inesperado: {exc}")
+        return 1
+
+
+def _cleanup_watched(args) -> int:
+    """Remove videos already watched from the '📥 Para Ver' playlist."""
+    from ..services.youtube_data_service import YouTubeDataService
+
+    print("\n" + "=" * 60)
+    print("🧹 LIMPIEZA DE VÍDEOS VISTOS EN '📥 Para Ver'")
+    print("=" * 60)
+
+    try:
+        svc = YouTubeDataService()
+        svc.cleanup_watched_videos()
+        return 0
+    except Exception as exc:
+        print(f"\n❌ Error inesperado: {exc}")
+        return 1
+
 
 # ── New Releases ──────────────────────────────────────────────────────────────
 

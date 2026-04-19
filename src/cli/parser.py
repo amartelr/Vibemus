@@ -35,6 +35,7 @@ def build_parser() -> argparse.ArgumentParser:
     _register_new_releases(subparsers)
     _register_genre(subparsers)
     _register_system(subparsers)
+    _register_youtube(subparsers)
 
     return parser
 
@@ -324,6 +325,49 @@ def _register_genre(subparsers: argparse._SubParsersAction) -> None:
     genre_sub.add_parser(
         "sync",
         help="Synthesize and update the Genre summary sheet",
+    )
+
+
+# ── YouTube (Data API v3) ─────────────────────────────────────────────────────
+
+
+def _register_youtube(subparsers: argparse._SubParsersAction) -> None:
+    yt_parser = subparsers.add_parser(
+        "youtube",
+        help="YouTube (not Music) automation — subscriptions, Watch-Later alternative",
+        description="Interact with the regular YouTube platform via the Data API v3.",
+    )
+    yt_sub = yt_parser.add_subparsers(dest="action")
+
+    # youtube sync-subs
+    ss_p = yt_sub.add_parser(
+        "sync-subs",
+        help=(
+            "Add new subscription videos (published since last run) to "
+            "the '📥 Para Ver' playlist"
+        ),
+    )
+    ss_p.add_argument(
+        "--reset",
+        action="store_true",
+        help="Ignore the saved checkpoint and scan the last 24 hours from scratch",
+    )
+    ss_p.add_argument(
+        "--cleanup",
+        action="store_true",
+        help="Cancelar suscripción a canales inactivos (>3 meses)",
+    )
+
+    # youtube cleanup-shorts
+    yt_sub.add_parser(
+        "cleanup-shorts",
+        help="Eliminar Shorts existentes de la playlist '📥 Para Ver'",
+    )
+
+    # youtube cleanup-watched
+    yt_sub.add_parser(
+        "cleanup-watched",
+        help="Eliminar vídeos ya vistos de la playlist '📥 Para Ver'",
     )
 
 

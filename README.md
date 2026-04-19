@@ -29,18 +29,19 @@
 
 | Category | Command | Description |
 |:---|:---|:---|
-| **Discovery** | `releases sync` | Scan profile of every tracked artist (Full monitor). |
-| | `new-releases sync` | Scan global YouTube shelf for tracked artists (Fast scan). |
-| **Artist** | `artist add "Name"` | Start tracking a new artist and sync discography. |
+| **Discovery** | `releases sync [--force] [--auto] [--liked-only]` | Scan profile of every tracked artist (Full monitor). |
+| | `new-releases sync [--auto]` | Scan global YouTube shelf for tracked artists (Fast scan). |
+| **Artist** | `artist add "Name" [--playlist PL]` | Start tracking a new artist and sync discography. |
 | | `artist sync` | Add missing artists found in your library to the tracking list. |
 | | `artist list` | Show all currently tracked artists and their status. |
-| **Playlist** | `playlist sync` | Consolidate inbox, move likes, and archive dislikes. |
+| **Playlist** | `playlist sync [--name PL] [--skip-lastfm]` | Consolidate inbox, move likes, and archive dislikes. |
 | | `playlist list` | Compare song counts between YT and Google Sheets. |
-| | `playlist apply-moves` | Push manual playlist changes from Sheets to YouTube. |
-| | `playlist review-pending` | Review low-listen songs in a dedicated tray. |
+| | `playlist apply-moves [--refresh-cache]` | Push manual playlist changes from Sheets to YouTube. |
+| | `playlist review-pending [N]` | Review low-listen songs in a dedicated tray. |
 | **Maintenance** | `library sync` | Add playlist songs to library / remove orphans. |
 | | `playlist cleanup-inbox` | Remove songs from '#' that are already organized. |
-| | `playlist split` | Split archives into year-based chunks (e.g., Pop 2010-2015). |
+| | `playlist split --name PL --parts N` | Split archives into year-based chunks. |
+| **YouTube** | `youtube sync-subs [--reset]` | Sync new videos from subscriptions to '📥 Para Ver'. |
 | **System** | `system auth` | Refresh YouTube Music account authentication. |
 | | `system refresh-cache` | Force update of local playlist metadata cache. |
 
@@ -58,7 +59,9 @@ Python dependencies (see `requirements.txt`):
 ```
 ytmusicapi
 gspread
-oauth2client
+google-api-python-client
+google-auth-oauthlib
+google-auth-httplib2
 ```
 
 ```bash
@@ -93,6 +96,7 @@ Vibemus needs three credential files inside the `config/` directory:
 | `config/oauth.json` | YouTube Music OAuth (ytmusicapi) |
 | `config/browser.json` | YouTube Music browser cookies |
 | `config/service_account.json` | Google Sheets API service account |
+| `config/youtube_client_secrets.json` | YouTube Data API v3 OAuth secrets |
 
 ### Getting YouTube Music cookies
 
@@ -112,6 +116,14 @@ This opens an isolated Chrome window. Log into YouTube Music, then close the win
 2. Download the JSON key and save it as `config/service_account.json`.
 3. Share your Google Sheet with the service account email.
 4. Make sure the spreadsheet is named **`YouTube Music Vibemus`** (or change `SPREADSHEET_TITLE` in `src/config.py`).
+
+### Setting up YouTube Data API (Subscriptions Sync)
+
+1. Go to [Google Cloud Console](https://console.cloud.google.com/).
+2. Enable **YouTube Data API v3**.
+3. Create **OAuth 2.0 Client ID** as **Desktop App**.
+4. Download the JSON and save it as `config/youtube_client_secrets.json`.
+5. Run `vibemus youtube sync-subs` to authorize (opens browser once).
 
 ---
 
@@ -235,7 +247,7 @@ vibemus artist sync
 
 ---
 
-#### `vibemus releases sync [--force] [--auto]`
+#### `vibemus releases sync [--force] [--auto] [--liked-only]`
 Scan for new albums and singles from **all tracked artists**.
 
 - **Targeted Scan**: Directly visits the profile of every artist in your 'Artists' sheet.
@@ -243,7 +255,7 @@ Scan for new albums and singles from **all tracked artists**.
 - **Metadata**: Shows Last.fm scrobble counts directly in the prompt: `[Listeners🎧 | Your Plays👤]`.
 - **`--force`**: Re-scans all artists even if they were checked recently (ignores the 24h window).
 - **`--auto`**: Skips interactive prompts and adds all found songs to the `#` playlist.
-- **`--liked-only`**: Filtra los artistas para sincronizar solo aquellos que tienen al menos una canción en tu playlist de YouTube Music llamada **"LM"** (o en tu colección de "Me gusta" si "LM" no existe). Ideal para una revisión rápida de tus artistas más escuchados/recientes.
+- **`--liked-only`**: Filter artists to sync only those who have at least one song in your YouTube Music playlist named **"LM"** (or in your "Liked Songs" collection if "LM" does not exist). Ideal for a quick review of your most listened/recent artists.
 
 ```bash
 vibemus releases sync
@@ -423,6 +435,48 @@ vibemus playlist apply-moves --refresh-cache
 ---
 
 
+
+---
+
+### `youtube` — Regular YouTube Operations (Data API v3)
+
+Este módulo interactúa con la plataforma estándar de YouTube (no solo Music) para automatizar la gestión de nuevas publicaciones de canales a los que estás suscrito.
+
+---
+
+#### `vibemus youtube sync-subs [--reset] [--cleanup]`
+Sincroniza los nuevos vídeos publicados en tus canales suscritos de YouTube.
+
+- **Playlist Automática**: Los vídeos se añaden a una lista privada llamada **"📥 Para Ver"** (alternativa funcional al "Ver más tarde" del sistema, que está bloqueado por la API).
+- **Limpieza de vistos**: Antes de empezar, el comando **elimina automáticamente** de la playlist los vídeos que ya hayas empezado a ver (según tu historial reciente de YouTube).
+- **Filtro de Shorts**: Los vídeos de duración ≤ 60s o etiquetados con `#shorts` son ignorados automáticamente para mantener la lista limpia de contenido vertical.
+- **Checkpoint incremental**: Solo procesa vídeos publicados desde la última ejecución (guardado en `data/youtube_subs_sync.json`).
+- **Control de inactividad**: Identifica canales que no han publicado nada en 3 meses.
+- **`--reset`**: Ignora el checkpoint y escanea las últimas 24 horas.
+- **`--cleanup`**: Activa el modo interactivo para cancelar suscripciones de canales inactivos (> 3 meses).
+
+```bash
+vibemus youtube sync-subs
+vibemus youtube sync-subs --cleanup
+```
+
+---
+
+#### `vibemus youtube cleanup-shorts`
+Escanea la playlist **"📥 Para Ver"** y elimina cualquier vídeo de formato corto (Shorts) que se haya añadido anteriormente.
+
+```bash
+vibemus youtube cleanup-shorts
+```
+
+---
+
+#### `vibemus youtube cleanup-watched`
+Escanea la playlist **"📥 Para Ver"** y elimina los vídeos que aparezcan en tus últimos 200 elementos del historial de reproducciones. (Este proceso se ejecuta automáticamente al inicio de `sync-subs`).
+
+```bash
+vibemus youtube cleanup-watched
+```
 
 ---
 
