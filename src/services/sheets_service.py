@@ -12,7 +12,9 @@ class SheetsService:
         
         # Cache for current run
         self._artists_cache = None
-        self._songs_vid_cache = None  # replaces History cache
+        self._songs_vid_cache = None
+        self._active_records_cache = None
+        self._archived_records_cache = None
 
     def _get_or_create_spreadsheet(self):
         def _open():
@@ -327,11 +329,16 @@ class SheetsService:
 
     def get_songs_records(self):
         """Returns all records from the Songs sheet as a list of dictionaries."""
+        if self._active_records_cache is not None:
+            return self._active_records_cache
+            
         ws = self._get_worksheet("Songs")
         # Use UNFORMATTED_VALUE to get raw numbers instead of locale-formatted strings
         data = self._execute_with_retry(ws.get_all_values, value_render_option='UNFORMATTED_VALUE')
         if not data:
+            self._active_records_cache = []
             return []
+        
         headers = data[0]
         records = []
         for row in data[1:]:
@@ -339,10 +346,14 @@ class SheetsService:
             for i, h in enumerate(headers):
                 record[h] = row[i] if i < len(row) else ''
             records.append(record)
+            
+        self._active_records_cache = records
         return records
 
     def overwrite_songs(self, records):
         """Rewrites the entire Songs sheet using an atomic update for performance and reliability."""
+        self._active_records_cache = None
+        self._songs_vid_cache = None
         ws = self._get_worksheet("Songs")
         header = ["Playlist", "Artist", "Title", "Album", "Year", "Genre", "Scrobble", "LastfmScrobble", "Video ID"]
         rows = [header]
@@ -369,6 +380,8 @@ class SheetsService:
         """Adds a list of songs to the Songs sheet."""
         if not songs_data:
             return
+        self._active_records_cache = None
+        self._songs_vid_cache = None
         ws = self._get_worksheet("Songs")
         new_rows = []
         for s in songs_data:
@@ -388,6 +401,7 @@ class SheetsService:
 
     def overwrite_archived(self, archived_data):
         """Overwrites the Archived sheet with the provided data, preserving headers."""
+        self._archived_records_cache = None
         try:
             ws = self._get_worksheet("Archived")
             header = ["Playlist", "Artist", "Title", "Album", "Year", "Genre", "Scrobble", "LastfmScrobble", "Video ID"]
@@ -415,6 +429,7 @@ class SheetsService:
         """Adds a list of songs to the Archived sheet."""
         if not songs_data:
             return
+        self._archived_records_cache = None
         ws = self._get_worksheet("Archived")
         new_rows = []
         for s in songs_data:
@@ -439,10 +454,15 @@ class SheetsService:
 
     def get_archived_records(self):
         """Returns all records from the Archived sheet as a list of dictionaries."""
+        if self._archived_records_cache is not None:
+            return self._archived_records_cache
+            
         ws = self._get_worksheet("Archived")
         data = self._execute_with_retry(ws.get_all_values, value_render_option='UNFORMATTED_VALUE')
         if not data:
+            self._archived_records_cache = []
             return []
+        
         headers = data[0]
         records = []
         for row in data[1:]:
@@ -450,6 +470,8 @@ class SheetsService:
             for i, h in enumerate(headers):
                 record[h] = row[i] if i < len(row) else ''
             records.append(record)
+            
+        self._archived_records_cache = records
         return records
 
     def overwrite_songs_sheet(self, songs_data):

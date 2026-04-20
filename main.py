@@ -14,6 +14,7 @@ from src.cli.commands import (
     handle_system,
     handle_new_releases,
     handle_genre,
+    handle_youtube,
 )
 from src.cli.parser import build_parser, rewrite_legacy_args
 from src.config import Config
@@ -27,6 +28,7 @@ _HANDLERS = {
     "new-releases": handle_new_releases,
     "genre": handle_genre,
     "system": handle_system,
+    "youtube": handle_youtube,
 }
 
 

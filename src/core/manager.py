@@ -920,6 +920,9 @@ class Manager:
         
         source_cache = self._load_source_cache()
         all_songs = self.sheets.get_songs_records()
+        archived_songs = self.sheets.get_archived_records()
+        all_tracked_vids = {s.get('Video ID'): s for s in (all_songs + archived_songs) if s.get('Video ID')}
+        
         artists_records = self.sheets.get_artists()
         disliked_vids_global = set()
 
@@ -1063,6 +1066,29 @@ class Manager:
                     status = 'LIKE'
                 elif yt_status == 'DISLIKE':
                     status = 'DISLIKE'
+                
+                # REGLA SOLICITADA: Quitar Like a canciones viejas fuera de SOURCE_PLAYLISTS (Archivos)
+                if status == 'LIKE':
+                    sheet_rec = all_tracked_vids.get(vid)
+                    if sheet_rec:
+                        pl_in_sheet = sheet_rec.get('Playlist', '')
+                        if pl_in_sheet not in Config.SOURCE_PLAYLISTS:
+                            # Candidata a un-like si es vieja (menos que el umbral de novedades)
+                            song_year = 0
+                            y_str = sheet_rec.get('Year')
+                            if y_str:
+                                match = re.search(r'(\d{4})', str(y_str))
+                                if match: song_year = int(match.group(1))
+                            
+                            # Umbral: Si MAX_NEW_RELEASE_YEARS=1, threshold es 2025. 2024 y anteriores se quitan.
+                            threshold = datetime.now().year - Config.MAX_NEW_RELEASE_YEARS
+                            if song_year and song_year < threshold:
+                                print(f"    \033[93m⚡ Quitando Like de canción antigua archivada: {song_year} | Playlist: {pl_in_sheet}\033[0m")
+                                try:
+                                    self.yt.rate_song(vid, 'INDIFFERENT')
+                                    status = 'INDIFFERENT' # Actualizar estado local para el resto del bucle
+                                except Exception as e:
+                                    print(f"      ✗ Error al quitar Like: {e}")
                 
 
                 
@@ -1958,14 +1984,35 @@ class Manager:
             
         existing_vids = self.sheets.get_all_video_ids()
 
-        # OBTENEMOS TODAS LAS CANCIONES (Songs + Archived) PARA CONTROLAR DUPLICADOS DE TÍTULO+ARTISTA
-        # Esto soluciona el problema de mayúsculas Ekkstacy == EKKSTACY y evita
-        # añadir una canción si era disco y ahora single o si ya la descartamos antes.
+        # OBTENEMOS TODAS LAS CANCIONES (Songs + Archived)
+        # 1. Para controlar duplicados de título+artista
+        # 2. Para detectar el último año del artista en la biblioteca (Búsqueda dinámica)
         existing_keys = set()
-        for r in self.sheets.get_songs_records() + self.sheets.get_archived_records():
-            art = self._normalize(r.get('Artist', ''))
+        artist_years = []
+        norm_target = self._normalize(target_artist_name)
+        
+        # Combinamos registros para el escaneo (usualmente cacheados localmente en self.sheets)
+        all_records = self.sheets.get_songs_records() + self.sheets.get_archived_records()
+        
+        for r in all_records:
+            raw_art = r.get('Artist', '')
+            art = self._normalize(raw_art)
             tit = self._normalize(r.get('Title', ''))
             existing_keys.add(f"{art} - {tit}")
+            
+            # Detección de año para búsqueda dinámica: si la canción es del artista objetivo
+            is_match = (art == norm_target)
+            if not is_match:
+                # Fallback: separadores comunes (, &) para colaboraciones
+                parts = [self._normalize(p.strip()) for p in re.split(r'[,&]', raw_art)]
+                if norm_target in parts:
+                    is_match = True
+            
+            if is_match:
+                y_str = str(r.get('Year', '')).strip()
+                y_match = re.search(r'(\d{4})', y_str)
+                if y_match:
+                    artist_years.append(int(y_match.group(1)))
 
         # También añadimos los Video IDs de Archived a la lista de exclusión
         existing_vids.update(self.sheets.get_archived_vids())
@@ -1973,12 +2020,22 @@ class Manager:
         max_songs = Config.MAX_NEW_RELEASE_SONGS
         
         now = datetime.now()
+        # Límite por defecto (ej: 2025 para un sync en 2026 si MAX_NEW_RELEASE_YEARS=1)
         limit_year = now.year - Config.MAX_NEW_RELEASE_YEARS
         
+        # REGLA SOLICITADA: Si el artista ya tiene canciones, ampliamos el scope
+        # desde el año SIGUIENTE a su último registro para buscar novedades reales.
+        if artist_years:
+            max_y = max(artist_years)
+            # Si el último año en biblioteca es anterior al límite por defecto, ampliamos.
+            # Usamos max_y + 1 para buscar estrictamente "mayores de X".
+            if max_y < limit_year:
+                print(f"    \033[93m📅 Biblioteca detectada hasta {max_y}. Buscando nuevas canciones (> {max_y})...\033[0m")
+                limit_year = max_y + 1
+
         new_batch = []
         total_added = 0
-        
-        import re
+
         catalog_candidates = []
         all_recent_interactive = []  # Acumula todos los tracks de lanzamientos recientes para preguntar de una vez
 

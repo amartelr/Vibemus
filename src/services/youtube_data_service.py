@@ -458,6 +458,37 @@ class YouTubeDataService:
         except Exception as e:
             print(f"    ⚠ Error en la limpieza de vídeos vistos: {e}")
 
+    def clear_playlist(self):
+        """Remove the entire '📥 Para Ver' playlist and clear its cache to save API quota."""
+        yt = self._client()
+        playlist_id = self._sync_state.get("playlist_id")
+        
+        if not playlist_id:
+            # Intentar encontrarla si no está en caché
+            request = yt.playlists().list(part="id,snippet", mine=True, maxResults=50)
+            while request:
+                response = request.execute()
+                for item in response.get("items", []):
+                    if item["snippet"]["title"] == self.PLAYLIST_NAME:
+                        playlist_id = item["id"]
+                        break
+                if playlist_id:
+                    break
+                request = yt.playlists().list_next(request, response)
+
+        if playlist_id:
+            print(f"  🧹 Recreando la playlist '{self.PLAYLIST_NAME}' para ahorrar cuota de API...")
+            try:
+                yt.playlists().delete(id=playlist_id).execute()
+                print("    🗑️ Playlist anterior eliminada correctamente (ahorro masivo de cuota).")
+            except Exception as e:
+                # Si no existía o falla, lo ignoramos, se intentará crear una nueva de todas formas
+                pass
+            
+            # Borrar el caché para forzar que se cree de nuevo en el siguiente paso
+            self._sync_state.pop("playlist_id", None)
+            self._save_sync_state()
+
     # ── Main entry point ──────────────────────────────────────────────────────
 
     def sync_subscriptions(self, cleanup_inactive: bool = False):
@@ -466,8 +497,8 @@ class YouTubeDataService:
         Uses a persistent checkpoint so only videos published since the last
         execution are processed.
         """
-        # Always clean up watched videos first
-        self.cleanup_watched_videos()
+        # Clear the playlist before adding new videos
+        self.clear_playlist()
 
         yt = self._client()
         now = datetime.now(timezone.utc)

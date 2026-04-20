@@ -16,6 +16,10 @@ class Config:
     GENRE_PREFS_FILE = os.path.join(DATA_DIR, 'genre_preferences.json')
     ARCHIVING_CONFIG_FILE = os.path.join(CONFIG_DIR, 'archiving.json')
     KEYS_FILE = os.path.join(CONFIG_DIR, 'keys.json')
+    # YouTube Data API v3 (regular YouTube, not Music)
+    YT_CLIENT_SECRETS_FILE = os.path.join(CONFIG_DIR, 'youtube_client_secrets.json')
+    YT_TOKEN_FILE = os.path.join(DATA_DIR, 'youtube_token.json')
+    YT_SUBS_SYNC_FILE = os.path.join(DATA_DIR, 'youtube_subs_sync.json')
     
     # Internal cache for keys
     _keys = {}
