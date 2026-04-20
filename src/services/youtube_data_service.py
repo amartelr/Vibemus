@@ -282,6 +282,8 @@ class YouTubeDataService:
 
     def _filter_shorts(self, videos: list[dict]) -> list[dict]:
         """Filter out videos that are YouTube Shorts (duration <= 60s or tagged).
+        Also filters the list so that if a channel posted multiple videos, 
+        only the longest one is kept.
         
         Uses a single batch request to fetch contentDetails for all candidates.
         """
@@ -311,11 +313,47 @@ class YouTubeDataService:
                 if self._is_short(item):
                     continue
                     
+                # Guardamos la duracion en el dict para poder comparar despues
+                v["_duration_iso"] = item.get("contentDetails", {}).get("duration", "")
                 filtered.append(v)
                 
         except Exception as e:
             print(f"    ⚠ Error filtrando Shorts: {e}")
             return videos # Fallback to original list if API fails
+            
+        # Si un canal sacó varios videos en el mismo día/intervalo, quedarse solo con el de mayor duración
+        if len(filtered) > 1:
+            try:
+                import isodate
+                # Intentamos parsear. Si falla isodate, no lo filtramos.
+                longest_vid = None
+                max_seconds = -1
+                
+                for v in filtered:
+                    dur_iso = v.get("_duration_iso", "")
+                    if not dur_iso:
+                        continue
+                    try:
+                        seconds = isodate.parse_duration(dur_iso).total_seconds()
+                    except:
+                        seconds = 0
+                        
+                    if seconds > max_seconds:
+                        max_seconds = seconds
+                        longest_vid = v
+                
+                if longest_vid:
+                    # Limpiamos el helper interno antes de devolverlo al resto del código
+                    for vid in filtered:
+                        vid.pop("_duration_iso", None)
+                    return [longest_vid]
+            except ImportError:
+                # Si no está isodate instalado no lo filtramos. (Instalar 'isodate' si no lo está)
+                pass
+
+        # Limpieza por si quedó algo
+        for vid in filtered:
+            vid.pop("_duration_iso", None)
             
         return filtered
 
