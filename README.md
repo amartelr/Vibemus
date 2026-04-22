@@ -41,7 +41,8 @@
 | **Maintenance** | `library sync` | Add playlist songs to library / remove orphans. |
 | | `playlist cleanup-inbox` | Remove songs from '#' that are already organized. |
 | | `playlist split --name PL --parts N` | Split archives into year-based chunks. |
-| **YouTube** | `youtube sync-subs [--reset]` | Sync new videos from subscriptions to '📥 Para Ver'. |
+| **YouTube** | `youtube sync-subs [--reset] [--cleanup]` | Sync new subscription videos to '📥 Para Ver' (4 phases). |
+| | `youtube update-top-channels [--window DAYS] [--top N]` | Recalculate and save the top-N most-active channels cache. |
 | **System** | `system auth` | Refresh YouTube Music account authentication. |
 | | `system refresh-cache` | Force update of local playlist metadata cache. |
 
@@ -445,12 +446,20 @@ Este módulo interactúa con la plataforma estándar de YouTube (no solo Music) 
 ---
 
 #### `vibemus youtube sync-subs [--reset] [--cleanup]`
-Sincroniza los nuevos vídeos publicados en tus canales suscritos de YouTube.
+Sincroniza los nuevos vídeos publicados en tus canales suscritos de YouTube en **4 fases optimizadas de cuota**:
+
+| Fase | Qué hace | Coste API |
+|:---|:---|:---|
+| **1 — Candidatos** | Obtiene los últimos vídeos de cada canal desde el checkpoint | 1 u/canal |
+| **2 — Filtrado global** | Descarta Shorts y selecciona el vídeo más largo por canal | 1 u/50 vídeos |
+| **3 — Inserción** | Añade los ganadores a "📥 Para Ver" + registra historial por canal | 50 u/vídeo |
+| **4 — Top canales** ⭐ | Añade hasta 3 vídeos extra de los 5 canales más activos (ventana 7d) | ~1–10 u/canal |
 
 - **Playlist Automática**: Los vídeos se añaden a una lista privada llamada **"📥 Para Ver"** (alternativa funcional al "Ver más tarde" del sistema, que está bloqueado por la API).
-- **Limpieza de vistos**: Antes de empezar, el comando **elimina automáticamente** de la playlist los vídeos que ya hayas empezado a ver (según tu historial reciente de YouTube).
-- **Filtro de Shorts**: Los vídeos de duración ≤ 60s o etiquetados con `#shorts` son ignorados automáticamente para mantener la lista limpia de contenido vertical.
+- **Filtro de Shorts**: Los vídeos de duración ≤ 60s o etiquetados con `#shorts` son ignorados automáticamente.
 - **Checkpoint incremental**: Solo procesa vídeos publicados desde la última ejecución (guardado en `data/youtube_subs_sync.json`).
+- **Historial por canal**: Cada inserción exitosa anota el canal en `channel_history` (auto-purgado a 90 días) para alimentar el ranking de top canales.
+- **Fase 4 activa solo si existe** `data/youtube_top_channels_cache.json` — genéralo con `update-top-channels`.
 - **Control de inactividad**: Identifica canales que no han publicado nada en 3 meses.
 - **`--reset`**: Ignora el checkpoint y escanea las últimas 24 horas.
 - **`--cleanup`**: Activa el modo interactivo para cancelar suscripciones de canales inactivos (> 3 meses).
@@ -458,9 +467,53 @@ Sincroniza los nuevos vídeos publicados en tus canales suscritos de YouTube.
 ```bash
 vibemus youtube sync-subs
 vibemus youtube sync-subs --cleanup
+vibemus youtube sync-subs --reset   # escanea desde 24h atrás
 ```
 
+> [!TIP]
+> La **Fase 4 (top canales) está desactivada por defecto**. Para activarla, ejecuta primero varios `sync-subs` para acumular historial y luego corre `vibemus youtube update-top-channels`.
+
 ---
+
+#### `vibemus youtube update-top-channels [--window DAYS] [--top N]`
+Calcula y persiste el ranking de los canales más frecuentemente añadidos. **Solo actualiza cuando tú lo pides** — no cambia solo entre ejecuciones del sync diario.
+
+- Lee el `channel_history` acumulado en `data/youtube_subs_sync.json`.
+- Filtra las adiciones de los últimos `--window` días (por defecto: **7**).
+- Guarda los top `--top` canales (por defecto: **5**) en `data/youtube_top_channels_cache.json`.
+- A partir de ese momento, el `sync-subs` diario incluirá automáticamente la Fase 4 con esos canales: el vídeo más largo **+ hasta 2 más** de cada canal top (ventana de 7 días).
+
+**Flags:**
+- **`--window DAYS`**: Ventana de días hacia atrás para el ranking (default: `7`).
+- **`--top N`**: Cuántos canales guardar (default: `5`).
+
+```bash
+# Típico (top-5, últimos 7 días)
+vibemus youtube update-top-channels
+
+# Con ventana más amplia o menos canales
+vibemus youtube update-top-channels --window 14
+vibemus youtube update-top-channels --window 30 --top 3
+```
+
+**Flujo recomendado (primera vez):**
+```bash
+# 1. Ejecuta el sync normal para acumular historial de adiciones
+vibemus youtube sync-subs
+
+# 2. Genera el cache del top-5 (una vez, o cuando quieras actualizar el ranking)
+vibemus youtube update-top-channels
+
+# 3. A partir de ahora el sync diario incluye la Fase 4 automáticamente
+vibemus youtube sync-subs
+```
+
+> [!NOTE]
+> El campo `channel_history` dentro de `data/youtube_subs_sync.json` registra cada inserción exitosa por canal con su fecha UTC. Las entradas anteriores a 90 días se purgan automáticamente para mantener el tamaño del fichero bajo control.
+
+---
+
+
 
 #### `vibemus youtube cleanup-shorts`
 Escanea la playlist **"📥 Para Ver"** y elimina cualquier vídeo de formato corto (Shorts) que se haya añadido anteriormente.

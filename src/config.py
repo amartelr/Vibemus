@@ -20,6 +20,7 @@ class Config:
     YT_CLIENT_SECRETS_FILE = os.path.join(CONFIG_DIR, 'youtube_client_secrets.json')
     YT_TOKEN_FILE = os.path.join(DATA_DIR, 'youtube_token.json')
     YT_SUBS_SYNC_FILE = os.path.join(DATA_DIR, 'youtube_subs_sync.json')
+    YT_TOP_CHANNELS_CACHE_FILE = os.path.join(DATA_DIR, 'youtube_top_channels_cache.json')
     
     # Internal cache for keys
     _keys = {}

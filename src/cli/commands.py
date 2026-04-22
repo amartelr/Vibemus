@@ -617,8 +617,10 @@ def handle_youtube(args, manager) -> int:
         return _cleanup_shorts(args)
     elif action == "cleanup-watched":
         return _cleanup_watched(args)
+    elif action == "update-top-channels":
+        return _update_top_channels(args)
     else:
-        print("Usage: vibemus youtube <sync-subs|cleanup-shorts|cleanup-watched>")
+        print("Usage: vibemus youtube <sync-subs|cleanup-shorts|cleanup-watched|update-top-channels>")
         print("Run 'vibemus youtube --help' for details.")
         return 1
 
@@ -683,6 +685,37 @@ def _cleanup_watched(args) -> int:
         svc.cleanup_watched_videos()
         return 0
     except Exception as exc:
+        print(f"\n❌ Error inesperado: {exc}")
+        return 1
+
+
+def _update_top_channels(args) -> int:
+    """Recompute and persist the top-N most-added channels ranking."""
+    from ..services.youtube_data_service import YouTubeDataService
+
+    print("\n" + "=" * 60)
+    print("🏆 ACTUALIZANDO TOP CANALES")
+    print("=" * 60)
+
+    try:
+        svc = YouTubeDataService()
+        top = svc.update_top_channels_cache(
+            window_days=getattr(args, "window", 7),
+            top_n=getattr(args, "top", 5),
+        )
+        if not top:
+            print(
+                "\n  ⚠  No se pudo generar el top. "
+                "Asegúrate de haber ejecutado al menos un 'sync-subs' para acumular historial."
+            )
+            return 1
+        return 0
+    except FileNotFoundError as exc:
+        print(str(exc))
+        return 1
+    except Exception as exc:
+        import traceback
+        traceback.print_exc()
         print(f"\n❌ Error inesperado: {exc}")
         return 1
 

@@ -370,6 +370,29 @@ def _register_youtube(subparsers: argparse._SubParsersAction) -> None:
         help="Eliminar vídeos ya vistos de la playlist '📥 Para Ver'",
     )
 
+    # youtube update-top-channels
+    utc_p = yt_sub.add_parser(
+        "update-top-channels",
+        help=(
+            "Recalcular y guardar el top-5 de canales más añadidos "
+            "(últimos N días) para potenciar el sync diario"
+        ),
+    )
+    utc_p.add_argument(
+        "--window",
+        type=int,
+        default=7,
+        metavar="DAYS",
+        help="Ventana de días hacia atrás para el ranking (default: 7)",
+    )
+    utc_p.add_argument(
+        "--top",
+        type=int,
+        default=5,
+        metavar="N",
+        help="Número de canales top a guardar (default: 5)",
+    )
+
 
 # ── System ────────────────────────────────────────────────────────────────────
 
