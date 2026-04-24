@@ -611,13 +611,16 @@ class Manager:
                     song['Genre'] = genres
                     sheet_changed = True
                 
-                # Update scrobbles
-                old_scrobble = song.get('Scrobble', 0)
-                old_lastfm = song.get('LastfmScrobble', 0)
+                # Update scrobbles - RULE: Never downgrade
+                old_scrobble = int(str(song.get('Scrobble', 0)).replace('.', '').replace(',', '') or 0)
+                old_lastfm = int(str(song.get('LastfmScrobble', 0)).replace('.', '').replace(',', '') or 0)
                 
-                # Check if scrobble values changed
-                if str(old_scrobble) != str(scrobble) or str(old_lastfm) != str(lastfm_scrobble):
+                # Check if scrobble values increased
+                if scrobble > old_scrobble:
                     song['Scrobble'] = scrobble
+                    sheet_changed = True
+                
+                if lastfm_scrobble > old_lastfm:
                     song['LastfmScrobble'] = lastfm_scrobble
                     sheet_changed = True
 
@@ -1037,10 +1040,17 @@ class Manager:
                 else:
                     item['Artist'] = 'Unknown'
                 item['Title'] = item.get('title', 'Unknown')
+                
+                # Inject current scrobbles from sheet to allow threshold-based forced refresh
+                vid = item.get('videoId')
+                if vid and vid in existing_vids:
+                    item['Scrobble'] = existing_vids[vid].get('Scrobble', 0)
 
             if not skip_lastfm:
                 print(f"  \033[93m⌛ Fetching scrobbles from Last.fm for {len(fresh_items)} songs...\033[0m")
-                self.lastfm.enrich_songs(fresh_items, force_scrobbles=False)
+                # Solo forzamos el umbral de 4 si la playlist es una de las "fuente" (activas)
+                force_th = 4 if pl_name in Config.SOURCE_PLAYLISTS else None
+                self.lastfm.enrich_songs(fresh_items, force_scrobbles=False, force_threshold=force_th)
 
             print(f"  Checking {len(fresh_items)} songs for likes/dislikes...")
             
@@ -2302,16 +2312,23 @@ class Manager:
         if current_items:
             print("  🔄 Actualizando Scrobbles desde Last.fm...")
             vid_to_sheet = {s.get('Video ID'): s for s in all_songs if s.get('Video ID')}
+            # Solo enriquecemos canciones que aún tienen < 4 scrobbles en el Sheet.
+            # Si el usuario ha puesto un 4 o más manualmente, respetamos ese valor para que se gradúe.
             pending_for_enrichment = [
                 vid_to_sheet[item.get('videoId')]
                 for item in current_items
                 if item.get('videoId') and item.get('videoId') in vid_to_sheet
+                and int(str(vid_to_sheet[item.get('videoId')].get('Scrobble', 0)).replace('.', '').replace(',', '') or 0) < 4
             ]
+
             if pending_for_enrichment:
-                self.lastfm.enrich_songs(pending_for_enrichment, force_scrobbles=False, cache_ttl_days=7)
-                updated_any_songs = True  # Sheet needs saving with fresh scrobble data
-            else:
+                print(f"  ⌛ Actualizando scrobbles para {len(pending_for_enrichment)} canciones con < 4 reproducciones...")
+                self.lastfm.enrich_songs(pending_for_enrichment, force_scrobbles=True, cache_ttl_days=0)
+                updated_any_songs = True 
+            elif not vid_to_sheet:
                 print("  ℹ️  Ninguna canción de Pendiente encontrada en el Sheet para enriquecer.")
+            else:
+                print("  ℹ️  Todas las canciones ya alcanzan el umbral o no necesitan actualización de scrobbles.")
 
         # 1. Check for Dislikes in the current playlist
         if current_items:

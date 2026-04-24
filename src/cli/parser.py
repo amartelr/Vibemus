@@ -392,6 +392,11 @@ def _register_youtube(subparsers: argparse._SubParsersAction) -> None:
         metavar="N",
         help="Número de canales top a guardar (default: 5)",
     )
+    utc_p.add_argument(
+        "--interactive", "-i",
+        action="store_true",
+        help="Elegir y gestionar los canales top interactivamente",
+    )
 
 
 # ── System ────────────────────────────────────────────────────────────────────

@@ -702,6 +702,7 @@ def _update_top_channels(args) -> int:
         top = svc.update_top_channels_cache(
             window_days=getattr(args, "window", 7),
             top_n=getattr(args, "top", 5),
+            interactive=getattr(args, "interactive", False),
         )
         if not top:
             print(

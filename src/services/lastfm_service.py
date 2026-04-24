@@ -63,15 +63,27 @@ class LastFMService:
 
     # ── Single-call track info via Last.fm REST ─────────────────
 
+    def _normalize_title(self, title: str) -> str:
+        """Simplifies title by removing features, remasters, and extra noise."""
+        import re
+        t = str(title).lower()
+        # Remove features: (feat. X), (with X), (con X), [feat X], etc.
+        t = re.sub(r'[\(\[](feat|with|con|featuring)\.?\s+.*?[\)\]]', '', t)
+        # Remove common noise and versions
+        # Matches: (remastered), (early version), (acoustic), (demo), [live], etc.
+        t = re.sub(r'[\(\[](remastered|remaster|early version|acoustic|demo|live|instrumental|radio edit|video version|deluxe|bonus track|version|edit)[\)\]]', '', t)
+        # Clean extra spaces and punctuation
+        t = re.sub(r'[^\w\s]', '', t)
+        return " ".join(t.split())
+
     def _get_track_info_raw(self, artist: str, title: str) -> dict | None:
         """
-        Calls track.getInfo via pylast's internal _request in ONE HTTP call,
-        returning playcount, listeners, userplaycount, and tags.
-
-        This replaces 3 separate method calls (get_playcount, get_listener_count,
-        get_userplaycount) with a single API round-trip.
+        Calls track.getInfo with smart consolidation. 
+        If the title looks like it has variations (feat, etc), it searches 
+        for similar tracks and sums user scrobbles across them.
         """
         try:
+            # 1. Start with the exact match
             track = self.network.get_track(artist, title)
             params = track._get_params()
             params["method"] = "track.getInfo"
@@ -86,21 +98,22 @@ class LastFMService:
                 return None
             t = track_el[0]
 
-            def _text(tag):
-                els = t.getElementsByTagName(tag)
+            def _text(tag, node=t):
+                els = node.getElementsByTagName(tag)
                 return els[0].firstChild.nodeValue.strip() if els and els[0].firstChild else "0"
 
+            # Base data from primary match
             playcount = int(_text("playcount") or 0)
             listeners = int(_text("listeners") or 0)
-
-            # userplaycount is inside <track> but only when username is passed
+            userplaycount = 0
             user_els = t.getElementsByTagName("userplaycount")
-            userplaycount = int(user_els[0].firstChild.nodeValue.strip()) if user_els and user_els[0].firstChild else 0
+            if user_els and user_els[0].firstChild:
+                userplaycount = int(user_els[0].firstChild.nodeValue.strip())
 
-            # Tags
+            # Genre/Tags
             genre = ""
-            tag_els = t.getElementsByTagName("tag")
             tag_names = []
+            tag_els = t.getElementsByTagName("tag")
             for tag_el in tag_els:
                 name_els = tag_el.getElementsByTagName("name")
                 count_els = tag_el.getElementsByTagName("count")
@@ -110,6 +123,43 @@ class LastFMService:
                         tag_names.append(name_els[0].firstChild.nodeValue.strip())
             if tag_names:
                 genre = ", ".join(tag_names[:2])
+
+            # 2. CONSOLIDATION LOGIC: Search for variations if title has noise
+            norm_target = self._normalize_title(title)
+            # Only search if title seems to have "features" or is complex
+            has_noise = any(kw in title.lower() for kw in ["feat", "with", "con", " (", " ["])
+            
+            if has_noise:
+                try:
+                    search_results = self.network.search_for_track(artist, norm_target).get_next_page()
+                    self._throttle()
+                    
+                    # We limit to top 3 search results to avoid too many API calls
+                    candidate_tracks = []
+                    for s_track in search_results[:3]:
+                        # Only consider if artist matches closely and title normalized matches
+                        s_artist = str(s_track.artist).lower()
+                        s_title = str(s_track.title).lower()
+                        if artist.lower() in s_artist or s_artist in artist.lower():
+                            if self._normalize_title(s_title) == norm_target:
+                                # Avoid redundant call for the primary track we already got
+                                if s_title != title.lower():
+                                    candidate_tracks.append(s_track)
+                    
+                    # Fetch user scrobbles for variations and sum them
+                    for cand in candidate_tracks:
+                        try:
+                            # Use userplaycount call specifically to minimize payload
+                            c_userplaycount = int(cand.get_userplaycount() or 0)
+                            self._throttle()
+                            if c_userplaycount > 0:
+                                userplaycount += c_userplaycount
+                                # Update global stats if this version is more popular
+                                c_playcount = int(cand.get_playcount() or 0)
+                                if c_playcount > playcount:
+                                    playcount = c_playcount
+                        except: continue
+                except: pass
 
             return {
                 "playcount": playcount,
@@ -241,7 +291,7 @@ class LastFMService:
 
         return result
 
-    def enrich_songs(self, songs, force_scrobbles=True, cache_ttl_days=7):
+    def enrich_songs(self, songs, force_scrobbles=True, cache_ttl_days=7, force_threshold=None):
         """
         Enriches a list of song dicts in-place with Last.fm data.
 
@@ -250,6 +300,10 @@ class LastFMService:
 
         TTL-aware: songs cached within cache_ttl_days skip the API call entirely,
         even when force_scrobbles=True.
+
+        force_threshold: If provided (int), any song with song['Scrobble'] < force_threshold
+        will trigger a forced API lookup (bypassing cache TTL if force_scrobbles is True,
+        or forcing lookup if force_scrobbles was False).
         """
         total = len(songs)
         processed = 0
@@ -260,10 +314,20 @@ class LastFMService:
             if not artist or not title:
                 return False
 
+            # Check if we should force refresh based on threshold
+            local_force = force_scrobbles
+            if force_threshold is not None:
+                try:
+                    c_scrobbles = int(song.get("Scrobble", 0))
+                    if c_scrobbles < force_threshold:
+                        local_force = True
+                except (ValueError, TypeError):
+                    pass
+
             existing_genre = song.get("Genre", "")
             info = self.get_track_info(
                 artist, title,
-                force_scrobbles=force_scrobbles,
+                force_scrobbles=local_force,
                 cache_ttl_days=cache_ttl_days,
             )
 
@@ -273,7 +337,22 @@ class LastFMService:
             if new_genre:
                 song["Genre"] = new_genre
 
-            song["Scrobble"] = int(info.get("scrobble", 0))
+            new_scrobbles = int(info.get("scrobble", 0))
+            current_scrobbles = 0
+            try:
+                # We normalize the current value (handles strings with dots/commas if any)
+                c_val = str(song.get("Scrobble", 0)).replace('.', '').replace(',', '').strip()
+                current_scrobbles = int(c_val) if c_val.isdigit() else 0
+            except (ValueError, TypeError):
+                pass
+
+            # RULE: Never downgrade scrobbles. Only update if the new value is higher.
+            if new_scrobbles > current_scrobbles:
+                song["Scrobble"] = new_scrobbles
+            else:
+                # Keep the existing value if it's higher or equal
+                song["Scrobble"] = current_scrobbles
+
             # Prefer listener count; fall back to global playcount
             song["LastfmScrobble"] = (
                 int(info.get("lastfm_listeners", 0))

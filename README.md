@@ -148,7 +148,9 @@ Vibemus uses local JSON caches in the `data/` directory to optimize performance 
 
 ### 1. Last.fm Cache (`lastfm_cache.json`)
 *   **Purpose**: Stores track metadata (genres/tags) and scrobble counts.
-*   **Validity (TTL)**: **7 days**. Fresh data is reused automatically. Stale data may be used as a fallback unless a force-refresh is triggered.
+*   **Validity (TTL)**: **7 days**. Fresh data is reused automatically.
+*   **⚡ Conditional Refresh**: In `playlist sync`, songs in **SOURCE_PLAYLISTS** with **fewer than 4 scrobbles** always trigger a direct API lookup to Last.fm (ignoring the cache). Archives and other lists use the standard cache TTL.
+*   **Fallback**: Stale data may be used as a fallback if the API is unavailable, unless a force-refresh is triggered via `apply-moves`.
 
 ### 2. Source Playlists Cache (`source_cache.json`)
 *   **Purpose**: Local copy of your "source" playlists (Inbox, Genre lists) to speed up organization tasks.
@@ -361,6 +363,7 @@ vibemus playlist sync --name "#" --skip-lastfm
     - Pondrá el contador de reproducciones en el Sheet automáticamente a **4** (para evitar que en el futuro vuelva a entrar en esta bandeja de revisión).
 - **Auto-Graduación**: Si una canción sigue evaluándose y escuchándola orgánicamente supera el límite que has introducido en el comando, el bot la considerará "graduada" y la eliminará silenciosamente de la lista Pendiente.
 - **Independencia**: La playlist `Pendiente` es totalmente independiente y no se sincroniza con tus listas de género habituales.
+- **⚡ Tiempo Real y Respeto Manual**: El comando `review-pending` consulta Last.fm para todas las canciones con **< 4 scrobbles** en el Excel. Si tú actualizas manualmente una canción a **4 o más**, el bot la respetará y la graduará directamente sin consultar a Last.fm, permitiéndote "forzar" graduaciones.
 
 ```bash
 # Busca canciones con 0, 1 o 2 reproducciones (default)
@@ -503,6 +506,9 @@ vibemus youtube sync-subs
 
 # 2. Genera el cache del top-5 (una vez, o cuando quieras actualizar el ranking)
 vibemus youtube update-top-channels
+
+# O gestiónalo interactivamente para añadir/quitar canales a mano
+vibemus youtube update-top-channels --interactive
 
 # 3. A partir de ahora el sync diario incluye la Fase 4 automáticamente
 vibemus youtube sync-subs

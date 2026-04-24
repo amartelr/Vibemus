@@ -333,6 +333,7 @@ class YouTubeDataService:
                             {
                                 "videoId": video_id,
                                 "title": title,
+                                "description": snip.get("description", ""),
                                 "channel": channel,
                                 "publishedAt": published_str,
                             }
@@ -358,6 +359,17 @@ class YouTubeDataService:
         t = title.lower()
         return "#shorts" in t or "#short" in t
 
+    def _iso_to_seconds(self, iso: str) -> int:
+        """Convert ISO 8601 duration (PT1H2M3S) to total seconds."""
+        if not iso:
+            return 0
+        import re
+        m = re.fullmatch(r"PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?", iso)
+        if not m:
+            return 0
+        h, mn, s = (int(x) if x else 0 for x in m.groups())
+        return h * 3600 + mn * 60 + s
+
     def _is_short(self, video_item: dict) -> bool:
         """Full check using contentDetails duration + snippet tags."""
         snip = video_item.get("snippet", {})
@@ -365,15 +377,15 @@ class YouTubeDataService:
         desc = snip.get("description", "").lower()
         duration = video_item.get("contentDetails", {}).get("duration", "")
 
-        # 1. Tag check (free if snippet already fetched)
+        # 2. Tag check (free if snippet already fetched)
         if "#shorts" in title or "#short" in title or "#shorts" in desc:
             return True
 
-        # 2. Duration check — anything without hours AND with ≤1 min is a Short
-        if "H" not in duration:
-            if "M" not in duration:
-                return True  # e.g. PT45S
-            if duration in ("PT1M", "PT0M") or "PT0M" in duration:
+        # 3. Duration check — anything <= 180 seconds (3 min) is considered a Short/Clip
+        # (YouTube allows vertical clips up to 3 mins; regular videos are usually longer)
+        if duration:
+            total_seconds = self._iso_to_seconds(duration)
+            if total_seconds > 0 and total_seconds <= 180:
                 return True
 
         return False
@@ -429,19 +441,7 @@ class YouTubeDataService:
             # Fall through — we'll still apply per-channel longest logic below
 
         # Phase C — apply duration-based Short filter + keep longest per channel
-        import re
-
-        def _iso_to_seconds(iso: str) -> int:
-            """Convert ISO 8601 duration (PT1H2M3S) to total seconds."""
-            if not iso:
-                return 0
-            m = re.fullmatch(
-                r"PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?", iso
-            )
-            if not m:
-                return 0
-            h, mn, s = (int(x) if x else 0 for x in m.groups())
-            return h * 3600 + mn * 60 + s
+        # (Duration parsing moved to self._iso_to_seconds)
 
         # Group by channel, attach duration
         from collections import defaultdict
@@ -454,7 +454,10 @@ class YouTubeDataService:
             if detail:
                 # Build a minimal item to reuse _is_short
                 fake_item = {
-                    "snippet": {"title": v["title"], "description": ""},
+                    "snippet": {
+                        "title": v["title"], 
+                        "description": v.get("description", "")
+                    },
                     "contentDetails": detail.get("contentDetails", {}),
                 }
                 if self._is_short(fake_item):
@@ -464,7 +467,7 @@ class YouTubeDataService:
             else:
                 duration_iso = ""
 
-            v["_seconds"] = _iso_to_seconds(duration_iso)
+            v["_seconds"] = self._iso_to_seconds(duration_iso)
             by_channel[v["channelId"]].append(v)
 
         if api_filtered:
@@ -647,33 +650,23 @@ class YouTubeDataService:
         with open(Config.YT_TOP_CHANNELS_CACHE_FILE, "w") as fh:
             json.dump(top, fh, indent=2, default=str)
 
-    def update_top_channels_cache(self, window_days: int = 7, top_n: int = 5) -> list[dict]:
+    def update_top_channels_cache(self, window_days: int = 7, top_n: int = 5, interactive: bool = False) -> list[dict]:
         """Compute and persist the top *top_n* channels by additions in the
         last *window_days* days.
 
-        The ranking is based on ``channel_history`` stored in the main sync
-        state — a record written each time a video from that channel is
-        successfully inserted into the playlist.  Call this method explicitly
-        (e.g. via ``vibemus youtube update-top-channels``) rather than on
-        every sync run.
-
-        Returns
-        -------
-        list[dict]
-            Ordered list (most-played first) of
-            ``{channelId, title, count}`` for the top *top_n* channels.
+        If *interactive* is True, the user can manually add or remove channels
+        from the top list.
         """
         from datetime import timedelta
 
         cutoff = (datetime.now(timezone.utc) - timedelta(days=window_days)).isoformat()
         history: dict = self._sync_state.get("channel_history", {})
 
-        print(f"\n  📊 Calculando top-{top_n} canales (últimos {window_days} días)...")
-
-        if not history:
+        if not history and not interactive:
             print("  ℹ️  No hay historial de adiciones todavía. Ejecuta al menos un sync-subs primero.")
             return []
 
+        # 1. Calcular el top automático basado en historial
         ranked = []
         for ch_id, data in history.items():
             recent_count = sum(1 for d in data.get("dates", []) if d >= cutoff)
@@ -687,17 +680,124 @@ class YouTubeDataService:
         ranked.sort(key=lambda x: x["count"], reverse=True)
         top = ranked[:top_n]
 
-        if not top:
-            print(f"  ⚠  No hay datos de los últimos {window_days} días. Prueba con una ventana mayor.")
-            return []
+        # 2. Si no es interactivo, guardar y salir
+        if not interactive:
+            if not top:
+                print(f"  ⚠  No hay datos de los últimos {window_days} días. Prueba con una ventana mayor o usa --interactive.")
+                return []
+            
+            print(f"\n  🏆 Top-{len(top)} canales más añadidos (últimos {window_days} días):")
+            for i, ch in enumerate(top, 1):
+                print(f"     {i}. {ch['title']}  ({ch['count']} vídeo{'s' if ch['count'] != 1 else ''})")
 
-        print(f"\n  🏆 Top-{top_n} canales más añadidos (últimos {window_days} días):")
-        for i, ch in enumerate(top, 1):
-            print(f"     {i}. {ch['title']}  ({ch['count']} vídeo{'s' if ch['count'] != 1 else ''})")
+            self._save_top_channels_cache(top)
+            print(f"\n  💾 Cache guardado en: {Config.YT_TOP_CHANNELS_CACHE_FILE}")
+            return top
 
-        self._save_top_channels_cache(top)
-        print(f"\n  💾 Cache guardado en: {Config.YT_TOP_CHANNELS_CACHE_FILE}")
-        return top
+        # 3. MODO INTERACTIVO
+        current_top = self._load_top_channels_cache()
+        if not current_top:
+            current_top = top
+
+        while True:
+            print("\n" + "━"*50)
+            print("⭐ GESTIÓN INTERACTIVA DE TOP CANALES")
+            print("━"*50)
+            
+            if not current_top:
+                print("  (Lista vacía)")
+            else:
+                for i, ch in enumerate(current_top, 1):
+                    count_str = f" ({ch['count']} vídeos)" if 'count' in ch else ""
+                    print(f"  {i}. \033[1;96m{ch['title']}\033[0m{count_str}")
+            
+            print("\n  Opciones: [a]ñadir | [q]uitar | [s]ubir | [b]ajar | [g]uardar | [v]olver")
+            choice = input("\n👉 Elige una opción: ").strip().lower()
+
+            if choice in ['a', 'añadir']:
+                # Buscar en el historial completo
+                query = input("🔎 Buscar canal en el historial (nombre): ").strip().lower()
+                matches = []
+                for ch_id, data in history.items():
+                    title = data.get("title", "").lower()
+                    if query in title or query in ch_id.lower():
+                        matches.append({
+                            "channelId": ch_id,
+                            "title": data.get("title", ch_id),
+                            "count": sum(1 for d in data.get("dates", []) if d >= cutoff)
+                        })
+                
+                if not matches:
+                    print("  ❌ No se encontraron canales en el historial con ese nombre.")
+                    continue
+                
+                print("\n  Resultados encontrados:")
+                for i, m in enumerate(matches[:10], 1):
+                    print(f"    {i}. {m['title']} ({m['count']} vídeos recientes)")
+                
+                try:
+                    idx_str = input("\n👉 Elige el número del canal para añadir (o 'c' para cancelar): ").strip()
+                    if idx_str.lower() == 'c': continue
+                    idx = int(idx_str) - 1
+                    if 0 <= idx < len(matches):
+                        new_ch = matches[idx]
+                        if any(c['channelId'] == new_ch['channelId'] for c in current_top):
+                            print(f"  ℹ️  El canal '{new_ch['title']}' ya está en el top.")
+                        else:
+                            current_top.append(new_ch)
+                            print(f"  ✅ Añadido: {new_ch['title']}")
+                    else:
+                        print("  ❌ Índice inválido.")
+                except ValueError:
+                    print("  ❌ Entrada inválida.")
+
+            elif choice in ['q', 'quitar']:
+                if not current_top: continue
+                try:
+                    idx = int(input("👉 Número del canal a quitar: ")) - 1
+                    if 0 <= idx < len(current_top):
+                        removed = current_top.pop(idx)
+                        print(f"  🗑️ Quitado: {removed['title']}")
+                    else:
+                        print("  ❌ Índice inválido.")
+                except ValueError:
+                    print("  ❌ Entrada inválida.")
+
+            elif choice in ['s', 'subir']:
+                if not current_top: continue
+                try:
+                    idx = int(input("👉 Número del canal a subir: ")) - 1
+                    if 1 <= idx < len(current_top):
+                        current_top[idx], current_top[idx-1] = current_top[idx-1], current_top[idx]
+                    else:
+                        print("  ❌ No se puede subir.")
+                except ValueError:
+                    print("  ❌ Entrada inválida.")
+
+            elif choice in ['b', 'bajar']:
+                if not current_top: continue
+                try:
+                    idx = int(input("👉 Número del canal a bajar: ")) - 1
+                    if 0 <= idx < len(current_top) - 1:
+                        current_top[idx], current_top[idx+1] = current_top[idx+1], current_top[idx]
+                    else:
+                        print("  ❌ No se puede bajar.")
+                except ValueError:
+                    print("  ❌ Entrada inválida.")
+
+            elif choice in ['g', 'guardar']:
+                self._save_top_channels_cache(current_top)
+                print(f"\n  💾 Cache guardado en: {Config.YT_TOP_CHANNELS_CACHE_FILE}")
+                return current_top
+
+            elif choice in ['v', 'volver', 'q', 'quit', 'exit']:
+                confirm = input("⚠️  ¿Salir sin guardar cambios? (s/N): ").strip().lower()
+                if confirm == 's':
+                    return self._load_top_channels_cache()
+            else:
+                print("  ❌ Opción no reconocida.")
+
+        return current_top
 
     def sync_top_channels(
         self,
@@ -856,7 +956,10 @@ class YouTubeDataService:
             detail = details_map.get(v["videoId"])
             if detail:
                 fake = {
-                    "snippet": {"title": v["title"], "description": ""},
+                    "snippet": {
+                        "title": v["title"], 
+                        "description": v.get("description", "")
+                    },
                     "contentDetails": detail.get("contentDetails", {}),
                 }
                 if self._is_short(fake):
