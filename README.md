@@ -351,8 +351,8 @@ vibemus playlist sync --name "#" --skip-lastfm
 #### `vibemus playlist review-pending [N]`
 **Bandeja de revisión de biblioteca antigua** — localiza canciones "olvidadas" para decidir si mantenerlas o eliminarlas.
 
-- **Criterio de Selección**: Busca canciones con **reproducciones menores o iguales al número indicado** (`Scrobble <= N`). Si no se indica nada, el valor por defecto es **2**.
-- **Alcance Inteligente**: Solo escanea playlists que tengan un **intervalo de años** en su título (ej. `2010-2015`), ignorando tus listas activas y la bandeja de entrada `#`.
+- **Criterio de Selección**: Busca canciones con **reproducciones menores o iguales al número indicado** (`Scrobble <= N`). Si no se indica nada, el valor por defecto es **3**.
+- **Alcance Total**: Escanea todas las canciones de tu colección presentes en el Google Sheet, independientemente de la playlist (incluyendo tanto las listas de género activas como las archivadas), exceptuando únicamente la bandeja de entrada `#` y la propia playlist `Pendiente`.
 - **Limpieza de Dislikes**: Si marcas una canción como "No me gusta" (Dislike) dentro de la playlist `Pendiente`:
     - El script la **eliminará de todas tus playlists** de YouTube Music.
     - La marcará como **"Indiferente"** en YouTube para limpiar tu algoritmo.
@@ -366,7 +366,7 @@ vibemus playlist sync --name "#" --skip-lastfm
 - **⚡ Tiempo Real y Respeto Manual**: El comando `review-pending` consulta Last.fm para todas las canciones con **< 4 scrobbles** en el Excel. Si tú actualizas manualmente una canción a **4 o más**, el bot la respetará y la graduará directamente sin consultar a Last.fm, permitiéndote "forzar" graduaciones.
 
 ```bash
-# Busca canciones con 0, 1 o 2 reproducciones (default)
+# Busca canciones con 0, 1, 2 o 3 reproducciones (default)
 vibemus playlist review-pending
 
 # Busca canciones que nunca has escuchado (0 reproducciones)
@@ -458,7 +458,8 @@ Sincroniza los nuevos vídeos publicados en tus canales suscritos de YouTube en 
 | **3 — Inserción** | Añade los ganadores a "📥 Para Ver" + registra historial por canal | 50 u/vídeo |
 | **4 — Top canales** ⭐ | Añade hasta 3 vídeos extra de los 5 canales más activos (ventana 7d) | ~1–10 u/canal |
 
-- **Playlist Automática**: Los vídeos se añaden a una lista privada llamada **"📥 Para Ver"** (alternativa funcional al "Ver más tarde" del sistema, que está bloqueado por la API).
+- **Playlist Automática**: Los vídeos se añaden a una lista privada llamada **"! 📥 Para Ver"** (comienza con `!` para aparecer la primera en orden alfabético — alternativa funcional al "Ver más tarde" del sistema, que está bloqueado por la API).
+- **Mismo día — modo acumulativo**: Si `sync-subs` se ejecuta más de una vez en el mismo día (UTC), **no borra ni recrea** la playlist; simplemente añade los vídeos nuevos encima de los existentes.
 - **Filtro de Shorts**: Los vídeos de duración ≤ 60s o etiquetados con `#shorts` son ignorados automáticamente.
 - **Checkpoint incremental**: Solo procesa vídeos publicados desde la última ejecución (guardado en `data/youtube_subs_sync.json`).
 - **Historial por canal**: Cada inserción exitosa anota el canal en `channel_history` (auto-purgado a 90 días) para alimentar el ranking de top canales.

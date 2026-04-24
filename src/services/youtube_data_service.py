@@ -89,7 +89,7 @@ class YouTubeDataService:
     """Client for YouTube Data API v3 subscription-to-playlist sync."""
 
     # Name of the custom playlist created/used for "watch later" videos
-    PLAYLIST_NAME = "📥 Para Ver"
+    PLAYLIST_NAME = "! 📥 Para Ver"
 
     def __init__(self):
         self._yt = None  # Lazy-initialised on first API call
@@ -1009,7 +1009,23 @@ class YouTubeDataService:
                 f"(checkpoint de cuota anterior)."
             )
         else:
-            self.clear_playlist()
+            # Solo recrear la playlist si es la primera ejecución del día (UTC).
+            # Si ya se ejecutó hoy, simplemente añadimos vídeos nuevos encima.
+            raw_last_check = self._sync_state.get("last_run")
+            already_ran_today = False
+            if raw_last_check:
+                try:
+                    last_dt = datetime.fromisoformat(raw_last_check)
+                    if last_dt.tzinfo is None:
+                        last_dt = last_dt.replace(tzinfo=timezone.utc)
+                    already_ran_today = last_dt.date() == datetime.now(timezone.utc).date()
+                except ValueError:
+                    pass
+
+            if already_ran_today:
+                print("\n  ♻️  Sync del mismo día detectado — se añadirán vídeos sin recrear la playlist.")
+            else:
+                self.clear_playlist()
 
         now = datetime.now(timezone.utc)
         now_iso = now.isoformat()

@@ -2464,14 +2464,7 @@ class Manager:
                     continue
                     
                 pl = s.get('Playlist', '')
-                if pl == '#':
-                    continue
-                    
-                if pl in Config.ARCHIVABLE_PLAYLISTS:
-                    continue
-                    
-                # "solo deberá recorrer las que han sido archivadas y tienen puesto en el título intervalo de años"
-                if not re.search(r'\d{4}\s*-\s*\d{4}', pl):
+                if not pl or pl == '#' or pl == 'Pendiente':
                     continue
                     
                 vid = s.get('Video ID')
@@ -2492,22 +2485,18 @@ class Manager:
                 unique_candidates[c.get('Video ID')] = c
             candidates_to_add = list(unique_candidates.values())
             
-            # 3. Detectar y limpiar "Likes" residuales en los candidatos nuevos
+            # 3. Excluir candidatos que tengan 'Me gusta' activo
+            # Una canción con like ya ha sido evaluada positivamente → no va a Pendiente
             if candidates_to_add:
                 print("  Comprobando que los nuevos candidatos no tengan 'Me gusta' activo...")
                 liked_data = self.yt.get_liked_songs(limit=None)
                 liked_vids = {t.get('videoId') for t in liked_data.get('tracks', []) if t.get('videoId')}
                 
-                for c in candidates_to_add:
-                    vid = c.get('Video ID')
-                    if vid in liked_vids:
-                        artist = c.get('Artist', '')
-                        title = c.get('Title', '')
-                        print(f"    \033[93m⚠ Quitando 'Me Gusta' (residual/erróneo):\033[0m \033[92m{artist} - {title}\033[0m")
-                        try:
-                            self.yt.rate_song(vid, 'INDIFFERENT')
-                        except Exception as e:
-                            print(f"      ✗ Error quitando like: {e}")
+                before = len(candidates_to_add)
+                candidates_to_add = [c for c in candidates_to_add if c.get('Video ID') not in liked_vids]
+                skipped = before - len(candidates_to_add)
+                if skipped:
+                    print(f"    ℹ️  {skipped} canciones con 'Me gusta' omitidas (no se añaden a Pendiente).")
 
             if candidates_to_add:
                 print(f"  \033[92m📥 Añadiendo {len(candidates_to_add)} canciones a 'Pendiente'...\033[0m")

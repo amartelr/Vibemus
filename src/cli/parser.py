@@ -254,11 +254,11 @@ def _register_playlist(subparsers: argparse._SubParsersAction) -> None:
     # playlist review-pending
     rp_p = pl_sub.add_parser(
         "review-pending",
-        help="Crea y actualiza una playlist 'Pendiente' según el número de reproducciones (default: <= 2).",
+        help="Crea y actualiza una playlist 'Pendiente' según el número de reproducciones (default: <= 3).",
     )
     rp_p.add_argument(
-        "threshold", type=int, nargs="?", default=None,
-        help="Límite máximo de reproducciones para incluir en la lista (omitir para no añadir canciones nuevas)",
+        "threshold", type=int, nargs="?", default=3,
+        help="Límite máximo de reproducciones para incluir en la lista (default: 3)",
     )
 
     # playlist list
