@@ -21,6 +21,7 @@ class Config:
     YT_TOKEN_FILE = os.path.join(DATA_DIR, 'youtube_token.json')
     YT_SUBS_SYNC_FILE = os.path.join(DATA_DIR, 'youtube_subs_sync.json')
     YT_TOP_CHANNELS_CACHE_FILE = os.path.join(DATA_DIR, 'youtube_top_channels_cache.json')
+    PENDING_SNAPSHOT_FILE = os.path.join(DATA_DIR, 'pending_snapshot.json')
     
     # Internal cache for keys
     _keys = {}
@@ -48,7 +49,7 @@ class Config:
     PLAYLIST_ID = "PL2_CnmTxHQ0Cnmzx13a1EL_3nrqr1wCkr" 
     SCROBBLE_THRESHOLD = 13
     UNLIKE_THRESHOLD = 10
-    PENDING_AUTO_ADD_THRESHOLD = 1
+    PENDING_AUTO_ADD_THRESHOLD = 2
 
     SOURCE_PLAYLISTS = [
         "#", "Pop", "Rock", "Garage", "Shoegaze", "Post-punk", "Emo", "Folk",

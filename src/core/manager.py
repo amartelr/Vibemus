@@ -1048,8 +1048,8 @@ class Manager:
 
             if not skip_lastfm:
                 print(f"  \033[93m⌛ Fetching scrobbles from Last.fm for {len(fresh_items)} songs...\033[0m")
-                # Solo forzamos el umbral de 4 si la playlist es una de las "fuente" (activas)
-                force_th = 4 if pl_name in Config.SOURCE_PLAYLISTS else None
+                # Solo forzamos el umbral de 3 si la playlist es una de las "fuente" (activas)
+                force_th = 3 if pl_name in Config.SOURCE_PLAYLISTS else None
                 self.lastfm.enrich_songs(fresh_items, force_scrobbles=False, force_threshold=force_th)
 
             print(f"  Checking {len(fresh_items)} songs for likes/dislikes...")
@@ -2304,25 +2304,57 @@ class Manager:
         current_vids = {it.get('videoId'): it for it in current_items if it.get('videoId')}
         
         all_songs = self.sheets.get_songs_records()
+        updated_any_songs = False
+
+        # ── Detect Manual Removals (Snapshot) ──
+        if os.path.exists(Config.PENDING_SNAPSHOT_FILE):
+            try:
+                with open(Config.PENDING_SNAPSHOT_FILE, 'r') as f:
+                    snapshot = set(json.load(f))
+                
+                # Missing from YT but present in snapshot
+                manually_removed = snapshot - set(current_vids.keys())
+                
+                if manually_removed:
+                    print(f"  🔍 Detectando canciones eliminadas manualmente de 'Pendiente'...")
+                    graduated_count = 0
+                    for vid in manually_removed:
+                        # Find in sheet
+                        matches = [s for s in all_songs if s.get('Video ID') == vid]
+                        if matches:
+                            s = matches[0]
+                            scrobbles_raw = str(s.get('Scrobble', '0')).replace('.', '').replace(',', '').strip()
+                            c_scrobbles = int(scrobbles_raw) if scrobbles_raw.isdigit() else 0
+                            
+                            if c_scrobbles < 3:
+                                s['Scrobble'] = 3
+                                updated_any_songs = True
+                                graduated_count += 1
+                                print(f"    🎓 \033[92m{s.get('Artist')} - {s.get('Title')}\033[0m graduada (eliminación manual detectada).")
+                    
+                    if graduated_count == 0:
+                        print("    ℹ️ No se han graduado nuevas canciones por eliminación manual.")
+            except Exception as e:
+                print(f"  ⚠ Error al procesar el snapshot: {e}")
+
         to_remove_from_all_songs = set()
         archived_batch = []
-        updated_any_songs = False
 
         # ── Refresh Scrobbles from Last.fm for songs currently in Pendiente ──────
         if current_items:
             print("  🔄 Actualizando Scrobbles desde Last.fm...")
             vid_to_sheet = {s.get('Video ID'): s for s in all_songs if s.get('Video ID')}
-            # Solo enriquecemos canciones que aún tienen < 4 scrobbles en el Sheet.
-            # Si el usuario ha puesto un 4 o más manualmente, respetamos ese valor para que se gradúe.
+            # Solo enriquecemos canciones que aún tienen < 3 scrobbles en el Sheet.
+            # Si el usuario ha puesto un 3 o más manualmente, respetamos ese valor para que se gradúe.
             pending_for_enrichment = [
                 vid_to_sheet[item.get('videoId')]
                 for item in current_items
                 if item.get('videoId') and item.get('videoId') in vid_to_sheet
-                and int(str(vid_to_sheet[item.get('videoId')].get('Scrobble', 0)).replace('.', '').replace(',', '') or 0) < 4
+                and int(str(vid_to_sheet[item.get('videoId')].get('Scrobble', 0)).replace('.', '').replace(',', '') or 0) < 3
             ]
 
             if pending_for_enrichment:
-                print(f"  ⌛ Actualizando scrobbles para {len(pending_for_enrichment)} canciones con < 4 reproducciones...")
+                print(f"  ⌛ Actualizando scrobbles para {len(pending_for_enrichment)} canciones con < 3 reproducciones...")
                 self.lastfm.enrich_songs(pending_for_enrichment, force_scrobbles=True, cache_ttl_days=0)
                 updated_any_songs = True 
             elif not vid_to_sheet:
@@ -2414,10 +2446,10 @@ class Manager:
                         scrobbles_raw = str(s.get('Scrobble', '0')).replace('.', '').replace(',', '').strip()
                         c_scrobbles = int(scrobbles_raw) if scrobbles_raw.isdigit() else 0
                         
-                        if c_scrobbles < 4:
-                            s['Scrobble'] = 4
+                        if c_scrobbles < 3:
+                            s['Scrobble'] = 3
                             updated_any_songs = True
-                            print(f"      → Scrobbles subidos a 4 en tu hoja para que ya no vuelva a ser evaluada.")
+                            print(f"      → Scrobbles subidos a 3 en tu hoja para que ya no vuelva a ser evaluada.")
                             
                     if vid in current_vids:
                         del current_vids[vid]
@@ -2432,8 +2464,8 @@ class Manager:
                         scrobbles_raw = str(s.get('Scrobble', '0')).replace('.', '').replace(',', '').strip()
                         c_scrobbles = int(scrobbles_raw) if scrobbles_raw.isdigit() else 0
 
-                        # Regla de consolidación: >= 4 scrobbles propios → ya está asentada en tu biblioteca
-                        _CONSOLIDATION_MIN = 4
+                        # Regla de consolidación: >= 3 scrobbles propios → ya está asentada en tu biblioteca
+                        _CONSOLIDATION_MIN = 3
                         consolidated = c_scrobbles >= _CONSOLIDATION_MIN
                         # Cuando se pasa threshold n, se elimina al superar n+3 (margen sobre el umbral de entrada)
                         removal_threshold = (threshold + 3) if threshold is not None else None
@@ -2519,7 +2551,7 @@ class Manager:
             if to_remove_from_all_songs:
                 print(f"  Archivando {len(archived_batch)} canciones (Disliked)...")
             else:
-                print(f"  Actualizando base de datos local (Likes ajustados a 4)...")
+                print(f"  Actualizando base de datos local (Likes ajustados a 3)...")
                 
             updated_all_songs = [s for s in all_songs if s.get('Video ID') not in to_remove_from_all_songs]
             self.sheets.overwrite_songs(updated_all_songs)
@@ -2527,6 +2559,19 @@ class Manager:
             if archived_batch:
                 self.sheets.add_to_archived_batch(archived_batch)
             
+        # ── Save Final Snapshot ──
+        try:
+            # Re-collect current Video IDs (including newly added candidates)
+            final_vids = list(current_vids.keys())
+            if threshold is not None and 'candidates_to_add' in locals():
+                for c in candidates_to_add:
+                    final_vids.append(c.get('Video ID'))
+            
+            with open(Config.PENDING_SNAPSHOT_FILE, 'w') as f:
+                json.dump(list(set(final_vids)), f, indent=4)
+        except Exception as e:
+            print(f"  ⚠ Error al guardar el snapshot: {e}")
+
         print("\n✅ Proceso completado.")
 
 
