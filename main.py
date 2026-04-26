@@ -12,7 +12,7 @@ from src.cli.commands import (
     handle_library,
     handle_releases,
     handle_system,
-    handle_new_releases,
+    handle_recom,
     handle_genre,
     handle_youtube,
 )
@@ -25,7 +25,7 @@ _HANDLERS = {
     "releases": handle_releases,
     "playlist": handle_playlist,
     "library": handle_library,
-    "new-releases": handle_new_releases,
+    "recom": handle_recom,
     "genre": handle_genre,
     "system": handle_system,
     "youtube": handle_youtube,
@@ -58,6 +58,19 @@ def main() -> None:
             print(f"\033[93m⚠ {w.message}\033[0m", file=sys.stderr)
 
     command = getattr(args, "command", None)
+    # Normalize command aliases
+    _CMD_MAP = {
+        "art": "artist",
+        "rel": "releases",
+        "pl": "playlist",
+        "lib": "library",
+        "rec": "recom",
+        "gen": "genre",
+        "sys": "system",
+        "yt": "youtube",
+    }
+    command = _CMD_MAP.get(command, command)
+
     if not command:
         parser.print_help()
         sys.exit(0)

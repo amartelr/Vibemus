@@ -32,7 +32,7 @@ def build_parser() -> argparse.ArgumentParser:
     _register_releases(subparsers)
     _register_playlist(subparsers)
     _register_library(subparsers)
-    _register_new_releases(subparsers)
+    _register_recom(subparsers)
     _register_genre(subparsers)
     _register_system(subparsers)
     _register_youtube(subparsers)
@@ -46,25 +46,27 @@ def build_parser() -> argparse.ArgumentParser:
 def _register_artist(subparsers: argparse._SubParsersAction) -> None:
     artist_parser = subparsers.add_parser(
         "artist",
+        aliases=["art"],
         help="Manage tracked artists",
         description="Add, remove, list, and maintain your tracked artists.",
     )
     artist_sub = artist_parser.add_subparsers(dest="action")
 
     # artist list
-    artist_sub.add_parser("list", help="List all tracked artists and their status")
+    artist_sub.add_parser("list", aliases=["ls"], help="List all tracked artists and their status")
 
     # artist search
-    search_p = artist_sub.add_parser("search", help="Search for artists in YT/Sheet")
+    search_p = artist_sub.add_parser("search", aliases=["sh"], help="Search for artists in YT/Sheet")
     search_p.add_argument("query", type=str, help="Search string")
 
     # artist add
     add_p = artist_sub.add_parser(
         "add",
+        aliases=["ad"],
         help="Add an artist by name",
         description="Search YouTube Music and start tracking an artist.",
     )
-    add_p.add_argument("name", type=str, help="Artist name to add")
+    add_p.add_argument("name", type=str, nargs="?", help="Artist name to add (optional if you want to enter it interactively)")
     add_p.add_argument(
         "--playlist", type=str, metavar="PL",
         help="Assign a target playlist and migrate songs",
@@ -75,7 +77,7 @@ def _register_artist(subparsers: argparse._SubParsersAction) -> None:
     )
 
     # artist remove
-    rm_p = artist_sub.add_parser("remove", help="Remove an artist by name")
+    rm_p = artist_sub.add_parser("remove", aliases=["rm"], help="Remove an artist by name")
     rm_p.add_argument("name", type=str, help="Artist name to remove")
 
 
@@ -85,30 +87,35 @@ def _register_artist(subparsers: argparse._SubParsersAction) -> None:
     # artist cleanup-collabs
     artist_sub.add_parser(
         "cleanup-collabs",
+        aliases=["cc"],
         help="Interactive cleanup of collaborative artists",
     )
 
     # artist sync
     artist_sub.add_parser(
         "sync",
+        aliases=["sy"],
         help="Synchronize tracked artists with the 'Songs' catalog, performing onboarding for new ones",
     )
 
     # artist import
     artist_sub.add_parser(
         "import",
+        aliases=["im"],
         help="Import artists from the YouTube library (based on count of your tracks they have)",
     )
 
     # artist reset-empty
     artist_sub.add_parser(
         "reset-empty",
+        aliases=["re"],
         help="Reset 'Last Checked' for artists with NO songs yet (useful to retry scanning)",
     )
 
     # artist archive-inactive
     artist_sub.add_parser(
         "archive-inactive",
+        aliases=["ai"],
         help="Move artists with no activity in Last.fm/YT for X years to Archives",
     )
 
@@ -119,6 +126,7 @@ def _register_artist(subparsers: argparse._SubParsersAction) -> None:
 def _register_releases(subparsers: argparse._SubParsersAction) -> None:
     rel_parser = subparsers.add_parser(
         "releases",
+        aliases=["rel"],
         help="Artist release monitoring",
         description="Check for new albums and singles from tracked artists.",
     )
@@ -127,6 +135,7 @@ def _register_releases(subparsers: argparse._SubParsersAction) -> None:
     # releases sync (was sync releases)
     sync_p = rel_sub.add_parser(
         "sync",
+        aliases=["sy"],
         help="Check for new releases from tracked artists",
     )
     sync_p.add_argument(
@@ -150,6 +159,7 @@ def _register_releases(subparsers: argparse._SubParsersAction) -> None:
 def _register_playlist(subparsers: argparse._SubParsersAction) -> None:
     pl_parser = subparsers.add_parser(
         "playlist",
+        aliases=["pl"],
         help="Playlist operations and maintenance",
         description="Clean, export, and process playlists.",
     )
@@ -158,6 +168,7 @@ def _register_playlist(subparsers: argparse._SubParsersAction) -> None:
     # playlist sync (was sync playlist)
     sp_p = pl_sub.add_parser(
         "sync",
+        aliases=["sy"],
         help="Sync playlist(s) with Songs sheet and enrich with Last.fm",
     )
     sp_p.add_argument(
@@ -178,24 +189,28 @@ def _register_playlist(subparsers: argparse._SubParsersAction) -> None:
     # playlist cleanup-inbox (was --cleanup-inbox)
     pl_sub.add_parser(
         "cleanup-inbox",
+        aliases=["ci"],
         help="Remove songs from '#' already in other playlists",
     )
 
     # playlist clean
     pl_sub.add_parser(
         "clean",
+        aliases=["cl"],
         help="Remove songs from playlists that are not in the 'Songs' sheet",
     )
 
     # playlist undo-old
     pl_sub.add_parser(
         "undo-old",
+        aliases=["uo"],
         help="Experimental: undoing old processing tasks",
     )
 
     # playlist export
     ex_p = pl_sub.add_parser(
         "export",
+        aliases=["ex"],
         help="Export a YT playlist to a Google sheet page",
     )
     ex_p.add_argument(
@@ -206,6 +221,7 @@ def _register_playlist(subparsers: argparse._SubParsersAction) -> None:
     # playlist cleanup-likes
     pl_sub.add_parser(
         "cleanup-likes",
+        aliases=["cul"],
         help="Interactively unlike songs from 'LM' (or Liked Songs) if plays > threshold",
     )
 
@@ -218,6 +234,7 @@ def _register_playlist(subparsers: argparse._SubParsersAction) -> None:
     # playlist apply-moves
     am_p = pl_sub.add_parser(
         "apply-moves",
+        aliases=["am"],
         help="Apply manual playlist changes from the Songs sheet to YouTube Music",
     )
     am_p.add_argument(
@@ -240,6 +257,7 @@ def _register_playlist(subparsers: argparse._SubParsersAction) -> None:
     # playlist split
     split_p = pl_sub.add_parser(
         "split",
+        aliases=["sp"],
         help="Split a main playlist (and its archives) into N balanced parts by year",
     )
     split_p.add_argument(
@@ -254,16 +272,22 @@ def _register_playlist(subparsers: argparse._SubParsersAction) -> None:
     # playlist review-pending
     rp_p = pl_sub.add_parser(
         "review-pending",
+        aliases=["rp"],
         help="Crea y actualiza una playlist 'Pendiente' según el número de reproducciones (default: <= 2).",
     )
     rp_p.add_argument(
         "threshold", type=int, nargs="?", default=2,
         help="Límite máximo de reproducciones para incluir en la lista (default: 2)",
     )
+    rp_p.add_argument(
+        "--skip-lastfm", action="store_true",
+        help="Skip Last.fm scrobble update (useful for maintenance only)",
+    )
 
     # playlist list
     pl_sub.add_parser(
         "list",
+        aliases=["ls"],
         help="List all playlists with their song counts in YouTube Music and Google Sheet",
     )
 
@@ -276,6 +300,7 @@ def _register_playlist(subparsers: argparse._SubParsersAction) -> None:
 def _register_library(subparsers: argparse._SubParsersAction) -> None:
     lib_parser = subparsers.add_parser(
         "library",
+        aliases=["lib"],
         help="YouTube Music Library management",
         description="Synchronize your YouTube Music Library with your playlists.",
     )
@@ -284,29 +309,32 @@ def _register_library(subparsers: argparse._SubParsersAction) -> None:
     # library sync
     lib_sub.add_parser(
         "sync",
+        aliases=["sy"],
         help="Sync library: add missing playlist songs to library & remove orphaned ones",
     )
 
 
-# ── New Releases ──────────────────────────────────────────────────────────────
+# ── Recommendations ──────────────────────────────────────────────────────────
 
 
-def _register_new_releases(subparsers: argparse._SubParsersAction) -> None:
+def _register_recom(subparsers: argparse._SubParsersAction) -> None:
     nr_parser = subparsers.add_parser(
-        "new-releases",
-        help="Discovery of latest drops",
-        description="Scan the global new releases shelf.",
+        "recom",
+        aliases=["rec"],
+        help="Personalized artist recommendations from Last.fm",
+        description="Fetch and track recommended artists based on your listening history.",
     )
     nr_sub = nr_parser.add_subparsers(dest="action")
 
-    # new-releases sync (was sync new-releases)
+    # recom sync
     sync_p = nr_sub.add_parser(
         "sync",
-        help="Scan global new releases from YouTube Music for tracked artists",
+        aliases=["sy"],
+        help="Scan personalized recommendations from Last.fm",
     )
     sync_p.add_argument(
         "--auto", action="store_true",
-        help="Skip interactive prompts and auto-add all found songs",
+        help="Skip interactive prompts and auto-add 2 new and 2 popular catalog songs per artist",
     )
 
 
@@ -316,6 +344,7 @@ def _register_new_releases(subparsers: argparse._SubParsersAction) -> None:
 def _register_genre(subparsers: argparse._SubParsersAction) -> None:
     genre_parser = subparsers.add_parser(
         "genre",
+        aliases=["gen"],
         help="Genre taxonomy management",
         description="Categorize and audit your artists by genre.",
     )
@@ -324,6 +353,7 @@ def _register_genre(subparsers: argparse._SubParsersAction) -> None:
     # genre sync
     genre_sub.add_parser(
         "sync",
+        aliases=["sy"],
         help="Synthesize and update the Genre summary sheet",
     )
 
@@ -334,6 +364,7 @@ def _register_genre(subparsers: argparse._SubParsersAction) -> None:
 def _register_youtube(subparsers: argparse._SubParsersAction) -> None:
     yt_parser = subparsers.add_parser(
         "youtube",
+        aliases=["yt"],
         help="YouTube (not Music) automation — subscriptions, Watch-Later alternative",
         description="Interact with the regular YouTube platform via the Data API v3.",
     )
@@ -342,6 +373,7 @@ def _register_youtube(subparsers: argparse._SubParsersAction) -> None:
     # youtube sync-subs
     ss_p = yt_sub.add_parser(
         "sync-subs",
+        aliases=["ss"],
         help=(
             "Add new subscription videos (published since last run) to "
             "the '📥 Para Ver' playlist"
@@ -361,18 +393,21 @@ def _register_youtube(subparsers: argparse._SubParsersAction) -> None:
     # youtube cleanup-shorts
     yt_sub.add_parser(
         "cleanup-shorts",
+        aliases=["cs"],
         help="Eliminar Shorts existentes de la playlist '📥 Para Ver'",
     )
 
     # youtube cleanup-watched
     yt_sub.add_parser(
         "cleanup-watched",
+        aliases=["cw"],
         help="Eliminar vídeos ya vistos de la playlist '📥 Para Ver'",
     )
 
     # youtube update-top-channels
     utc_p = yt_sub.add_parser(
         "update-top-channels",
+        aliases=["utc"],
         help=(
             "Recalcular y guardar el top-5 de canales más añadidos "
             "(últimos N días) para potenciar el sync diario"
@@ -405,6 +440,7 @@ def _register_youtube(subparsers: argparse._SubParsersAction) -> None:
 def _register_system(subparsers: argparse._SubParsersAction) -> None:
     sys_parser = subparsers.add_parser(
         "system",
+        aliases=["sys"],
         help="Cache, reset, and utility operations",
         description="System-level utilities for Vibemus.",
     )
@@ -415,12 +451,14 @@ def _register_system(subparsers: argparse._SubParsersAction) -> None:
     # system refresh-cache
     sys_sub.add_parser(
         "refresh-cache",
+        aliases=["rc"],
         help="Refresh local cache of source playlists",
     )
 
     # system auth
     sys_sub.add_parser(
         "auth",
+        aliases=["au"],
         help="Run authentication helper (grab_cookies.js)",
     )
 
@@ -437,7 +475,7 @@ _LEGACY_MAP = {
     "--reset-empty-artists": ("artist", "reset-empty"),
 
     "--sync-releases": ("releases", "sync"),
-    "--sync-new-releases": ("new-releases", "sync"),
+    "--sync-new-releases": ("recom", "sync"),
     "--sync-playlist": ("playlist", "sync"),
 
     "--cleanup-inbox": ("playlist", "cleanup-inbox"),
@@ -459,7 +497,7 @@ def rewrite_legacy_args(argv: list[str]) -> list[str]:
         return argv
 
     # If the first arg already looks like a subcommand, skip
-    if argv[0] in ("artist", "releases", "playlist", "library", "system", "new-releases", "genre"):
+    if argv[0] in ("artist", "releases", "playlist", "library", "system", "recom", "genre"):
         return argv
 
     new_argv: list[str] = []

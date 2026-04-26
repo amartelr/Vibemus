@@ -310,6 +310,25 @@ class Manager:
             default_pl = ''
 
         print(f"    \033[93m🆕 Tracking new artist: \033[1;96m'{onboarding_artist}'\033[0m")
+        
+        # ── Genre discovery (Last.fm & MusicBrainz) ──
+        print(f"      🔍 Searching for genres...")
+        lfm_genre = ""
+        mb_genre = ""
+        try:
+            lfm_genre = self.lastfm.get_artist_info(onboarding_artist).get('genre', '')
+        except: pass
+        try:
+            mb_genre = self.musicbrainz.get_artist_info(onboarding_artist).get('genre', '')
+        except: pass
+
+        if lfm_genre or mb_genre:
+            if lfm_genre: print(f"      📻 Last.fm: \033[95m{lfm_genre}\033[0m")
+            if mb_genre:   print(f"      🧬 MusicBrainz: \033[94m{mb_genre}\033[0m")
+        else:
+            print(f"      ℹ️ No suggested genres found.")
+        print()
+
         prompt = f"      Which playlist should receive their new releases? "
         if default_pl:
             prompt += f"[\033[92m{default_pl}\033[0m]: "
@@ -325,13 +344,7 @@ class Manager:
 
         print(f"      ✅ Registering '{onboarding_artist}' in Artists sheet with playlist '{final_pl}'.")
 
-        # Genre lookup
-        m_genre = None
-        try:
-            a_info = self.lastfm.get_artist_info(onboarding_artist)
-            m_genre = a_info.get('genre', '')
-        except Exception:
-            pass
+        m_genre = lfm_genre or mb_genre
 
         m_count = len([s for s in all_songs if self._normalize(s.get('Artist', '')) == self._normalize(onboarding_artist)])
 
@@ -512,9 +525,22 @@ class Manager:
         any_change_session = False
         if target_artist_name:
             print(f"\033[93m🎯 Filtro Artista: {target_artist_name}\033[0m")
-            artist_info = meta_service.get_artist_info(target_artist_name, cache_ttl_days=-1)
-            artist_genres = artist_info.get('genre', '(Desconocido)') if artist_info else '(Desconocido)'
-            print(f"\033[95m   👤 Género del Artista: {artist_genres}\033[0m")
+            
+            # ── Genre discovery (Both APIs) ──
+            lfm_g = ""
+            mb_g = ""
+            try:
+                lfm_g = self.lastfm.get_artist_info(target_artist_name, cache_ttl_days=-1).get('genre', '')
+            except: pass
+            try:
+                mb_g = self.musicbrainz.get_artist_info(target_artist_name, cache_ttl_days=-1).get('genre', '')
+            except: pass
+            
+            if lfm_g: print(f"      📻 Last.fm: \033[95m{lfm_g}\033[0m")
+            if mb_g:   print(f"      🧬 MusicBrainz: \033[94m{mb_g}\033[0m")
+            
+            artist_genres = lfm_g or mb_g or '(Desconocido)'
+            artist_info = {'genre': artist_genres} # Mock for later check
             
             # Check if artist genre has changed to queue an update at the end
             artists_records = self.sheets.get_artists()
@@ -1467,7 +1493,7 @@ class Manager:
 
         print("✅ Sync complete.")
 
-    def add_artist(self, name, target_playlist=None, api_choice="lastfm"):
+    def add_artist(self, name, target_playlist=None, api_choice="lastfm", interactive=True):
         print(f"\n\033[90m🔎 Searching for artist:\033[0m \033[1;93m'{name}'\033[0m...")
         results = self.yt.yt.search(name, filter='artists')
         if not results:
@@ -1478,7 +1504,7 @@ class Manager:
         best = candidates[0]
         
         # Si hay más de un resultado o el nombre no coincide exactamente, ofrecemos elegir
-        if len(candidates) > 1:
+        if interactive and len(candidates) > 1:
             print(f"  \033[93mMultiple matches found for '{name}'. Please choose one:\033[0m")
             options = []
             for i, c in enumerate(candidates):
@@ -1529,10 +1555,25 @@ class Manager:
                     self.sheets.save_artists(artists)
                 return "exists", a
         
-        # Determine metadata service for genre fetching
-        meta_service = self.musicbrainz if api_choice == "musicbrainz" else self.lastfm
-        artist_info = meta_service.get_artist_info(artist_name, cache_ttl_days=-1)
-        genre = artist_info.get('genre', "") if artist_info else ""
+        # ── Genre discovery (Last.fm & MusicBrainz) ──
+        print(f"      🔍 Searching for genres...")
+        lfm_genre = ""
+        mb_genre = ""
+        try:
+            lfm_genre = self.lastfm.get_artist_info(artist_name, cache_ttl_days=-1).get('genre', '')
+        except: pass
+        try:
+            mb_genre = self.musicbrainz.get_artist_info(artist_name, cache_ttl_days=-1).get('genre', '')
+        except: pass
+
+        if lfm_genre or mb_genre:
+            if lfm_genre: print(f"      📻 Last.fm: \033[95m{lfm_genre}\033[0m")
+            if mb_genre:   print(f"      🧬 MusicBrainz: \033[94m{mb_genre}\033[0m")
+        else:
+            print(f"      ℹ️ No suggested genres found.")
+        print()
+
+        genre = lfm_genre or mb_genre
         
         new_row = {
             'Artist Name': artist_name,
@@ -1959,8 +2000,12 @@ class Manager:
         self.sheets.add_to_songs_batch(tracks)
         return len(tracks)
 
-    def check_new_releases(self, playlist_id, force=False, target_artist_name=None, target_artist_id=None, clear_empty=False, interactive=False, skip_summary=False, scope='all'):
-        """Revisa la discografía del artista en YouTube y añade las canciones limitadas a MAX_NEW_RELEASE_SONGS."""
+    def check_new_releases(self, playlist_id, force=False, target_artist_name=None, target_artist_id=None, clear_empty=False, interactive=False, skip_summary=False, scope='all', auto=False):
+        """Revisa la discografía del artista en YouTube y añade las canciones limitadas.
+        
+        Si auto=True, se añaden automáticamente hasta 2 canciones nuevas y 2 del catálogo antiguo
+        (las más populares) sin intervención del usuario.
+        """
         if not target_artist_name:
             print("Se requiere el nombre del artista.")
             return 0
@@ -2133,10 +2178,10 @@ class Manager:
                 t['Artist'] = target_artist_name
                 t['Title'] = t.get('title', '')
 
-            if interactive and scope in ('all', 'new'):
-                # Modo interactivo: acumular ahora, preguntar al final del loop (top 3)
+            if (interactive or auto) and scope in ('all', 'new'):
+                # Acumular ahora para seleccionar las mejores después (Top 3 en interactive, Top 2 en auto)
                 all_recent_interactive.extend(top_missing_tracks)
-            elif not interactive:
+            elif not interactive and not auto:
                 print(f"    \033[90m+ Analizando lanzamiento: '{title}' ({album_year_str}). Extraídas {len(top_missing_tracks)} pistas...\033[0m")
                 for track in top_missing_tracks:
                     vid = track.get('videoId')
@@ -2158,12 +2203,16 @@ class Manager:
                     existing_vids.add(vid)
 
 
-        # Modo interactivo: enriquecemos una sola vez y preguntamos solo el Top 3 más popular
-        if interactive and all_recent_interactive:
-            print(f"    🔎 Buscando popularidad en Last.fm para {len(all_recent_interactive)} canciones de lanzamientos recientes...")
+        # Modo automático o interactivo para recientes
+        if (interactive or auto) and all_recent_interactive:
+            if auto:
+                print(f"    🤖 Modo Auto: Seleccionando hasta 2 canciones nuevas más populares...")
+            else:
+                print(f"    🔎 Buscando popularidad en Last.fm para {len(all_recent_interactive)} canciones de lanzamientos recientes...")
+            
             self.lastfm.enrich_songs(all_recent_interactive, force_scrobbles=False)
             
-            # Deduplicar por título normalizado (un mismo single puede aparecer en varios releases)
+            # Deduplicar por título normalizado
             seen_keys = set()
             unique_recent = []
             for t in all_recent_interactive:
@@ -2172,63 +2221,64 @@ class Manager:
                     seen_keys.add(k)
                     unique_recent.append(t)
 
-            # Ordenar por oyentes y presentar solo el Top 3
-            top3_recent = sorted(unique_recent, key=lambda x: int(x.get('LastfmScrobble', 0)), reverse=True)[:3]
+            # Seleccionamos las mejores (Top 3 si interactivo, Top 2 si auto)
+            limit = 2 if auto else 3
+            top_recent = sorted(unique_recent, key=lambda x: int(x.get('LastfmScrobble', 0)), reverse=True)[:limit]
             
-            if top3_recent:
-                print(f"    \033[95m🎵 Top 3 pistas más populares de los lanzamientos recientes:\033[0m")
-                for t in top3_recent:
-                    listeners = int(t.get('LastfmScrobble', 0))
-                    user_scrobbles = int(t.get('Scrobble', 0))
-                    listeners_fmt = f"{listeners:,}".replace(",", ".")
+            for t in top_recent:
+                listeners = int(t.get('LastfmScrobble', 0))
+                user_scrobbles = int(t.get('Scrobble', 0))
+                listeners_fmt = f"{listeners:,}".replace(",", ".")
+                
+                add_this = False
+                if auto:
+                    print(f"      + Añadiendo automática: \033[1;96m{target_artist_name}\033[0m - \033[1;92m{t.get('title')}\033[0m [{listeners_fmt}🎧]")
+                    add_this = True
+                else:
                     ans = input(f"      - \033[1;96m{target_artist_name}\033[0m \033[90m-\033[0m \033[1;92m{t.get('title')}\033[0m \033[90m[{listeners_fmt}🎧 | {user_scrobbles}👤]\033[0m. ¿Añadir? [\033[92mS\033[0m/n/q]: ").strip().lower()
-                    if ans == 'q':
-                        return -1
-                    if ans != 'n':
-                        vid = t.get('videoId')
-                        year_val = str(t.get('AlbumYear') or '')
-                        if not year_val and vid:
-                            year_val = self._fetch_song_year(vid, t.get('title', ''), target_artist_name)
-                        new_song = {
-                            'Playlist': '#',
-                            'Artist': target_artist_name,
-                            'Title': t.get('title', ''),
-                            'Album': t.get('AlbumTitle', ''),
-                            'Year': year_val,
-                            'Genre': t.get('Genre', ''),
-                            'Scrobble': t.get('Scrobble', 0),
-                            'LastfmScrobble': listeners,
-                            'Video ID': vid
-                        }
-                        new_batch.append(new_song)
-                        existing_vids.add(vid)
+                    if ans == 'q': return -1
+                    if ans != 'n': add_this = True
+                
+                if add_this:
+                    vid = t.get('videoId')
+                    year_val = str(t.get('AlbumYear') or '')
+                    if not year_val and vid:
+                        year_val = self._fetch_song_year(vid, t.get('title', ''), target_artist_name)
+                    new_song = {
+                        'Playlist': '#',
+                        'Artist': target_artist_name,
+                        'Title': t.get('title', ''),
+                        'Album': t.get('AlbumTitle', ''),
+                        'Year': year_val,
+                        'Genre': t.get('Genre', ''),
+                        'Scrobble': t.get('Scrobble', 0),
+                        'LastfmScrobble': listeners,
+                        'Video ID': vid
+                    }
+                    new_batch.append(new_song)
+                    existing_vids.add(vid)
 
         # Añadimos las canciones de lanzamientos recientes antes de preguntar por el catálogo
-        if interactive and new_batch:
+        if (interactive or auto) and new_batch:
             total_added += self._add_tracks_to_inbox(playlist_id, new_batch)
             new_batch = []
 
-        # SEGUNDO PASE: Sugerimos las mejores del catálogo histórico si estamos en modo interactivo
-        if interactive and catalog_candidates and scope in ('all', 'catalog'):
-            # Solo pedimos confirmación si el usuario eligió 'T'odas;
-            # si eligió 'a'nteriores directamente, mostramos sin preguntar
+        # SEGUNDO PASE: Sugerimos las mejores del catálogo histórico
+        if (interactive or auto) and catalog_candidates and scope in ('all', 'catalog'):
             show_catalog = True
-            if scope == 'all':
+            if interactive and scope == 'all':
                 if not new_batch:
                     prompt_msg = f"    ⚠ Sin novedades recientes. ¿Revisar las 4 más populares del catálogo antiguo? [s/N/q]: "
                 else:
                     prompt_msg = f"    ✨ ¿Revisar también las 4 más populares del catálogo antiguo? [s/N/q]: "
                 ans_cat = input(prompt_msg).strip().lower()
-                if ans_cat == 'q':
-                    return -1
+                if ans_cat == 'q': return -1
                 show_catalog = (ans_cat == 's')
+            elif auto:
+                print(f"    🤖 Modo Auto: Seleccionando hasta 2 canciones del catálogo más populares...")
 
             if show_catalog:
-                # Pre-filtrar candidatos que ya se añadieron en la fase de recientes
-                # (evita que YouTube rechace el lote entero por un duplicado)
                 catalog_candidates = [c for c in catalog_candidates if c.get('videoId') not in existing_vids]
-
-                # DEDUPLICADO: Evitar que la misma canción aparezca varias veces por estar en distintos álbumes/singles
                 unique_catalog = {}
                 for t in catalog_candidates:
                     t['Artist'] = target_artist_name
@@ -2236,24 +2286,34 @@ class Manager:
                     key = f"{self._normalize(target_artist_name)} - {self._normalize(t['Title'])}"
                     if key not in unique_catalog:
                         unique_catalog[key] = t
-
                 deduped_candidates = list(unique_catalog.values())
 
-                print(f"    🔎 Analizando popularidad del catálogo ({len(deduped_candidates)} candidatos)...")
+                if not auto:
+                    print(f"    🔎 Analizando popularidad del catálogo ({len(deduped_candidates)} candidatos)...")
                 self.lastfm.enrich_songs(deduped_candidates, force_scrobbles=False)
 
-                # Ordenar por oyentes y coger los 4 mejores
-                top_catalog = sorted(deduped_candidates, key=lambda x: int(x.get('LastfmScrobble', 0)), reverse=True)[:4]
+                # Ordenar por oyentes (Top 4 si interactivo, Top 2 si auto)
+                limit = 2 if auto else 4
+                top_catalog = sorted(deduped_candidates, key=lambda x: int(x.get('LastfmScrobble', 0)), reverse=True)[:limit]
 
-                print(f"    \033[95m📜 Joyas del catálogo antiguo (Top Popular):\033[0m")
+                if not auto:
+                    print(f"    \033[95m📜 Joyas del catálogo antiguo (Top Popular):\033[0m")
+                
                 for t in top_catalog:
                     listeners = int(t.get('LastfmScrobble', 0))
                     user_scrobbles = int(t.get('Scrobble', 0))
                     listeners_fmt = f"{listeners:,}".replace(",", ".")
-                    ans = input(f"      - \033[1;96m{target_artist_name}\033[0m \033[90m-\033[0m \033[1;92m{t.get('title')}\033[0m \033[90m({t.get('AlbumYear')}) [{listeners_fmt}🎧 | {user_scrobbles}👤]\033[0m. ¿Añadir? [\033[92mS\033[0m/n/q]: ").strip().lower()
-                    if ans == 'q':
-                        return -1
-                    if ans != 'n':
+                    
+                    add_this = False
+                    if auto:
+                        print(f"      + Añadiendo automática (catálogo): \033[1;96m{target_artist_name}\033[0m - \033[1;92m{t.get('title')}\033[0m [{listeners_fmt}🎧]")
+                        add_this = True
+                    else:
+                        ans = input(f"      - \033[1;96m{target_artist_name}\033[0m \033[90m-\033[0m \033[1;92m{t.get('title')}\033[0m \033[90m({t.get('AlbumYear')}) [{listeners_fmt}🎧 | {user_scrobbles}👤]\033[0m. ¿Añadir? [\033[92mS\033[0m/n/q]: ").strip().lower()
+                        if ans == 'q': return -1
+                        if ans != 'n': add_this = True
+                    
+                    if add_this:
                         vid = t.get('videoId')
                         year_val = str(t.get('AlbumYear') or '')
                         if not year_val and vid:
@@ -2281,7 +2341,7 @@ class Manager:
         return total_added
 
 
-    def sync_pending_playlist(self, threshold=None):
+    def sync_pending_playlist(self, threshold=None, skip_lastfm=False):
         print("\n" + "━"*50)
         title_suffix = f" (<= {threshold} reproducciones)" if threshold is not None else " (Solo limpieza)"
         print(f"📋 REVISIÓN DE CANCIONES PENDIENTES{title_suffix}")
@@ -2298,11 +2358,16 @@ class Manager:
                 
         print(f"  Obteniendo canciones actuales de la playlist '{pl_name}'...")
         try:
-            current_items = self.yt.get_playlist_items(target_pid, limit=None)
+            current_items = self.yt.get_playlist_items_with_status(target_pid, limit=None)
         except Exception:
             current_items = []
         current_vids = {it.get('videoId'): it for it in current_items if it.get('videoId')}
         
+        # Resolve liked vids once for both cleanup and exclusion
+        print("  Comprobando colección 'Me gusta' para exclusión y limpieza...")
+        liked_data = self.yt.get_liked_songs(limit=None)
+        liked_vids = {t.get('videoId') for t in liked_data.get('tracks', []) if t.get('videoId')}
+
         all_songs = self.sheets.get_songs_records()
         updated_any_songs = False
 
@@ -2326,11 +2391,11 @@ class Manager:
                             scrobbles_raw = str(s.get('Scrobble', '0')).replace('.', '').replace(',', '').strip()
                             c_scrobbles = int(scrobbles_raw) if scrobbles_raw.isdigit() else 0
                             
-                            if c_scrobbles < 3:
-                                s['Scrobble'] = 3
-                                updated_any_songs = True
-                                graduated_count += 1
-                                print(f"    🎓 \033[92m{s.get('Artist')} - {s.get('Title')}\033[0m graduada (eliminación manual detectada).")
+                            new_scrobbles = max(c_scrobbles, 3)
+                            s['Scrobble'] = new_scrobbles
+                            updated_any_songs = True
+                            graduated_count += 1
+                            print(f"    🎓 \033[92m{s.get('Artist')} - {s.get('Title')}\033[0m consolidada ({new_scrobbles} scrobbles).")
                     
                     if graduated_count == 0:
                         print("    ℹ️ No se han graduado nuevas canciones por eliminación manual.")
@@ -2341,7 +2406,7 @@ class Manager:
         archived_batch = []
 
         # ── Refresh Scrobbles from Last.fm for songs currently in Pendiente ──────
-        if current_items:
+        if current_items and not skip_lastfm:
             print("  🔄 Actualizando Scrobbles desde Last.fm...")
             vid_to_sheet = {s.get('Video ID'): s for s in all_songs if s.get('Video ID')}
             # Solo enriquecemos canciones que aún tienen < 3 scrobbles en el Sheet.
@@ -2431,7 +2496,7 @@ class Manager:
                     if vid in current_vids:
                         del current_vids[vid]
                         
-                elif item.get('likeStatus') == 'LIKE':
+                elif item.get('likeStatus') == 'LIKE' or vid in liked_vids:
                     title = item.get('title', 'Unknown')
                     artist = ", ".join([a.get('name', '') for a in item.get('artists', [])])
                     print(f"    \033[94m♥ Like detectado:\033[0m \033[92m{artist} - {title}\033[0m")
@@ -2446,10 +2511,11 @@ class Manager:
                         scrobbles_raw = str(s.get('Scrobble', '0')).replace('.', '').replace(',', '').strip()
                         c_scrobbles = int(scrobbles_raw) if scrobbles_raw.isdigit() else 0
                         
-                        if c_scrobbles < 3:
-                            s['Scrobble'] = 3
+                        new_scrobbles = max(c_scrobbles, 3)
+                        if str(s.get('Scrobble')) != str(new_scrobbles):
+                            s['Scrobble'] = new_scrobbles
                             updated_any_songs = True
-                            print(f"      → Scrobbles subidos a 3 en tu hoja para que ya no vuelva a ser evaluada.")
+                            print(f"      → Consolidada ({new_scrobbles} scrobbles) en tu hoja.")
                             
                     if vid in current_vids:
                         del current_vids[vid]
@@ -2520,10 +2586,6 @@ class Manager:
             # 3. Excluir candidatos que tengan 'Me gusta' activo
             # Una canción con like ya ha sido evaluada positivamente → no va a Pendiente
             if candidates_to_add:
-                print("  Comprobando que los nuevos candidatos no tengan 'Me gusta' activo...")
-                liked_data = self.yt.get_liked_songs(limit=None)
-                liked_vids = {t.get('videoId') for t in liked_data.get('tracks', []) if t.get('videoId')}
-                
                 before = len(candidates_to_add)
                 candidates_to_add = [c for c in candidates_to_add if c.get('Video ID') not in liked_vids]
                 skipped = before - len(candidates_to_add)
@@ -2816,287 +2878,105 @@ class Manager:
         print(f"\n✅ Finished. Total new songs found across all artists: {added_total}")
 
 
-    def sync_global_new_releases(self, interactive=False):
-        """Scans the global YouTube Music 'New Releases' shelf for tracked artists."""
-        print("\n" + "="*50)
-        print("🌍 SCANNING GLOBAL NEW RELEASES (YouTube Music Explore)")
-        print("="*50)
+    def get_lastfm_recommendations(self):
+        """Fetches personalized artist recommendations from Last.fm using Chrome cookies."""
+        import browser_cookie3
+        import requests
+        import re
+        import os
+        import json
+        from src.config import Config
 
-        artists = self.sheets.get_artists()
-        tracked_ids = {a.get('Artist ID') for a in artists if a.get('Artist ID') and a.get('Status', '').strip().lower() != 'archived'}
-        tracked_names = {self._normalize(a.get('Artist Name')) for a in artists if a.get('Status', '').strip().lower() != 'archived'}
+        print("   Loading cookies from Chrome...")
+        try:
+            cj = browser_cookie3.chrome()
+        except Exception as e:
+            raise Exception(f"Error reading Chrome cookies: {e}")
+            
+        url_template = "https://www.last.fm/es/music/+recommended/artists?page={}"
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36'
+        }
         
-        print(f"   Tracking {len(tracked_ids)} artists with IDs and {len(tracked_names)} names.")
-        print("   Fetching new releases from YouTube Explore...")
-        
-        global_albums = self.yt.get_new_releases()
-        if not global_albums:
-            print("   ✗ Could not fetch global new releases shelf.")
-            return
-
-        print(f"   Found {len(global_albums)} albums in the global shelf.")
-        matches = []
-        for album in global_albums:
-            album_artists = album.get('artists', [])
-            matched_artist = None
-            for art in album_artists:
-                if art.get('id') in tracked_ids or self._normalize(art.get('name')) in tracked_names:
-                    matched_artist = art.get('name')
-                    break
-            if matched_artist:
-                matches.append((matched_artist, album))
-
-        if not matches:
-            print("   ✨ No new releases found from your tracked artists in the global shelf.")
-            return
-
-        print(f"\n   \033[1;92m🎯 Found {len(matches)} relevant new releases!\033[0m")
-        added_total = 0
-        existing_vids = self.sheets.get_all_video_ids()
-        existing_vids.update(self.sheets.get_archived_vids())
-        
-        existing_keys = set()
-        for r in self.sheets.get_songs_records() + self.sheets.get_archived_records():
-            art = self._normalize(r.get('Artist', ''))
-            tit = self._normalize(r.get('Title', ''))
-            existing_keys.add(f"{art} - {tit}")
-
-        # ── Agrupar álbumes por artista usando nombres canónicos del Sheet ────
-        from collections import defaultdict
-        
-        # Mapeos para encontrar el nombre exacto del Sheet desde el ID o nombre de YT
-        name_to_canonical = {self._normalize(a.get('Artist Name', '')): a.get('Artist Name') for a in artists if a.get('Artist Name')}
-        id_to_canonical = {a.get('Artist ID'): a.get('Artist Name') for a in artists if a.get('Artist ID')}
-        
-        albums_by_artist: dict[str, list] = defaultdict(list)
-        for matched_name, album in matches:
-            # Intentamos obtener el nombre real del Sheet para que la caché sea consistente
-            canonical_name = matched_name
-            album_artists = album.get('artists', [])
-            for art in album_artists:
-                c = id_to_canonical.get(art.get('id')) or name_to_canonical.get(self._normalize(art.get('name', '')))
-                if c:
-                    canonical_name = c
-                    break
-            albums_by_artist[canonical_name].append(album)
-
-        artists_checked_today = set()
-        now = datetime.now()
-        today_iso = now.strftime("%Y-%m-%d")
-        releases_cache = self._load_releases_sync_cache()
-
-        for art_name, artist_albums in albums_by_artist.items():
-            # 💡 Lógica "Solo hoy": Si ya se ha procesado hoy (por este comando o por releases sync), saltar.
-            if releases_cache.get(art_name) == today_iso:
-                # print(f"   ⏭ skipping {art_name} (already checked today)")
-                continue
-
-            # ── PRE-PROMPT POR ARTISTA (igual que releases sync) ─────────────
-            if interactive:
-                self._print_artist_catalog_summary(art_name)
-
-                while True:
-                    ans = input(
-                        f"\n  \033[1;93m🔍 Artista: '{art_name}'. ¿Qué quieres hacer?\033[0m"
-                        f" (\033[92m[S]incronizar\033[0m | \033[91m[a]rchivar\033[0m | [p]asar | [q]uit): "
-                    ).strip().lower()
-                    if not ans:
-                        ans = 's'
-                    if ans in ['s', 'a', 'p', 'q']:
-                        break
-                    print("  Por favor responde con s/a/p/q.")
-
-                if ans == 'q':
-                    print("\n🛑 Sincronización cancelada por el usuario.")
-                    break
-                elif ans == 'p':
-                    print(f"  ⏭ Saltando '{art_name}' por ahora (actualizando fecha).")
-                    artists_checked_today.add(self._normalize(art_name))
-                    # Actualizar caché compartida con releases sync para no repetir
-                    releases_cache[art_name] = now.strftime("%Y-%m-%d")
-                    self._save_releases_sync_cache(releases_cache)
-                    continue
-                elif ans == 'a':
-                    print(f"  \033[91m📦 Archivando artista:\033[0m \033[1m{art_name}\033[0m")
-                    norm = self._normalize(art_name)
-                    all_artists_mem = self.sheets.get_artists()
-                    for a in all_artists_mem:
-                        if self._normalize(a.get("Artist Name", "")) == norm:
-                            a["Status"] = "Archived"
-                            a["Last Checked"] = now.strftime("%d/%m/%Y")
-                            break
-                    self.sheets.save_artists(all_artists_mem)
-                    continue
-                # Si es 's', continúa a procesar sus álbumes
-
-            # ── PROCESAR TODOS LOS ÁLBUMES DEL ARTISTA ───────────────────────
-            artists_checked_today.add(self._normalize(art_name))
-            artist_added = 0
-
-            for album in artist_albums:
-                browse_id = album.get('browseId')
-                if not browse_id:
-                    continue
-
-                print(f"\n   💿 Procesando \033[1;96m{art_name}\033[0m » \033[1;94m{album.get('title')}\033[0m...")
-                try:
-                    album_detail = self.yt.yt.get_album(browse_id)
-                except Exception as e:
-                    print(f"      ✗ Error fetching album details: {e}")
-                    continue
-
-                tracks = album_detail.get('tracks', [])
-                album_title = album.get('title')
-                album_year = str(album_detail.get('year', ''))
-
-                candidate_tracks = []
-                for t in tracks:
-                    vid = t.get('videoId')
-                    title = t.get('title')
-                    key = f"{self._normalize(art_name)} - {self._normalize(title)}"
-
-                    if vid and vid not in existing_vids and key not in existing_keys:
-                        upload_date_str = self.yt.get_song_upload_date(vid)
-                        if upload_date_str:
-                            upload_date = datetime.fromisoformat(upload_date_str)
-                            days_diff = (datetime.now() - upload_date).days
-                            if days_diff > 7:
-                                continue
-
-                        t['Artist'] = art_name
-                        t['Title'] = title
-                        candidate_tracks.append(t)
-
-                if not candidate_tracks:
-                    continue
-
-                print(f"    🔎 Buscando popularidad y género en Last.fm para {len(candidate_tracks)} pistas...")
-                self.lastfm.enrich_songs(candidate_tracks, force_scrobbles=False)
-
-                if interactive:
-                    candidate_tracks = sorted(candidate_tracks, key=lambda x: int(x.get('LastfmScrobble', 0)), reverse=True)
-                    print(f"    \033[1;95m📀 {art_name} \033[0m» \033[1;94m'{album_title}'\033[0m \033[90m({album_year})\033[0m")
-                    to_add_this_album = []
-                    quit_requested = False
-                    for t in candidate_tracks:
-                        listeners = int(t.get('LastfmScrobble', 0))
-                        user_scrobbles = int(t.get('Scrobble', 0))
-                        listeners_fmt = f"{listeners:,}".replace(",", ".")
-                        ans2 = input(
-                            f"      - \033[1;96m{art_name}\033[0m \033[90m-\033[0m \033[1;92m{t.get('Title')}\033[0m"
-                            f" \033[90m[{listeners_fmt}🎧 | {user_scrobbles}👤]\033[0m. ¿Añadir? [\033[92mS\033[0m/n/q]: "
-                        ).strip().lower()
-                        if ans2 == 'q':
-                            quit_requested = True
-                            break
-                        if ans2 != 'n':
-                            to_add_this_album.append(t)
-
-                    final_new_songs = [
-                        {
-                            'Playlist': '#',
-                            'Artist': art_name,
-                            'Title': t.get('Title'),
-                            'Album': album_title,
-                            'Year': album_year,
-                            'Genre': t.get('Genre', ''),
-                            'Scrobble': t.get('Scrobble', 0),
-                            'LastfmScrobble': t.get('LastfmScrobble', 0),
-                            'Video ID': t.get('videoId')
-                        }
-                        for t in to_add_this_album
-                    ]
-
-                    if quit_requested:
-                        if final_new_songs:
-                            try:
-                                self.yt.add_playlist_items(Config.PLAYLIST_ID, [s['Video ID'] for s in final_new_songs])
-                                self.sheets.add_to_songs_batch(final_new_songs)
-                                artist_added += len(final_new_songs)
-                                for s in final_new_songs:
-                                    existing_vids.add(s['Video ID'])
-                            except Exception as e:
-                                print(f"      ✗ Error añadiendo canciones: {e}")
-                        added_total += artist_added
-                        print("\n🛑 Sincronización cancelada por el usuario.")
-                        return
-
-                else:
-                    final_new_songs = []
-                    for t in candidate_tracks:
-                        print(f"      + New track: {t.get('Title')}")
-                        final_new_songs.append({
-                            'Playlist': '#',
-                            'Artist': art_name,
-                            'Title': t.get('Title'),
-                            'Album': album_title,
-                            'Year': album_year,
-                            'Genre': t.get('Genre', ''),
-                            'Scrobble': t.get('Scrobble', 0),
-                            'LastfmScrobble': t.get('LastfmScrobble', 0),
-                            'Video ID': t.get('videoId')
-                        })
-
-                if final_new_songs:
-                    try:
-                        self.yt.add_playlist_items(Config.PLAYLIST_ID, [s['Video ID'] for s in final_new_songs])
-                        self.sheets.add_to_songs_batch(final_new_songs)
-                        artist_added += len(final_new_songs)
-                        for s in final_new_songs:
-                            existing_vids.add(s['Video ID'])
-                    except Exception as e:
-                        print(f"      ✗ Error añadiendo canciones: {e}")
-
-            added_total += artist_added
-
-            # Actualizar caché compartida con releases sync inmediatamente
-            releases_cache[art_name] = now.strftime("%Y-%m-%d")
-            self._save_releases_sync_cache(releases_cache)
-
-            # ── POST-PROMPT POR ARTISTA (igual que releases sync) ────────────
-            if interactive:
-                while True:
-                    ans = input(
-                        f"\n  \033[1;93m🎯 Artista completado. ¿Siguiente paso?\033[0m"
-                        f" (\033[92m[C]ontinuar\033[0m | \033[91m[a]rchivar\033[0m | [q]uit): "
-                    ).strip().lower()
-                    if not ans:
-                        ans = 'c'
-                    if ans in ['c', 'a', 'q']:
-                        break
-                    print("  Por favor responde con c, a, o q.")
-
-                if ans == 'q':
-                    print("\n🛑 Sincronización detenida por el usuario.")
-                    break
-                elif ans == 'a':
-                    print(f"  \033[91m📦 Archivando artista:\033[0m \033[1m{art_name}\033[0m")
-                    norm = self._normalize(art_name)
-                    all_artists_mem = self.sheets.get_artists()
-                    for a in all_artists_mem:
-                        if self._normalize(a.get("Artist Name", "")) == norm:
-                            a["Status"] = "Archived"
-                            a["Last Checked"] = now.strftime("%d/%m/%Y")
-                            break
-                    self.sheets.save_artists(all_artists_mem)
-
-        # ── Actualizar Last Checked / Status en el Sheet ──────────────────────
+        # Load local cache
+        cache_file = os.path.join(Config.DATA_DIR, 'lastfm_recommended_cache.json')
+        seen_artists = set()
+        if os.path.exists(cache_file):
+            try:
+                with open(cache_file, 'r') as f:
+                    seen_artists = set(json.load(f))
+            except: pass
+            
+        # Get tracked artists + songs to filter out
         all_artists = self.sheets.get_artists()
-        updated_any = False
-        today_str = now.strftime("%d/%m/%Y")
+        tracked_names = {self._normalize(a.get("Artist Name", "")) for a in all_artists}
+        all_songs = self.sheets.get_songs_records()
+        songs_artist_names = {self._normalize(song.get("Artist", "")) for song in all_songs if song.get("Artist")}
+        tracked_names.update(songs_artist_names)
 
-        for a in all_artists:
-            norm_a = self._normalize(a.get("Artist Name", ""))
-            if norm_a in artists_checked_today:
-                a["Last Checked"] = today_str
-                a["Status"] = "Done"
-                updated_any = True
+        filtered_new_artists = []
+        page = 1
+        max_pages = 50 # safety limit
+        target_new = 20
 
-        if updated_any or added_total > 0:
-            print(f"\n   \033[1;94m💾 Saving artist status and new songs to spreadsheet...\033[0m")
-            self.sheets.save_artists(all_artists)
+        while len(filtered_new_artists) < target_new and page <= max_pages:
+            print(f"   Fetching recommendations from Last.fm (Page {page})...")
+            url = url_template.format(page)
+            try:
+                r = requests.get(url, cookies=cj, headers=headers)
+                if "Entrar" in r.text or "Log in" in r.text:
+                    if page == 1:
+                        raise Exception("Not logged into Last.fm in Chrome. Please log in first.")
+                    break
+                    
+                matches = re.findall(r'<a[^>]+class="[^"]*link-block-target[^"]*"[^>]*>([^<]+)</a>', r.text)
+                if not matches:
+                    break
+                
+                # Process this page
+                page_artists = list(set([m.strip() for m in matches if m.strip() and m.strip().lower() != 'más información']))
+                if not page_artists:
+                    break
+                    
+                for a in page_artists:
+                    if a in seen_artists:
+                        continue
+                        
+                    norm_a = self._normalize(a)
+                    if norm_a in tracked_names:
+                        # Already tracked, mark as seen so we don't process again
+                        self.mark_lastfm_recommendation_seen(a)
+                        seen_artists.add(a)
+                    else:
+                        if a not in filtered_new_artists:
+                            filtered_new_artists.append(a)
+                            seen_artists.add(a)
+                            
+            except Exception as e:
+                print(f"   ✗ Error fetching page {page}: {e}")
+                break
+                
+            page += 1
+            
+        return filtered_new_artists
 
-        print(f"\n\033[1;92m✅ Global scan complete. Added {added_total} new songs.\033[0m")
+    def mark_lastfm_recommendation_seen(self, art_name):
+        import os
+        import json
+        from src.config import Config
+        
+        cache_file = os.path.join(Config.DATA_DIR, 'lastfm_recommended_cache.json')
+        seen_artists = set()
+        if os.path.exists(cache_file):
+            try:
+                with open(cache_file, 'r') as f:
+                    seen_artists = set(json.load(f))
+            except: pass
+            
+        if art_name not in seen_artists:
+            seen_artists.add(art_name)
+            with open(cache_file, 'w') as f:
+                json.dump(list(seen_artists), f)
 
 
 

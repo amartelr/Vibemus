@@ -223,6 +223,42 @@ class YouTubeDataService:
             print(f"    ⚠ Error añadiendo {video_id}: {e}")
             return False
 
+    def _get_all_playlist_items(self, playlist_id: str) -> list[dict]:
+        """Fetch all items currently present in the playlist with basic metadata.
+        
+        Returns a list of dicts: {'id': playlist_item_id, 'videoId': video_id, 'title': title}
+        """
+        yt = self._client()
+        items = []
+        try:
+            request = yt.playlistItems().list(
+                part="snippet",
+                playlistId=playlist_id,
+                maxResults=50
+            )
+            while request:
+                response = request.execute()
+                for item in response.get("items", []):
+                    snippet = item.get("snippet", {})
+                    items.append({
+                        "id": item["id"],
+                        "videoId": snippet.get("resourceId", {}).get("videoId"),
+                        "title": snippet.get("title"),
+                    })
+                request = yt.playlistItems().list_next(request, response)
+        except Exception as e:
+            err_str = str(e).lower()
+            if "playlistnotfound" in err_str or "404" in err_str:
+                # Occurs when a playlist is newly created and not yet indexed
+                return []
+            raise
+        return items
+
+    def _get_playlist_video_ids(self, playlist_id: str) -> set[str]:
+        """Fetch all video IDs currently present in the playlist."""
+        items = self._get_all_playlist_items(playlist_id)
+        return {item["videoId"] for item in items if item["videoId"]}
+
     # ── Subscription helpers ──────────────────────────────────────────────────
 
     def _get_subscriptions(self) -> list[dict]:
@@ -490,22 +526,7 @@ class YouTubeDataService:
         print(f"\n  🔍 Analizando playlist '{self.PLAYLIST_NAME}' en busca de Shorts...")
         
         # 1. Get all items in playlist
-        items_to_check = []
-        request = yt.playlistItems().list(
-            part="snippet,contentDetails", # contentDetails in playlistItems gives videoId
-            playlistId=playlist_id,
-            maxResults=50
-        )
-        
-        while request:
-            response = request.execute()
-            for item in response.get("items", []):
-                items_to_check.append({
-                    "id": item["id"], # The unique ID of the item in the playlist
-                    "videoId": item["snippet"]["resourceId"]["videoId"],
-                    "title": item["snippet"]["title"]
-                })
-            request = yt.playlistItems().list_next(request, response)
+        items_to_check = self._get_all_playlist_items(playlist_id)
             
         if not items_to_check:
             print("  ✨ La playlist está vacía.")
@@ -567,21 +588,7 @@ class YouTubeDataService:
                 return
 
             # 2. Get playlist items
-            playlist_items = []
-            request = yt.playlistItems().list(
-                part="snippet",
-                playlistId=playlist_id,
-                maxResults=50
-            )
-            while request:
-                response = request.execute()
-                for item in response.get("items", []):
-                    playlist_items.append({
-                        "id": item["id"],
-                        "videoId": item["snippet"]["resourceId"]["videoId"],
-                        "title": item["snippet"]["title"]
-                    })
-                request = yt.playlistItems().list_next(request, response)
+            playlist_items = self._get_all_playlist_items(playlist_id)
 
             # 3. Compare and delete
             to_remove = [item for item in playlist_items if item["videoId"] in history_ids]
@@ -839,6 +846,9 @@ class YouTubeDataService:
         if already_added_ids is None:
             already_added_ids = set()
 
+        processed_videos = set(self._sync_state.get("processed_videos", []))
+        combined_ignore_ids = already_added_ids.union(processed_videos)
+
         window_start = datetime.now(timezone.utc) - timedelta(days=window_days)
 
         print(f"\n  ⭐ Fase 4 — Top canales ({window_days}d): añadiendo hasta {max_per_channel} vídeos/canal...\n")
@@ -872,7 +882,7 @@ class YouTubeDataService:
             candidates = self._enrich_and_sort_channel_videos(raw_videos, ch_id)
 
             # Remove already-added videos
-            candidates = [v for v in candidates if v["videoId"] not in already_added_ids]
+            candidates = [v for v in candidates if v["videoId"] not in combined_ignore_ids]
 
             if not candidates:
                 print(f"  ─ {ch_title}: todos los vídeos ya fueron añadidos hoy.")
@@ -893,6 +903,7 @@ class YouTubeDataService:
 
                 if ok:
                     already_added_ids.add(v["videoId"])
+                    processed_videos.add(v["videoId"])
                     added_here += 1
                     total_added += 1
                     pub_str = v.get("publishedAt", "")
@@ -907,6 +918,7 @@ class YouTubeDataService:
             if added_here == 0:
                 print(f"  ─ {ch_title}: ningún vídeo añadido (ya estaban o errores).")
 
+        self._sync_state["processed_videos"] = list(processed_videos)[-500:]
         self._save_sync_state()  # persist channel_history updates
         return total_added
 
@@ -1024,6 +1036,8 @@ class YouTubeDataService:
 
             if already_ran_today:
                 print("\n  ♻️  Sync del mismo día detectado — se añadirán vídeos sin recrear la playlist.")
+                print("  🧹 Limpiando primero los vídeos que ya has visto hoy...")
+                self.cleanup_watched_videos()
             else:
                 self.clear_playlist()
 
@@ -1052,6 +1066,13 @@ class YouTubeDataService:
 
         # ── Step 1: playlist ──────────────────────────────────────────────────
         playlist_id = self._get_or_create_playlist()
+        
+        # Guarantee no duplicates: fetch actual playlist items and add to processed list
+        actual_playlist_vids = self._get_playlist_video_ids(playlist_id)
+        if actual_playlist_vids:
+            processed_videos = set(self._sync_state.get("processed_videos", []))
+            processed_videos.update(actual_playlist_vids)
+            self._sync_state["processed_videos"] = list(processed_videos)[-500:]
 
         # ── Step 2: subscriptions ─────────────────────────────────────────────
         print("\n  📡 Obteniendo lista de suscripciones...")
@@ -1129,6 +1150,7 @@ class YouTubeDataService:
         total_added = 0
 
         added_video_ids: set[str] = set()  # track for dedup with top-channel phase
+        processed_videos = set(self._sync_state.get("processed_videos", []))
 
         for v in winners:
             pub_str = v.get("publishedAt", "")
@@ -1167,7 +1189,10 @@ class YouTubeDataService:
             if success:
                 total_added += 1
                 added_video_ids.add(v["videoId"])
+                processed_videos.add(v["videoId"])
             print(f"  {status} [{pub_fmt}] {v['channel']} — {v['title']}")
+
+        self._sync_state["processed_videos"] = list(processed_videos)[-500:]
 
         # ── Step 4: top-channels bonus ─────────────────────────────────────────
         top_added = 0

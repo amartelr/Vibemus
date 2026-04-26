@@ -12,35 +12,112 @@ from datetime import datetime
 from ..config import Config
 
 
+_ACTION_MAP = {
+    # Artist
+    "ls": "list",
+    "sh": "search",
+    "ad": "add",
+    "rm": "remove",
+    "sy": "sync",
+    "im": "import",
+    "cc": "cleanup-collabs",
+    "re": "reset-empty",
+    "ai": "archive-inactive",
+    # Playlist
+    "ci": "cleanup-inbox",
+    "cl": "clean",
+    "uo": "undo-old",
+    "ex": "export",
+    "cul": "cleanup-likes",
+    "am": "apply-moves",
+    "sp": "split",
+    "rp": "review-pending",
+    # YouTube
+    "ss": "sync-subs",
+    "cs": "cleanup-shorts",
+    "cw": "cleanup-watched",
+    "utc": "update-top-channels",
+    # System
+    "rc": "refresh-cache",
+    "au": "auth",
+}
+
+
+def _normalize_action(args) -> str:
+    action = getattr(args, "action", None)
+    return _ACTION_MAP.get(action, action)
+
+
 # ── Artist ────────────────────────────────────────────────────────────────────
 
 
 def handle_artist(args, manager) -> int:
     """Dispatch artist sub-actions."""
-    action = getattr(args, "action", None)
+    action = _normalize_action(args)
 
-    if action == "add":
+    if action == "list":
+        return _artist_list(manager)
+    elif action == "add":
         return _artist_add(args, manager)
     elif action == "remove":
         return _artist_remove(args, manager)
-
-
     elif action == "cleanup-collabs":
         return _artist_cleanup_collabs(manager)
     elif action == "sync":
         return _artist_sync(args, manager)
     else:
-        print("Usage: vibemus artist <add|remove|cleanup-collabs|sync>")
+        print("Usage: vibemus artist <list|add|remove|cleanup-collabs|sync>")
         print("Run 'vibemus artist --help' for details.")
         return 1
 
 
 def _artist_add(args, manager) -> int:
     """Add or update an artist and run its search logic."""
+    artist_name = args.name
+    target_playlist = args.playlist
+
+    # ── Interactive Prompts (if missing) ──────────────────────────────────────
+    is_auto = getattr(args, "auto", False)
+
+    if not artist_name:
+        if is_auto:
+            print("  \033[91m✗ Error: Artist name is required for auto mode.\033[0m")
+            return 1
+        print("\n" + "━"*50)
+        print("🎤 ADDING NEW ARTIST")
+        print("━"*50)
+        artist_name = input("👉 Artist Name: ").strip()
+        if not artist_name:
+            print("  \033[91m✗ Error: Artist name is required.\033[0m")
+            return 1
+            
+    if not target_playlist and not is_auto:
+        print(f"\n📁 Target Playlist for '{artist_name}':")
+        # Options from SOURCE_PLAYLISTS (excluding Inbox '#')
+        options = [p for p in Config.SOURCE_PLAYLISTS if p != '#']
+        for i, opt in enumerate(options, 1):
+            print(f"  {i}. {opt}")
+        print(f"  0. Skip (Leave blank)")
+        
+        while True:
+            ans = input(f"\n👉 Selection [0-{len(options)}]: ").strip()
+            if ans == '0' or not ans:
+                target_playlist = None
+                break
+            try:
+                idx = int(ans)
+                if 1 <= idx <= len(options):
+                    target_playlist = options[idx-1]
+                    break
+            except ValueError:
+                pass
+            print(f"  Invalid input. Please enter a number between 0 and {len(options)}.")
+
     status, artist_data = manager.add_artist(
-        args.name, 
-        target_playlist=args.playlist, 
-        api_choice=args.api
+        artist_name, 
+        target_playlist=target_playlist, 
+        api_choice=args.api,
+        interactive=not is_auto
     )
 
     if status == "cancelled":
@@ -49,14 +126,14 @@ def _artist_add(args, manager) -> int:
     if not artist_data:
         return 1
 
-    name = artist_data.get("Artist Name") or args.name
+    name = artist_data.get("Artist Name") or artist_name
     
     if status == "added":
         print(f"✅ Successfully added '{name}' to tracking.")
     elif status == "exists":
-        if args.playlist:
-            print(f"ℹ️ Artist '{name}' already exists. Updating its target playlist to '{args.playlist}'...")
-            manager.sheets.update_artist_playlist(name, args.playlist)
+        if target_playlist:
+            print(f"ℹ️ Artist '{name}' already exists. Updating its target playlist to '{target_playlist}'...")
+            manager.sheets.update_artist_playlist(name, target_playlist)
         else:
             print(f"ℹ️ Artist '{name}' is already being tracked.")
 
@@ -66,7 +143,8 @@ def _artist_add(args, manager) -> int:
         force=True, 
         target_artist_name=name, 
         target_artist_id=artist_data.get("Artist ID"),
-        interactive=True
+        interactive=not is_auto, 
+        auto=is_auto
     )
 
     # ACCIONES FINALES: Actualizamos el registro del artista en el Excel tras sincronizar
@@ -104,6 +182,11 @@ def _artist_remove(args, manager) -> int:
     return 0
 
 
+def _artist_list(manager) -> int:
+    manager.list_artists()
+    return 0
+
+
 
 
 
@@ -125,7 +208,7 @@ def _artist_sync(args, manager) -> int:
 
 def handle_releases(args, manager) -> int:
     """Dispatch releases sub-actions."""
-    action = getattr(args, "action", None)
+    action = _normalize_action(args)
 
     if action == "sync":
         return _sync_releases(args, manager)
@@ -165,8 +248,77 @@ def _sync_releases(args, manager) -> int:
 
 
 def _sync_new_releases(args, manager) -> int:
-    """Sync global new releases shelf and check if any tracked artists have updates."""
-    manager.sync_global_new_releases(interactive=not getattr(args, "auto", False))
+    """Fetch Last.fm recommended artists, cache them, and prompt to add them."""
+    print("\n" + "="*50)
+    print("🌍 FETCHING LAST.FM ARTIST RECOMMENDATIONS")
+    print("="*50)
+
+    try:
+        new_artists = manager.get_lastfm_recommendations()
+    except Exception as e:
+        print(f"  ✗ Error fetching recommendations: {e}")
+        return 1
+
+    if not new_artists:
+        print("   ✨ No NEW recommendations found.")
+        return 0
+
+    print(f"\n   \033[1;92m🎯 Found {len(new_artists)} NEW recommendations!\033[0m")
+    
+    for art_name in new_artists:
+        print(f"\n   💿 Recommended Artist: \033[1;96m{art_name}\033[0m")
+        
+        lfm_g = ""
+        mb_g = ""
+        lfm_listeners = 0
+        try:
+            info = manager.lastfm.get_artist_info(art_name, cache_ttl_days=-1)
+            lfm_g = info.get('genre', '')
+            lfm_listeners = info.get('listeners', 0)
+        except: pass
+        try:
+            mb_g = manager.musicbrainz.get_artist_info(art_name, cache_ttl_days=-1).get('genre', '')
+        except: pass
+
+        if lfm_listeners:
+            print(f"      📊 Listeners: \033[92m{lfm_listeners:,}\033[0m (Last.fm)".replace(",", "."))
+
+        if lfm_g or mb_g:
+            if lfm_g: print(f"      📻 Last.fm: \033[95m{lfm_g}\033[0m")
+            if mb_g:  print(f"      🧬 MusicBrainz: \033[94m{mb_g}\033[0m")
+        
+        is_auto = getattr(args, "auto", False)
+        ans = None
+
+        if is_auto:
+            print(f"   🤖 Auto: Adding '{art_name}' directly...")
+            ans = 'a'
+        else:
+            while True:
+                ans = input(
+                    f"\n  \033[1;93m¿Qué quieres hacer con '{art_name}'?\033[0m"
+                    f" (\033[92m[A]ñadir a tracking\033[0m | [p]asar | [q]uit): "
+                ).strip().lower()
+                if not ans: ans = 'p'
+                if ans in ['a', 'p', 'q']: break
+                print("  Por favor responde con a/p/q.")
+            
+        if ans == 'q':
+            print("\n🛑 Sincronización cancelada por el usuario.")
+            break
+        elif ans == 'p':
+            print(f"  ⏭ Saltando '{art_name}'.")
+            manager.mark_lastfm_recommendation_seen(art_name)
+            continue
+        elif ans == 'a':
+            class FakeArgs:
+                name = art_name
+                playlist = None
+                api = "lastfm"
+                auto = is_auto
+            _artist_add(FakeArgs(), manager)
+            manager.mark_lastfm_recommendation_seen(art_name)
+
     return 0
 
 
@@ -178,7 +330,7 @@ def _sync_new_releases(args, manager) -> int:
 
 def handle_playlist(args, manager) -> int:
     """Dispatch playlist sub-actions."""
-    action = getattr(args, "action", None)
+    action = _normalize_action(args)
 
     if action == "sync":
         return _sync_playlist(args, manager)
@@ -199,13 +351,13 @@ def handle_playlist(args, manager) -> int:
         )
         return _library_sync(manager)
     elif action == "review-pending":
-        return _playlist_review_pending(manager, args.threshold)
+        return _playlist_review_pending(manager, args.threshold, args.skip_lastfm)
     elif action == "list":
         return _playlist_list(manager)
     else:
         print(
             "Usage: vibemus playlist "
-            "<sync|cleanup-inbox|cleanup-likes|apply-moves|split|review-pending|list>"
+            "<list|sync|cleanup-inbox|cleanup-likes|apply-moves|split|review-pending>"
         )
         print("Run 'vibemus playlist --help' for details.")
         return 1
@@ -336,8 +488,8 @@ def _playlist_list(manager) -> int:
     manager.list_playlists_counts()
     return 0
 
-def _playlist_review_pending(manager, threshold) -> int:
-    manager.sync_pending_playlist(threshold)
+def _playlist_review_pending(manager, threshold, skip_lastfm=False) -> int:
+    manager.sync_pending_playlist(threshold, skip_lastfm)
     return 0
 
 def _calculate_year_buckets(years, num_parts):
@@ -390,7 +542,7 @@ def _calculate_year_buckets(years, num_parts):
 
 def handle_library(args, manager) -> int:
     """Dispatch library sub-actions."""
-    action = getattr(args, "action", None)
+    action = _normalize_action(args)
 
     if action == "sync":
         return _library_sync(manager)
@@ -609,7 +761,7 @@ def _library_sync(manager) -> int:
 
 def handle_youtube(args, manager) -> int:
     """Dispatch youtube sub-actions."""
-    action = getattr(args, "action", None)
+    action = _normalize_action(args)
 
     if action == "sync-subs":
         return _sync_subs(args)
@@ -724,15 +876,15 @@ def _update_top_channels(args) -> int:
 # ── New Releases ──────────────────────────────────────────────────────────────
 
 
-def handle_new_releases(args, manager) -> int:
-    """Dispatch new-releases sub-actions."""
-    action = getattr(args, "action", None)
+def handle_recom(args, manager) -> int:
+    """Dispatch recom sub-actions."""
+    action = _normalize_action(args)
 
     if action == "sync":
         return _sync_new_releases(args, manager)
     else:
-        print("Usage: vibemus new-releases <sync>")
-        print("Run 'vibemus new-releases --help' for details.")
+        print("Usage: vibemus recom <sync>")
+        print("Run 'vibemus recom --help' for details.")
         return 1
 
 
@@ -741,7 +893,7 @@ def handle_new_releases(args, manager) -> int:
 
 def handle_genre(args, manager) -> int:
     """Dispatch genre sub-actions."""
-    action = getattr(args, "action", None)
+    action = _normalize_action(args)
 
     if action == "sync":
         return _sync_genre(args, manager)
@@ -756,7 +908,7 @@ def handle_genre(args, manager) -> int:
 
 def handle_system(args, manager) -> int:
     """Dispatch system sub-actions."""
-    action = getattr(args, "action", None)
+    action = _normalize_action(args)
 
     if action == "refresh-cache":
         return _system_refresh_cache(manager)

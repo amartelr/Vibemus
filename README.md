@@ -25,26 +25,53 @@
 
 ---
 
+## ⌨️ Command Shortcuts
+
+To save typing, you can use the following aliases for command groups and actions:
+
+| Category | Group Alias | Actions |
+|:---|:---|:---|
+| **Artist** | `art` | `ls` (list), `ad` (add), `rm` (remove), `sy` (sync), `cc` (cleanup-collabs) |
+| **Playlist** | `pl` | `ls` (list), `sy` (sync), `ci` (cleanup-inbox), `cul` (cleanup-likes), `am` (apply-moves), `sp` (split), `rp` (review-pending) |
+| **YouTube** | `yt` | `ss` (sync-subs), `cs` (cleanup-shorts), `cw` (cleanup-watched), `utc` (update-top-channels) |
+| **Releases** | `rel` | `sy` (sync) |
+| **System** | `sys` | `rc` (refresh-cache), `au` (auth) |
+| **Library** | `lib` | `sy` (sync) |
+| **Genre** | `gen` | `sy` (sync) |
+
+**Examples:**
+```bash
+# Full version
+vibemus artist list
+vibemus playlist sync --name "#"
+
+# Shortcut version
+vibemus art ls
+vibemus pl sy --name "#"
+```
+
+---
+
 ## ⚡ Quick Reference Guide
 
-| Category | Command | Description |
+| Category | Command (Short) | Description |
 |:---|:---|:---|
-| **Discovery** | `releases sync [--force] [--auto] [--liked-only]` | Scan profile of every tracked artist (Full monitor). |
-| | `new-releases sync [--auto]` | Scan global YouTube shelf for tracked artists (Fast scan). |
-| **Artist** | `artist add "Name" [--playlist PL]` | Start tracking a new artist and sync discography. |
-| | `artist sync` | Add missing artists found in your library to the tracking list. |
-| | `artist list` | Show all currently tracked artists and their status. |
-| **Playlist** | `playlist sync [--name PL] [--skip-lastfm]` | Consolidate inbox, move likes, and archive dislikes. |
-| | `playlist list` | Compare song counts between YT and Google Sheets. |
-| | `playlist apply-moves [--refresh-cache]` | Push manual playlist changes from Sheets to YouTube. |
-| | `playlist review-pending [N]` | Review low-listen songs in a dedicated tray. |
-| **Maintenance** | `library sync` | Add playlist songs to library / remove orphans. |
-| | `playlist cleanup-inbox` | Remove songs from '#' that are already organized. |
-| | `playlist split --name PL --parts N` | Split archives into year-based chunks. |
-| **YouTube** | `youtube sync-subs [--reset] [--cleanup]` | Sync new subscription videos to '📥 Para Ver' (4 phases). |
-| | `youtube update-top-channels [--window DAYS] [--top N]` | Recalculate and save the top-N most-active channels cache. |
-| **System** | `system auth` | Refresh YouTube Music account authentication. |
-| | `system refresh-cache` | Force update of local playlist metadata cache. |
+| **Discovery** | `rel sy` | Scan profile of every tracked artist (Full monitor). |
+| | `nr sy` | Scan global YouTube shelf for tracked artists (Fast scan). |
+| **Artist** | `art ad "Name"` | Start tracking a new artist and sync discography. |
+| | `art sy` | Add missing artists found in your library to the tracking list. |
+| | `art ls` | Show all currently tracked artists and their status. |
+| **Playlist** | `pl sy [--name PL]` | Consolidate inbox, move likes, and archive dislikes. |
+| | `pl ls` | Compare song counts between YT and Google Sheets. |
+| | `pl am [--refresh-cache]` | Push manual playlist changes from Sheets to YouTube. |
+| | `pl rp [N]` | Review low-listen songs in a dedicated tray. |
+| **Maintenance** | `lib sy` | Add playlist songs to library / remove orphans. |
+| | `pl ci` | Remove songs from '#' that are already organized. |
+| | `pl sp --name PL --parts N` | Split archives into year-based chunks. |
+| **YouTube** | `yt ss [--reset]` | Sync new subscription videos to '📥 Para Ver' (4 phases). |
+| | `yt utc` | Recalculate and save the top-N most-active channels cache. |
+| **System** | `sys au` | Refresh YouTube Music account authentication. |
+| | `sys rc` | Force update of local playlist metadata cache. |
 
 ---
 
@@ -209,30 +236,52 @@ vibemus <group> <action> [options]
 
 ### `artist` — Manage Tracked Artists
 
-#### `vibemus artist add "Name" [--playlist "Genre"]`
+#### `vibemus artist list`
+**Alias:** `vibemus art ls`
+Show all currently tracked artists and their status (Pending, Done, Archived).
+
+---
+
+#### `vibemus artist search "Query"`
+**Alias:** `vibemus art sh ...`
+Search for an artist on YouTube Music to get their ID and metadata before adding.
+
+**Example:**
+```bash
+vibemus art sh "Arctic Monkeys"
+```
+
+---
+
+#### `vibemus artist add ["Name"] [--playlist "Genre"] [--api {lastfm,musicbrainz}]`
+**Alias:** `vibemus art ad ...`
 Search YouTube Music and start tracking an artist.
 
-- **With `--playlist`**: Assigns the target playlist in the 'Artists' sheet and immediately migrates existing songs in the library to that playlist.
+- **`--playlist PL`**: Assigns the target playlist in the 'Artists' sheet and immediately migrates existing songs in the library to that playlist.
+- **`--api {lastfm,musicbrainz}`**: Metadata provider for initial discography discovery (default: `lastfm`).
 - **Immediate Sync**: After adding, it immediately searches for recent releases and popular tracks to help you populate your library right away.
 
 **Examples:**
 ```bash
-vibemus artist add "Radiohead"
-vibemus artist add "Hax!" --playlist "Emo"
+vibemus art ad "Radiohead"
+vibemus art ad "Hax!" --playlist "Emo"
+vibemus art ad "The Smile" --api musicbrainz
 ```
 
 ---
 
 #### `vibemus artist remove "Name"`
+**Alias:** `vibemus art rm ...`
 Stop tracking an artist and clean up their sheet data.
 
 ```bash
-vibemus artist remove "Band of Horses"
+vibemus art rm "Band of Horses"
 ```
 
 ---
 
 #### `vibemus artist sync`
+**Alias:** `vibemus art sy`
 Synchronize your **Artists** tracking list based on your existing **Songs** catalog (excluding Inbox songs).
 
 - **Discovery**: Automatically identifies artists present in your 'Songs' sheet that are not yet being tracked.
@@ -241,8 +290,32 @@ Synchronize your **Artists** tracking list based on your existing **Songs** cata
 - **Enrichment**: Fetches YouTube Artist IDs and Last.fm Genres for new artists.
 
 ```bash
-vibemus artist sync
+vibemus art sy
 ```
+
+---
+
+#### `vibemus artist import`
+**Alias:** `vibemus art im`
+Import artists directly from your YouTube library based on the number of tracks you have for each.
+
+---
+
+#### `vibemus artist reset-empty`
+**Alias:** `vibemus art re`
+Reset the 'Last Checked' status for artists with 0 tracks. Useful for retrying a failed initial scan.
+
+---
+
+#### `vibemus artist archive-inactive`
+**Alias:** `vibemus art ai`
+Identify and archive artists who haven't released anything or haven't been listened to in years.
+
+---
+
+#### `vibemus artist cleanup-collabs`
+**Alias:** `vibemus art cc`
+Interactive cleanup of collaborative artist names to ensure they are mapped correctly to primary tracked entities.
 
 ---
 
@@ -251,11 +324,22 @@ vibemus artist sync
 ---
 
 #### `vibemus releases sync [--force] [--auto] [--liked-only]`
+**Alias:** `vibemus rel sy ...`
 Scan for new albums and singles from **all tracked artists**.
 
 - **Targeted Scan**: Directly visits the profile of every artist in your 'Artists' sheet.
 - **Filtering**: Automatically excludes songs already in your library or archive.
 - **Metadata**: Shows Last.fm scrobble counts directly in the prompt: `[Listeners🎧 | Your Plays👤]`.
+- **`--force`**: Re-scans all artists even if they were checked recently (ignores the 24h window).
+- **`--auto`**: Skips interactive prompts and adds all found songs to the `#` playlist.
+- **`--liked-only`**: Only check artists that have at least one song in your Liked Songs collection.
+
+**Examples:**
+```bash
+vibemus rel sy
+vibemus rel sy --force --auto
+vibemus rel sy --liked-only
+```
 - **`--force`**: Re-scans all artists even if they were checked recently (ignores the 24h window).
 - **`--auto`**: Skips interactive prompts and adds all found songs to the `#` playlist.
 - **`--liked-only`**: Filter artists to sync only those who have at least one song in your YouTube Music playlist named **"LM"** (or in your "Liked Songs" collection if "LM" does not exist). Ideal for a quick review of your most listened/recent artists.
@@ -271,13 +355,15 @@ vibemus releases sync --force --auto
 ---
 
 #### `vibemus new-releases sync [--auto]`
+**Alias:** `vibemus nr sy ...`
 Scan global new releases from YouTube Music and check for updates from all your tracked artists.
 
 - `--auto` skips all prompts and processes all candidates automatically.
 
+**Examples:**
 ```bash
 vibemus new-releases sync
-vibemus new-releases sync --auto
+vibemus nr sy --auto
 ```
 
 ---
@@ -287,6 +373,7 @@ vibemus new-releases sync --auto
 ---
 
 #### `vibemus genre sync`
+**Alias:** `vibemus gen sy`
 Update the **Genre** summary sheet in your Google Spreadsheet.
 
 - **Interactive Filtering**: If it detects a genre not in your "Approved" or "Ignored" lists, it will prompt you:
@@ -307,6 +394,7 @@ vibemus genre sync
 ---
 
 #### `vibemus library sync`
+**Alias:** `vibemus lib sy`
 Bidirectional synchronization between your YouTube Music Library and your playlists (Songs sheet).
 
 - **📥 ADD**: Songs that are in playlists (Songs sheet, excluding `#`) but NOT saved in your YouTube library will be added.
@@ -317,6 +405,7 @@ Bidirectional synchronization between your YouTube Music Library and your playli
 
 ```bash
 vibemus library sync
+vibemus lib sy
 ```
 
 > [!TIP]
@@ -328,7 +417,22 @@ vibemus library sync
 
 ---
 
-#### `vibemus playlist sync [--name "Name"] [--skip-lastfm]`
+#### `vibemus playlist list`
+**Alias:** `vibemus pl ls`
+Displays a comparative table of all your playlists (including historical archives), contrasting the total song count in **YouTube Music** vs. your **Google Sheet (Songs)**.
+
+- **Difference Detection**: Highlights mismatched playlists in yellow and shows exactly how many songs are missing on either side.
+- **Interactive Correction**: If discrepancies are found, it offers to automatically run `playlist sync --skip-lastfm` for the affected collections only, ensuring your catalog is perfectly aligned.
+
+```bash
+vibemus playlist list
+vibemus pl ls
+```
+
+---
+
+#### `vibemus playlist sync [--name PL] [--skip-lastfm] [--no-covers]`
+**Alias:** `vibemus pl sy ...`
 Reconcile one or all source playlists against your `Songs` sheet.
 
 - Updates scrobble counts, like status, and metadata.
@@ -336,62 +440,67 @@ Reconcile one or all source playlists against your `Songs` sheet.
   - *Si el destino final de la canción es una playlist de archivo (fuera de SOURCE_PLAYLISTS), automáticamente le quitará el Like en YouTube.*
   - *Si además la canción tiene muy pocas reproducciones (<= 1 scrobble por defecto), la enviará también a la lista reservada **Pendiente**.*
 - Archives **disliked songs** (from any playlist).
-- `--name` limits the sync to a single named playlist.
-- `--skip-lastfm` skips Last.fm enrichment for a faster run.
+- **`--name PL`**: Limits the sync to a single named playlist (e.g. `vibemus pl sy --name "#"`).
+- **`--skip-lastfm`**: Skips Last.fm enrichment for a much faster run.
+- **`--no-covers`**: Skips the playlist cover generation/reordering phase.
 - **🛡️ Data Safety**: If a song is present in the `Songs` sheet but cannot be found in the corresponding YouTube playlist, the system considers it "Missing from YouTube" and moves it to the `Archived` sheet to keep your catalog clean without losing metadata.
 
+**Examples:**
 ```bash
-vibemus playlist sync
-vibemus playlist sync --name "#"
-vibemus playlist sync --name "#" --skip-lastfm
+vibemus pl sy
+vibemus pl sy --name "Indie" --skip-lastfm
+vibemus pl sy --no-covers
 ```
 
 ---
 
-#### `vibemus playlist review-pending [N]`
+#### `vibemus playlist cleanup-inbox`
+**Alias:** `vibemus pl ci`
+Remove songs from the `#` inbox that are already present in other curated playlists in the sheet.
+
+---
+
+#### `vibemus playlist cleanup-likes`
+**Alias:** `vibemus pl cul`
+Batch removal of 'Like' status for songs that have been moved to archive playlists to clean up your YouTube Music algorithm.
+
+---
+
+#### `vibemus playlist clean`
+**Alias:** `vibemus pl cl`
+Remove songs from YouTube playlists that are no longer present in the 'Songs' sheet.
+
+---
+
+#### `vibemus playlist export [playlist_id]`
+**Alias:** `vibemus pl ex ...`
+Export the contents of a YouTube playlist to a new sheet page. Defaults to the current target playlist if no ID is provided.
+
+**Example:**
+```bash
+vibemus pl ex "PL2_CnmTx8Xf..."
+```
+
+---
+
+#### `vibemus playlist review-pending [threshold] [--skip-lastfm]`
+**Alias:** `vibemus pl rp [threshold] [--skip-lastfm]`
 **Bandeja de revisión de biblioteca antigua** — localiza canciones "olvidadas" para decidir si mantenerlas o eliminarlas.
 
-- **Criterio de Selección**: Busca canciones con **reproducciones menores o iguales al número indicado** (`Scrobble <= N`). Si no se indica nada, el valor por defecto es **3**.
-- **Alcance Total**: Escanea todas las canciones de tu colección presentes en el Google Sheet, independientemente de la playlist (incluyendo tanto las listas de género activas como las archivadas), exceptuando únicamente la bandeja de entrada `#` y la propia playlist `Pendiente`.
-- **Limpieza de Dislikes**: Si marcas una canción como "No me gusta" (Dislike) dentro de la playlist `Pendiente`:
-    - El script la **eliminará de todas tus playlists** de YouTube Music.
-    - La marcará como **"Indiferente"** en YouTube para limpiar tu algoritmo.
-    - La moverá a la pestaña **Archived** de tu Google Sheet.
-- **Detección de Likes**: Si la marcas como "Me gusta" (Like):
-    - La eliminará de tu lista `Pendiente` (porque ya ha sido evaluada positivamente).
-    - Te la mantendrá como Like en YouTube para mejorar tus recomendaciones.
-    - Pondrá el contador de reproducciones en el Sheet automáticamente a **4** (para evitar que en el futuro vuelva a entrar en esta bandeja de revisión).
-- **Auto-Graduación**: Si una canción sigue evaluándose y escuchándola orgánicamente supera el límite que has introducido en el comando, el bot la considerará "graduada" y la eliminará silenciosamente de la lista Pendiente.
-- **Independencia**: La playlist `Pendiente` es totalmente independiente y no se sincroniza con tus listas de género habituales.
-- **⚡ Tiempo Real y Respeto Manual**: El comando `review-pending` consulta Last.fm para todas las canciones con **< 4 scrobbles** en el Excel. Si tú actualizas manualmente una canción a **4 o más**, el bot la respetará y la graduará directamente sin consultar a Last.fm, permitiéndote "forzar" graduaciones.
+- **Threshold**: Límite máximo de reproducciones para incluir en la lista (default: **2**).
+- **`--skip-lastfm`**: No actualiza el contador de scrobbles desde la API (más rápido, útil para mantenimiento manual).
 
+**Examples:**
 ```bash
-# Busca canciones con 0, 1, 2 o 3 reproducciones (default)
-vibemus playlist review-pending
-
-# Busca canciones que nunca has escuchado (0 reproducciones)
-vibemus playlist review-pending 0
-
-# Busca canciones con 5 reproducciones o menos
-vibemus playlist review-pending 5
-```
-
----
-
-#### `vibemus playlist list`
-Displays a comparative table of all your playlists (including historical archives), contrasting the total song count in **YouTube Music** vs. your **Google Sheet (Songs)**.
-
-- **Difference Detection**: Highlights mismatched playlists in yellow and shows exactly how many songs are missing on either side.
-- **Interactive Correction**: If discrepancies are found, it offers to automatically run `playlist sync --skip-lastfm` for the affected collections only, ensuring your catalog is perfectly aligned.
-
-```bash
-# View global status and (optionally) fix mismatched playlists
-vibemus playlist list
+vibemus pl rp      # threshold = 2
+vibemus pl rp 0    # solo canciones nunca escuchadas
+vibemus pl rp 5 --skip-lastfm  # mantenimiento rápido
 ```
 
 ---
 
 #### `vibemus playlist split --name "Playlist" --parts N`
+**Alias:** `vibemus pl sp ...`
 Divide una colección (playlist principal y sus archivos) en **N partes aproximadamente iguales** basadas en el año de lanzamiento.
 
 - **Diferencial**: El sistema analiza la densidad de canciones en toda tu base de datos para proponer cortes cronológicos inteligentes.
@@ -400,28 +509,29 @@ Divide una colección (playlist principal y sus archivos) en **N partes aproxima
 
 ```bash
 # Divide la colección "Rock" en 3 bloques temporales equilibrados
-vibemus playlist split --name "Rock" --parts 3
+vibemus pl sp --name "Rock" --parts 3
 ```
 
 ---
 
-#### `vibemus playlist apply-moves [--artist "Name"] [--playlist "Name"] [--refresh-cache]`
+#### `vibemus playlist apply-moves [--artist NAME] [--playlist NAME] [--refresh-cache] [--api {lastfm,musicbrainz}]`
+**Alias:** `vibemus pl am ...`
 Sync manual changes made to the "Playlist" column in your Google Sheet back to YouTube Music.
 
 - Scans the **Songs** sheet for songs whose playlist name differs from YouTube.
 - Automatically **removes** the song from the old playlist and **adds** it to the new one.
 - Ignores changes to/from the `#` playlist.
-- **`--artist "Name"`**: Process only moves for a specific artist.
-- **`--playlist "Name"`**: Process only moves where the target playlist in the sheet matches this name (e.g., "Crank Wave").
+- **`--artist NAME`**: Process only moves for a specific artist.
+- **`--playlist NAME`**: Process only moves where the target playlist in the sheet matches this name (e.g., "Crank Wave").
 - **`--refresh-cache`**: Forces a fresh download of playlist data from YouTube before starting. Recommended if you have made manual changes on the YouTube Music app.
-- **`--api {lastfm,musicbrainz}`**: Choose the metadata provider for genres and artist info. 
-  - `lastfm` (default): Fast, includes scrobble counts.
-  - `musicbrainz`: High-quality community tags, follows strict 1 req/s rate limit.
+- **`--api {lastfm,musicbrainz}`**: Choose the metadata provider for genres and artist info (default: `lastfm`).
 
+**Examples:**
 ```bash
-vibemus playlist apply-moves
-vibemus playlist apply-moves --artist "The Drums"
-vibemus playlist apply-moves --refresh-cache
+vibemus pl am
+vibemus pl am --artist "The Drums"
+vibemus pl am --refresh-cache
+vibemus pl am --playlist "Pop" --api musicbrainz
 ```
 
 > [!IMPORTANT]
@@ -449,6 +559,7 @@ Este módulo interactúa con la plataforma estándar de YouTube (no solo Music) 
 ---
 
 #### `vibemus youtube sync-subs [--reset] [--cleanup]`
+**Alias:** `vibemus yt ss ...`
 Sincroniza los nuevos vídeos publicados en tus canales suscritos de YouTube en **4 fases optimizadas de cuota**:
 
 | Fase | Qué hace | Coste API |
@@ -470,8 +581,7 @@ Sincroniza los nuevos vídeos publicados en tus canales suscritos de YouTube en 
 
 ```bash
 vibemus youtube sync-subs
-vibemus youtube sync-subs --cleanup
-vibemus youtube sync-subs --reset   # escanea desde 24h atrás
+vibemus yt ss --reset
 ```
 
 > [!TIP]
@@ -479,25 +589,19 @@ vibemus youtube sync-subs --reset   # escanea desde 24h atrás
 
 ---
 
-#### `vibemus youtube update-top-channels [--window DAYS] [--top N]`
-Calcula y persiste el ranking de los canales más frecuentemente añadidos. **Solo actualiza cuando tú lo pides** — no cambia solo entre ejecuciones del sync diario.
+#### `vibemus youtube update-top-channels [--window DAYS] [--top N] [--interactive]`
+**Alias:** `vibemus yt utc ...`
+Calcula y persiste el ranking de los canales más frecuentemente añadidos.
 
-- Lee el `channel_history` acumulado en `data/youtube_subs_sync.json`.
-- Filtra las adiciones de los últimos `--window` días (por defecto: **7**).
-- Guarda los top `--top` canales (por defecto: **5**) en `data/youtube_top_channels_cache.json`.
-- A partir de ese momento, el `sync-subs` diario incluirá automáticamente la Fase 4 con esos canales: el vídeo más largo **+ hasta 2 más** de cada canal top (ventana de 7 días).
-
-**Flags:**
 - **`--window DAYS`**: Ventana de días hacia atrás para el ranking (default: `7`).
-- **`--top N`**: Cuántos canales guardar (default: `5`).
+- **`--top N`**: Cuántos canales guardar en el caché (default: `5`).
+- **`--interactive` (`-i`)**: Permite elegir manualmente los canales del top desde una lista.
 
+**Examples:**
 ```bash
-# Típico (top-5, últimos 7 días)
-vibemus youtube update-top-channels
-
-# Con ventana más amplia o menos canales
-vibemus youtube update-top-channels --window 14
-vibemus youtube update-top-channels --window 30 --top 3
+vibemus yt utc
+vibemus yt utc --window 30 --top 10
+vibemus yt utc --interactive
 ```
 
 **Flujo recomendado (primera vez):**
@@ -523,19 +627,21 @@ vibemus youtube sync-subs
 
 
 #### `vibemus youtube cleanup-shorts`
+**Alias:** `vibemus yt cs`
 Escanea la playlist **"📥 Para Ver"** y elimina cualquier vídeo de formato corto (Shorts) que se haya añadido anteriormente.
 
 ```bash
-vibemus youtube cleanup-shorts
+vibemus yt cs
 ```
 
 ---
 
 #### `vibemus youtube cleanup-watched`
+**Alias:** `vibemus yt cw`
 Escanea la playlist **"📥 Para Ver"** y elimina los vídeos que aparezcan en tus últimos 200 elementos del historial de reproducciones. (Este proceso se ejecuta automáticamente al inicio de `sync-subs`).
 
 ```bash
-vibemus youtube cleanup-watched
+vibemus yt cw
 ```
 
 ---
@@ -543,28 +649,34 @@ vibemus youtube cleanup-watched
 ### `system` — Utilities
 
 #### `vibemus system reset`
+**Alias:** `vibemus sys rs`
 Clear the main playlist and reset history. **Requires typing `yes` to confirm.**
 
 ```bash
 vibemus system reset
+vibemus sys rs
 ```
 
 ---
 
 #### `vibemus system refresh-cache`
+**Alias:** `vibemus sys rc`
 Force a full refresh of the local source playlist cache (`data/source_cache.json`).
 
 ```bash
 vibemus system refresh-cache
+vibemus sys rc
 ```
 
 ---
 
 #### `vibemus system auth`
+**Alias:** `vibemus sys au`
 Launch the `grab_cookies.js` browser authentication helper. Run this if Vibemus reports that your session has expired.
 
 ```bash
 vibemus system auth
+vibemus sys au
 ```
 
 ---

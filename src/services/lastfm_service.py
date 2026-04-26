@@ -182,19 +182,28 @@ class LastFMService:
 
         result = {
             "genre": "",
+            "listeners": 0,
             "_ts": datetime.now(timezone.utc).isoformat(),
         }
 
         try:
             artist_obj = self.network.get_artist(artist)
             self._throttle()
+            
+            # Fetch genres
             top_tags = artist_obj.get_top_tags(limit=5)
             if top_tags:
                 tag_names = [t.item.get_name() for t in top_tags if int(t.weight or 0) >= 1]
                 if tag_names:
                     result["genre"] = ", ".join(tag_names[:3])
+            
+            # Fetch listeners
+            try:
+                result["listeners"] = int(artist_obj.get_listener_count() or 0)
+            except:
+                pass
         except Exception as e:
-            print(f"\n[LastFM Error] Artist tags for {artist}: {e}")
+            print(f"\n[LastFM Error] Artist info for {artist}: {e}")
 
         with self._lock:
             self.cache[key] = result
