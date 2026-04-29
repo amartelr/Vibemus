@@ -119,8 +119,32 @@ class YTMusicService:
         return self.yt.get_album(browse_id)
 
     def remove_playlist_items(self, playlist_id, videos):
-        """Removes items from a playlist."""
-        return self.yt.remove_playlist_items(playlist_id, videos)
+        """Removes items from a playlist. 
+        'videos' can be a list of track objects or dicts with 'videoId' and 'setVideoId'.
+        """
+        if not videos:
+            return
+            
+        # Ensure we only send necessary fields and it's a list
+        clean_videos = []
+        for v in videos:
+            if isinstance(v, dict) and 'setVideoId' in v:
+                clean_videos.append({
+                    'videoId': v.get('videoId'),
+                    'setVideoId': v.get('setVideoId')
+                })
+        
+        if not clean_videos:
+            return
+
+        try:
+            res = self.yt.remove_playlist_items(playlist_id, clean_videos)
+            if isinstance(res, dict) and res.get('status') == 'STATUS_FAILED':
+                print(f"  ⚠ YouTube Music: Fallo al eliminar {len(clean_videos)} ítems de la playlist.")
+            return res
+        except Exception as e:
+            print(f"  ✗ Error en YouTube Music (remove_playlist_items): {e}")
+            return None
 
     def search_artist(self, name):
         """Searches for an artist by name and returns the best result."""
@@ -178,12 +202,6 @@ class YTMusicService:
             except Exception as e:
                 print(f"  Warning: Browser auth playlist fetch failed ({e}). Falling back to OAuth.")
         return self.get_playlist_items(playlist_id, limit=limit)
-
-    def remove_playlist_items(self, playlist_id, video_ids):
-        """Removes items from a playlist."""
-        if not video_ids:
-            return
-        return self.yt.remove_playlist_items(playlist_id, video_ids)
 
     def add_playlist_items(self, playlist_id, video_ids):
         """Adds songs to a playlist."""

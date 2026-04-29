@@ -22,6 +22,7 @@ class Config:
     YT_SUBS_SYNC_FILE = os.path.join(DATA_DIR, 'youtube_subs_sync.json')
     YT_TOP_CHANNELS_CACHE_FILE = os.path.join(DATA_DIR, 'youtube_top_channels_cache.json')
     PENDING_SNAPSHOT_FILE = os.path.join(DATA_DIR, 'pending_snapshot.json')
+    SKIPPED_ARTISTS_FILE = os.path.join(DATA_DIR, 'skipped_artists.json')
     
     # Internal cache for keys
     _keys = {}

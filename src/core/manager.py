@@ -12,6 +12,7 @@ class Manager:
         self.lastfm = lastfm_service
         self.musicbrainz = musicbrainz_service
         self._archiving_config = self._load_archiving_config()
+        self._skipped_artists = self._load_skipped_artists()
         self.library_catalog = None
 
     def _get_library_catalog(self):
@@ -39,6 +40,25 @@ class Manager:
         """Saves current archiving config to JSON."""
         with open(Config.ARCHIVING_CONFIG_FILE, 'w') as f:
             json.dump(self._archiving_config, f, indent=2)
+
+    def _load_skipped_artists(self):
+        """Loads the list of artists that the user has chosen not to track due to missing YT channel."""
+        if os.path.exists(Config.SKIPPED_ARTISTS_FILE):
+            try:
+                with open(Config.SKIPPED_ARTISTS_FILE, 'r') as f:
+                    return set(json.load(f))
+            except:
+                pass
+        return set()
+
+    def _save_skipped_artists(self):
+        """Saves current skipped artists set to JSON."""
+        try:
+            os.makedirs(os.path.dirname(Config.SKIPPED_ARTISTS_FILE), exist_ok=True)
+            with open(Config.SKIPPED_ARTISTS_FILE, 'w') as f:
+                json.dump(list(self._skipped_artists), f, indent=2)
+        except Exception as e:
+            print(f"Error saving skipped artists: {e}")
 
     def get_target_playlist_by_year(self, base_playlist, year):
         """Resolves target playlist name based on base name and release year.
@@ -279,6 +299,11 @@ class Manager:
         channel_verified = bool(onboarding_id) and not is_compound
 
         if not channel_verified:
+            norm_onboarding = self._normalize(onboarding_artist)
+            if norm_onboarding in self._skipped_artists:
+                print(f"    \033[90m⏭  '{onboarding_artist}' omitido (previamente marcado como sin canal).\033[0m")
+                return None
+
             yt_result = None
             try:
                 yt_result = self.yt.search_artist(onboarding_artist)
@@ -301,6 +326,8 @@ class Manager:
                 ans = input(f"      ¿Añadir igualmente? [s=sí, Enter=no]: ").strip().lower()
                 if ans != 's':
                     print(f"      ⏭  '{onboarding_artist}' omitido (sin canal de YouTube).")
+                    self._skipped_artists.add(norm_onboarding)
+                    self._save_skipped_artists()
                     return None
 
         # ── Playlist prompt ──
@@ -876,30 +903,45 @@ class Manager:
 
         print("\n✅ ASISTENTE COMPLETADO\n" if not errors else f"\n⚠ COMPLETADO CON {errors} ERRORES\n")
 
-    def _reorder_playlist_by_latest_added(self, playlist_name, playlist_id, all_songs):
-        """Moves the 4 most recently added songs (last in the Songs sheet) to the top.
-        This triggers YouTube Music to update the playlist collage cover.
+    def _reorder_playlist_for_top_artists_cover(self, playlist_name, playlist_id, all_songs):
+        """Moves representative songs of the top 4 most frequent artists to the top.
+        This triggers YouTube Music to update the playlist collage cover with its most iconic artists.
         """
         if not playlist_id: return
-        print(f"  \033[95m🖼 Generando portada dinámica (collage) para '{playlist_name}'...\033[0m")
+        print(f"  \033[95m🖼 Optimizando portada (Top Artistas) para '{playlist_name}'...\033[0m")
         
-        # 1. Get songs from sheet for this playlist (they are stored in insertion order)
+        # 1. Filter songs for this playlist
         pl_songs = [s for s in all_songs if s.get('Playlist', '').lower() == playlist_name.lower()]
-        
         if len(pl_songs) < 4:
             return
 
-        # 2. Get last 4 (most recently added)
-        latest_songs = pl_songs[-4:]
-        latest_vids = [s.get('Video ID') for s in latest_songs if s.get('Video ID')]
-        
-        if not latest_vids:
+        # 2. Identify top 4 artists by song count
+        from collections import Counter
+        artist_counts = Counter([s.get('Artist') for s in pl_songs if s.get('Artist')])
+        top_artist_names = [name for name, count in artist_counts.most_common(4)]
+
+        # 3. Pick one representative song per artist (the one with most scrobbles)
+        target_vids = []
+        for artist in top_artist_names:
+            artist_songs = [s for s in pl_songs if s.get('Artist') == artist and s.get('Video ID')]
+            if artist_songs:
+                # Sort by scrobbles descending and pick the best
+                best_song = sorted(artist_songs, key=lambda x: int(str(x.get('Scrobble') or 0).replace('.', '').replace(',', '') or 0), reverse=True)[0]
+                target_vids.append(best_song.get('Video ID'))
+
+        # If we have less than 4 artists, fill with other top songs from the same playlist
+        if len(target_vids) < 4:
+            other_songs = [s for s in pl_songs if s.get('Video ID') and s.get('Video ID') not in target_vids]
+            other_songs = sorted(other_songs, key=lambda x: int(str(x.get('Scrobble') or 0).replace('.', '').replace(',', '') or 0), reverse=True)
+            target_vids.extend([s.get('Video ID') for s in other_songs[:4-len(target_vids)]])
+
+        if not target_vids:
             return
 
-        # 3. Get current playlist tracks to find setVideoIds
+        # 4. Get current playlist tracks to find setVideoIds
         try:
-            # We fetch up to 100 to find where our songs are
-            playlist_data = self.yt.yt.get_playlist(playlist_id, limit=100)
+            # Fetch more items (up to 200) to find our targets
+            playlist_data = self.yt.yt.get_playlist(playlist_id, limit=200)
             tracks = playlist_data.get('tracks', [])
             if not tracks: return
                 
@@ -907,18 +949,18 @@ class Manager:
             
             # Identify setVideoIds of our target songs
             target_set_vids = []
-            for vid in latest_vids:
+            for vid in target_vids:
                 if vid in vid_to_setvid:
                     target_set_vids.append(vid_to_setvid[vid])
             
             if not target_set_vids:
                 return
 
-            # 4. Perform moves sequentially to ensure they end up at 0, 1, 2, 3
-            # We iterate in reverse order and move each to the top
+            # 5. Perform moves sequentially to ensure they end up at 0, 1, 2, 3
             moves_made = 0
+            # Reverse order so the most "top" artist ends up at position 0
             for set_vid in reversed(target_set_vids):
-                # Get current first item's setVideoId
+                # Always get fresh top to ensure we move to the absolute beginning
                 current_top = self.yt.yt.get_playlist(playlist_id, limit=1)['tracks']
                 if not current_top: break
                 
@@ -929,12 +971,13 @@ class Manager:
                     moves_made += 1
             
             if moves_made > 0:
-                print(f"    \033[92m✓ Portada actualizada (usando últimas 4 canciones).\033[0m")
+                artists_desc = ", ".join(top_artist_names[:4])
+                print(f"    \033[92m✓ Portada actualizada (Artistas principales: {artists_desc}).\033[0m")
             else:
-                print(f"    \033[90m(Portada ya optimizada).\033[0m")
+                print(f"    \033[90m(Portada ya optimizada para artistas principales).\033[0m")
                 
         except Exception as e:
-            print(f"    \033[91m✗ Error reordenando playlist: {e}\033[0m")
+            print(f"    \033[91m✗ Error actualizando portada: {e}\033[0m")
 
     def sync_playlist(self, playlist_name=None, skip_lastfm=False):
         print("\n\033[96m" + "━"*50 + "\033[0m")
@@ -1085,23 +1128,30 @@ class Manager:
                 vid = item.get('videoId')
                 song_title = item.get('title', 'Unknown')
                 
-                # ── Registro/Verificación de Artista (Lógica de Onboarding) ──
                 artists_list = item.get('artists', [])
-                main_artist = artists_list[0]['name'] if artists_list else 'Unknown'
-                artist_row = self._ensure_artist_tracked(artists_records, main_artist, artists_list, pl_name, all_songs)
-                if not artist_row:
-                    continue # Skip processing this song if artist not tracked
-                
-                # Check status from 3 sources: YT Metadata, YT Liked List, or Google Sheet
+
+                # ── Check status FIRST (before artist tracking), so disliked songs
+                #    from skipped/collab artists still get removed from the playlist. ──
                 yt_status = item.get('likeStatus', 'INDIFFERENT')
                 is_in_liked_list = vid in liked_vids
-                sheet_status = existing_vids.get(vid, {}).get('status', '') if vid in existing_vids else ''
+                sheet_status = (existing_vids.get(vid, {}).get('status') or '').strip().capitalize() if vid in existing_vids else ''
                 
                 status = 'INDIFFERENT'
                 if yt_status == 'LIKE' or is_in_liked_list or sheet_status == 'Like':
                     status = 'LIKE'
-                elif yt_status == 'DISLIKE':
+                elif yt_status == 'DISLIKE' or sheet_status == 'Dislike':
                     status = 'DISLIKE'
+
+                # ── Registro/Verificación de Artista (Lógica de Onboarding) ──
+                # Only skip artist-tracking for non-disliked songs; disliked songs
+                # must always be removed regardless of artist channel status.
+                main_artist = artists_list[0]['name'] if artists_list else 'Unknown'
+                if status != 'DISLIKE':
+                    artist_row = self._ensure_artist_tracked(artists_records, main_artist, artists_list, pl_name, all_songs)
+                    if not artist_row:
+                        continue # Skip processing this song if artist not tracked
+                else:
+                    artist_row = self._find_artist_row(artists_records, name=main_artist, artists_list=artists_list)
                 
                 # REGLA SOLICITADA: Quitar Like a canciones viejas fuera de SOURCE_PLAYLISTS (Archivos)
                 if status == 'LIKE':
@@ -1126,8 +1176,6 @@ class Manager:
                                 except Exception as e:
                                     print(f"      ✗ Error al quitar Like: {e}")
                 
-
-                
                 # Get current scrobbles for logic
                 scrobbles = item.get('Scrobble', 0)
                 if not scrobbles and vid in existing_vids:
@@ -1135,8 +1183,6 @@ class Manager:
                     except: pass
                 
                 # ── 1. ARCHIVADO AUTOMÁTICO DESDE PLAYLISTS DE GÉNERO (No Inbox) ──
-                # Si estamos sincronizando una playlist normal (ej: 'Español') y es archivable,
-                # comprobamos si alguna canción debería ir ya a su versión de catálogo.
                 if not is_hash and pl_name in Config.ARCHIVABLE_PLAYLISTS:
                     song_year = 0
                     y_str = (existing_vids.get(vid) or {}).get('Year') or item.get('year')
@@ -1182,7 +1228,6 @@ class Manager:
                                     print(f"      ⚠ No se pudo encontrar el ID de la playlist '{archive_name}'")
                             else:
                                 print(f"      ⏭  Canción mantenida en '{pl_name}'.")
-
                 
                 high_scrobbles = is_hash and scrobbles > Config.SCROBBLE_THRESHOLD
                 
@@ -1192,6 +1237,8 @@ class Manager:
                     print(f"    \033[91m✗ {reason} → Archiving:\033[0m \033[92m{artists_str} - {item.get('title')}\033[0m")
                     try:
                         self.yt.remove_playlist_items(pid, [item])
+                        print(f"      🗑 Eliminado de la playlist '{pl_name}'")
+                        
                         if status == 'DISLIKE': 
                             self.yt.rate_song(vid, 'INDIFFERENT')
                             # Eliminar también de la biblioteca
@@ -1486,6 +1533,10 @@ class Manager:
             dup_msg = f" (Dup YT: {dup_count})" if dup_count > 0 else ""
             print(f"  {status_char} Playlist '{pl_name}' synced. [YT: {yt_final_count} | Sheet: {sheet_final_count}]{dup_msg}")
             print(f"    (Kept: {len(kept_songs)}, Added: {len(new_songs)}, Archived: {len(disliked_for_archive) + len(archived_songs)})")
+
+            # ── 8. Dynamic Cover Update ──
+            # Reorder top artists' tracks to update the playlist collage cover
+            self._reorder_playlist_for_top_artists_cover(pl_name, pid, all_songs)
 
         # ── 7. Write back entire Songs sheet ──
         print("\nSaving Songs sheet...")
@@ -2916,8 +2967,10 @@ class Manager:
 
         filtered_new_artists = []
         page = 1
-        max_pages = 50 # safety limit
+        max_pages = 20  # hard safety limit
         target_new = 20
+        consecutive_empty = 0
+        max_consecutive_empty = 2  # stop after 2 pages with no new artists
 
         while len(filtered_new_artists) < target_new and page <= max_pages:
             print(f"   Fetching recommendations from Last.fm (Page {page})...")
@@ -2937,7 +2990,8 @@ class Manager:
                 page_artists = list(set([m.strip() for m in matches if m.strip() and m.strip().lower() != 'más información']))
                 if not page_artists:
                     break
-                    
+                
+                new_this_page = 0
                 for a in page_artists:
                     if a in seen_artists:
                         continue
@@ -2951,6 +3005,15 @@ class Manager:
                         if a not in filtered_new_artists:
                             filtered_new_artists.append(a)
                             seen_artists.add(a)
+                            new_this_page += 1
+                
+                # Stop early if this page (and the previous one) had nothing new
+                if new_this_page == 0:
+                    consecutive_empty += 1
+                    if consecutive_empty >= max_consecutive_empty:
+                        break
+                else:
+                    consecutive_empty = 0
                             
             except Exception as e:
                 print(f"   ✗ Error fetching page {page}: {e}")
