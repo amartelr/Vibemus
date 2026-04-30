@@ -40,6 +40,8 @@ _ACTION_MAP = {
     # System
     "rc": "refresh-cache",
     "au": "auth",
+    # Recom
+    "ny": "new-releases",
 }
 
 
@@ -882,10 +884,122 @@ def handle_recom(args, manager) -> int:
 
     if action == "sync":
         return _sync_new_releases(args, manager)
+    elif action == "new-releases":
+        return _sync_new_releases_now(args, manager)
     else:
-        print("Usage: vibemus recom <sync>")
+        print("Usage: vibemus recom <sync|new-releases>")
         print("Run 'vibemus recom --help' for details.")
         return 1
+
+
+def _sync_new_releases_now(args, manager) -> int:
+    """Fetch Last.fm recommended new releases (out-now) and present them to the user."""
+    print("\n" + "=" * 54)
+    print("🆕 NOVEDADES RECOMENDADAS EN LAST.FM")
+    print("=" * 54)
+
+    try:
+        releases = manager.get_lastfm_new_releases()
+    except Exception as e:
+        print(f"  ✗ Error obteniendo las novedades: {e}")
+        return 1
+
+    if not releases:
+        print("   ✨ No hay novedades nuevas por ahora.")
+        return 0
+
+    # Separate tracked vs unknown
+    tracked_rels = [r for r in releases if r['tracked']]
+    unknown_rels = [r for r in releases if not r['tracked']]
+
+    total = len(releases)
+    print(f"\n   \033[1;92m🎯 {total} lanzamientos sin ver\033[0m  "
+          f"(\033[96m{len(tracked_rels)} artistas ya seguidos\033[0m  |  "
+          f"\033[93m{len(unknown_rels)} nuevos artistas\033[0m)")
+
+    is_auto = getattr(args, "auto", False)
+    only_tracked = getattr(args, "tracked_only", False)
+
+    # ── Section 1: Tracked artists with new releases ─────────────────────────
+    if tracked_rels:
+        print(f"\n\033[1;96m── Artistas ya seguidos ({len(tracked_rels)}) ──\033[0m")
+        print("   (Estos artistas ya están en tu catálogo. Comprueba si quieres añadir las novedades manualmente.)")
+        for rel in tracked_rels:
+            date_info = f" \033[90m[{rel['date']}]\033[0m" if rel['date'] else ""
+            print(
+                f"   ★  \033[1;96m{rel['artist']}\033[0m  "
+                f"\033[1;92m{rel['release']}\033[0m{date_info}"
+            )
+            # Mark as seen automatically — user can always run `releases sync` to pick them up
+            manager.mark_lastfm_new_release_seen(rel['artist'], rel['release'])
+
+    # ── Section 2: Unknown artists ────────────────────────────────────────────
+    if unknown_rels and not only_tracked:
+        print(f"\n\033[1;93m── Artistas desconocidos ({len(unknown_rels)}) ──\033[0m")
+
+        for rel in unknown_rels:
+            art_name = rel['artist']
+            release_name = rel['release']
+            date_info = f" \033[90m[{rel['date']}]\033[0m" if rel['date'] else ""
+
+            print(
+                f"\n   💿  \033[1;93m{art_name}\033[0m"
+                f"  →  \033[1;92m{release_name}\033[0m{date_info}"
+            )
+
+            # Fetch quick Last.fm metadata
+            lfm_listeners = 0
+            lfm_genre = ""
+            try:
+                info = manager.lastfm.get_artist_info(art_name, cache_ttl_days=-1)
+                lfm_listeners = info.get('listeners', 0)
+                lfm_genre = info.get('genre', '')
+            except Exception:
+                pass
+
+            if lfm_listeners:
+                print(f"      📊 Oyentes: \033[92m{lfm_listeners:,}\033[0m".replace(",", "."))
+            if lfm_genre:
+                print(f"      📻 Género: \033[95m{lfm_genre}\033[0m")
+
+            if is_auto:
+                print(f"   🤖 Auto: Añadiendo '{art_name}'...")
+                ans = 'a'
+            else:
+                while True:
+                    ans = input(
+                        f"\n  \033[1;93m¿Qué quieres hacer con '{art_name}'?\033[0m"
+                        f" (\033[92m[A]ñadir a tracking\033[0m | [p]asar | [q]uit): "
+                    ).strip().lower()
+                    if not ans:
+                        ans = 'p'
+                    if ans in ['a', 'p', 'q']:
+                        break
+                    print("  Por favor responde con a/p/q.")
+
+            if ans == 'q':
+                print("\n🛑 Revisión cancelada por el usuario.")
+                # Mark current release as seen before quitting
+                manager.mark_lastfm_new_release_seen(art_name, release_name)
+                break
+            elif ans == 'p':
+                print(f"  ⏭ Saltando '{art_name} - {release_name}'.")
+                manager.mark_lastfm_new_release_seen(art_name, release_name)
+                continue
+            elif ans == 'a':
+                class FakeArgs:
+                    name = art_name
+                    playlist = None
+                    api = "lastfm"
+                    auto = is_auto
+                _artist_add(FakeArgs(), manager)
+                manager.mark_lastfm_new_release_seen(art_name, release_name)
+
+    elif only_tracked and unknown_rels:
+        print(f"\n   ℹ️  {len(unknown_rels)} artistas desconocidos omitidos (usa sin --tracked-only para verlos).")
+
+    print("\n✅ Revisión de novedades completada.")
+    return 0
 
 
 # ── Genre ───────────────────────────────────────────────────────────────────

@@ -3041,6 +3041,186 @@ class Manager:
             with open(cache_file, 'w') as f:
                 json.dump(list(seen_artists), f)
 
+    # ── Last.fm New Releases (out-now/recommended) ────────────────────────────
+
+    def get_lastfm_new_releases(self):
+        """Fetches personalized new release recommendations from Last.fm.
+
+        Scrapes https://www.last.fm/es/music/+releases/out-now/recommended
+        (pagination via ?page=N) using the Chrome cookie jar, exactly as
+        get_lastfm_recommendations does.
+
+        Returns a list of dicts:
+            {
+                'artist':   str,
+                'release':  str,
+                'date':     str,        # raw date text from the page
+                'tracked':  bool,       # True if artist is already in our catalog
+            }
+        Only releases NOT already seen in the cache are returned.
+        """
+        import browser_cookie3
+        import requests
+        import re
+        import os
+        import json
+        from src.config import Config
+
+        print("   Cargando cookies de Chrome...")
+        try:
+            cj = browser_cookie3.chrome()
+        except Exception as e:
+            raise Exception(f"Error leyendo las cookies de Chrome: {e}")
+
+        url_template = "https://www.last.fm/es/music/+releases/out-now/recommended?page={}"
+        headers = {
+            'User-Agent': (
+                'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) '
+                'AppleWebKit/537.36 (KHTML, like Gecko) '
+                'Chrome/124.0.0.0 Safari/537.36'
+            )
+        }
+
+        # ── Seen-cache ────────────────────────────────────────────────────────
+        cache_file = os.path.join(Config.DATA_DIR, 'lastfm_new_releases_cache.json')
+        seen_keys: set[str] = set()
+        if os.path.exists(cache_file):
+            try:
+                with open(cache_file, 'r') as f:
+                    seen_keys = set(json.load(f))
+            except Exception:
+                pass
+
+        # ── Tracked artists + songs ───────────────────────────────────────────
+        all_artists = self.sheets.get_artists()
+        tracked_names = {self._normalize(a.get("Artist Name", "")) for a in all_artists}
+        all_songs = self.sheets.get_songs_records()
+        songs_artist_names = {
+            self._normalize(s.get("Artist", ""))
+            for s in all_songs if s.get("Artist")
+        }
+        tracked_names.update(songs_artist_names)
+
+        # ── Scrape pages ──────────────────────────────────────────────────────
+        results: list[dict] = []
+        page = 1
+        max_pages = 15          # hard safety cap
+        target_new = 30         # stop collecting after this many unseen releases
+        consecutive_empty = 0
+        max_consecutive_empty = 2
+
+        while len(results) < target_new and page <= max_pages:
+            print(f"   Buscando novedades en Last.fm (página {page})...")
+            url = url_template.format(page)
+            try:
+                r = requests.get(url, cookies=cj, headers=headers, timeout=20)
+
+                if "Entrar" in r.text or "Log in" in r.text:
+                    if page == 1:
+                        raise Exception(
+                            "No has iniciado sesión en Last.fm en Chrome. "
+                            "Por favor inicia sesión primero."
+                        )
+                    break
+
+                # Parse release cards with a simple regex approach
+                # Each card: <li class="resource-list--release-list-item ...">
+                card_pattern = re.compile(
+                    r'resource-list--release-list-item[^>]*>.*?(?=resource-list--release-list-item|</ul>)',
+                    re.DOTALL
+                )
+
+                # More reliable: find artist and release name pairs per card
+                # Artist link selector: resource-list--release-list-item-artist
+                # Release name selector: link-block-target (inside -item-name)
+                artist_in_card = re.compile(
+                    r'resource-list--release-list-item-artist[^>]*>.*?'
+                    r'<a[^>]+>([^<]+)</a>',
+                    re.DOTALL
+                )
+                release_in_card = re.compile(
+                    r'resource-list--release-list-item-name[^>]*>.*?'
+                    r'<a[^>]+class="[^"]*link-block-target[^"]*"[^>]*>([^<]+)</a>',
+                    re.DOTALL
+                )
+                date_in_card = re.compile(
+                    r'resource-list--release-list-item-date[^>]*>\s*([^<]+?)\s*<',
+                    re.DOTALL
+                )
+
+                # Split the HTML into per-card chunks using <li> boundaries
+                li_chunks = re.split(
+                    r'<li[^>]*class="[^"]*resource-list--release-list-item[^"]*"[^>]*>',
+                    r.text
+                )[1:]  # skip everything before the first card
+
+                new_this_page = 0
+                for chunk in li_chunks:
+                    artist_m = artist_in_card.search(chunk)
+                    release_m = release_in_card.search(chunk)
+                    if not artist_m or not release_m:
+                        continue
+
+                    artist = artist_m.group(1).strip()
+                    release = release_m.group(1).strip()
+                    date_m = date_in_card.search(chunk)
+                    date_str = date_m.group(1).strip() if date_m else ""
+
+                    if not artist or not release:
+                        continue
+
+                    # Unique cache key: "artist||release" (lowercased)
+                    cache_key = f"{artist.lower()}||{release.lower()}"
+                    if cache_key in seen_keys:
+                        continue
+
+                    seen_keys.add(cache_key)
+                    is_tracked = self._normalize(artist) in tracked_names
+
+                    results.append({
+                        'artist': artist,
+                        'release': release,
+                        'date': date_str,
+                        'tracked': is_tracked,
+                    })
+                    new_this_page += 1
+
+                if new_this_page == 0:
+                    consecutive_empty += 1
+                    if consecutive_empty >= max_consecutive_empty:
+                        break
+                else:
+                    consecutive_empty = 0
+
+            except Exception as e:
+                print(f"   ✗ Error en página {page}: {e}")
+                break
+
+            page += 1
+
+        return results
+
+    def mark_lastfm_new_release_seen(self, artist: str, release: str) -> None:
+        """Persists an artist+release key to the new-releases seen-cache."""
+        import os
+        import json
+        from src.config import Config
+
+        cache_file = os.path.join(Config.DATA_DIR, 'lastfm_new_releases_cache.json')
+        seen_keys: set[str] = set()
+        if os.path.exists(cache_file):
+            try:
+                with open(cache_file, 'r') as f:
+                    seen_keys = set(json.load(f))
+            except Exception:
+                pass
+
+        key = f"{artist.lower()}||{release.lower()}"
+        if key not in seen_keys:
+            seen_keys.add(key)
+            os.makedirs(os.path.dirname(cache_file), exist_ok=True)
+            with open(cache_file, 'w') as f:
+                json.dump(list(seen_keys), f, ensure_ascii=False, indent=2)
 
 
     def split_playlist_by_year(self, playlist_name, start_year, end_year):

@@ -15,7 +15,7 @@
 6. [CLI Reference](#cli-reference)
    - [artist](#artist--manage-tracked-artists)
    - [releases](#releases--artist-release-monitoring)
-   - [new-releases](#new-releases--latest-drops)
+   - [recom](#recom--personalized-recommendations)
    - [genre](#genre--genre-taxonomy-management)
    - [library](#library--youtube-music-library-sync)
    - [playlist](#playlist--playlist-operations)
@@ -37,6 +37,7 @@ To save typing, you can use the following aliases for command groups and actions
 | **Releases** | `rel` | `sy` (sync) |
 | **System** | `sys` | `rc` (refresh-cache), `au` (auth) |
 | **Library** | `lib` | `sy` (sync) |
+| **Recom** | `rec` | `sy` (sync), `ny` (new-releases) |
 | **Genre** | `gen` | `sy` (sync) |
 
 **Examples:**
@@ -57,7 +58,8 @@ vibemus pl sy --name "#"
 | Category | Command (Short) | Description |
 |:---|:---|:---|
 | **Discovery** | `rel sy` | Scan profile of every tracked artist (Full monitor). |
-| | `nr sy` | Scan global YouTube shelf for tracked artists (Fast scan). |
+| | `rec ny` | Scan recommended new releases from Last.fm (Out Now). |
+| | `rec sy` | Discover new artists based on your Last.fm recommendations. |
 | **Artist** | `art ad "Name"` | Start tracking a new artist and sync discography. |
 | | `art sy` | Add missing artists found in your library to the tracking list. |
 | | `art ls` | Show all currently tracked artists and their status. |
@@ -216,11 +218,11 @@ Vibemus offers three different ways to discover and sync music. Use this table t
 
 | Command | Frequency | Scan Method | Scope | Best for... |
 |:---|:---|:---|:---|:---|
-| **`new-releases sync`** | **Daily** | Global "New Releases" shelf | Top global hits from your artists | ⚡ Instant daily catch-up (seconds). |
+| **`recom new-releases`** | **Daily** | Last.fm Recommended Releases | Latest singles/albums from artists you follow (and others) | ⚡ Fast Out-Now scan. |
 | **`releases sync`** | **Weekly** | Individual artist profiles | Every new single/album from your list | 🎯 Full monitoring of your specific artists. |
 
 > [!TIP]
-> **Workflow Suggestion**: Use `new-releases` daily to catch big drops instantly. Run `releases` once a week to ensure nothing was missed.
+> **Workflow Suggestion**: Use `recom new-releases` daily to catch big drops instantly. Run `releases sync` once a week to ensure nothing was missed.
 
 ---
 
@@ -350,20 +352,42 @@ vibemus releases sync --force --auto
 ```
 
 
-### `new-releases` — Latest Drops
+### `recom` — Personalized Recommendations
+**Alias:** `rec`
 
 ---
 
-#### `vibemus new-releases sync [--auto]`
-**Alias:** `vibemus nr sy ...`
-Scan global new releases from YouTube Music and check for updates from all your tracked artists.
+#### `vibemus recom sync [--auto]`
+**Alias:** `vibemus rec sy ...`
+Scan personalized artist recommendations from Last.fm and offer to track them.
 
-- `--auto` skips all prompts and processes all candidates automatically.
+- **Discovery**: Uses your Last.fm listening history to find artists you might like.
+- **Onboarding**: For each recommended artist, it shows genres and listeners, and offers to add them to your tracking list.
+- **`--auto`**: Automatically adds the top 2 new and 2 popular songs for each recommended artist.
 
 **Examples:**
 ```bash
-vibemus new-releases sync
-vibemus nr sy --auto
+vibemus rec sy
+vibemus rec sy --auto
+```
+
+---
+
+#### `vibemus recom new-releases [--auto] [--tracked-only]`
+**Alias:** `vibemus rec ny ...`
+Scan the **Recommended New Releases** (Out Now) section from Last.fm.
+
+- **Personalized**: Shows new releases from artists you already follow and others Last.fm thinks you'll like.
+- **Smart Filtering**: 
+    - **Tracked Artists**: Marked with `★`. They are shown for your information and marked as "seen" automatically so you can check them out.
+    - **New Artists**: Prompts you to add them to your tracking list if you like the release.
+- **`--tracked-only`**: Skip unknown artists and only show releases from artists already in your catalog.
+- **`--auto`**: Automatically add unknown artists to tracking.
+
+**Examples:**
+```bash
+vibemus rec ny
+vibemus rec ny --tracked-only
 ```
 
 ---

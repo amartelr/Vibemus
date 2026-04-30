@@ -467,7 +467,7 @@ class YouTubeDataService:
             for i in range(0, len(video_ids), 50):
                 batch_ids = video_ids[i : i + 50]
                 resp = self._client().videos().list(
-                    part="contentDetails",  # snippet already in playlistItems
+                    part="snippet,contentDetails",
                     id=",".join(batch_ids),
                 ).execute()
                 for item in resp.get("items", []):
@@ -483,6 +483,7 @@ class YouTubeDataService:
         from collections import defaultdict
         by_channel: dict[str, list[dict]] = defaultdict(list)
         api_filtered = 0
+        music_filtered = 0
 
         for v in after_title:
             vid = v["videoId"]
@@ -499,6 +500,12 @@ class YouTubeDataService:
                 if self._is_short(fake_item):
                     api_filtered += 1
                     continue
+                
+                # Filter out music category to avoid YouTube Music taking over the playlist
+                if str(detail.get("snippet", {}).get("categoryId", "")) == "10":
+                    music_filtered += 1
+                    continue
+
                 duration_iso = detail.get("contentDetails", {}).get("duration", "")
             else:
                 duration_iso = ""
@@ -508,6 +515,8 @@ class YouTubeDataService:
 
         if api_filtered:
             print(f"  🚫 {api_filtered} Shorts adicionales descartados por duración.")
+        if music_filtered:
+            print(f"  🎵 {music_filtered} vídeos musicales descartados (para no ensuciar YT Music).")
 
         # Pick the longest video per channel
         winners: list[dict] = []
@@ -946,7 +955,7 @@ class YouTubeDataService:
         try:
             for i in range(0, len(video_ids), 50):
                 resp = self._client().videos().list(
-                    part="contentDetails",
+                    part="snippet,contentDetails",
                     id=",".join(video_ids[i: i + 50]),
                 ).execute()
                 for item in resp.get("items", []):
@@ -964,6 +973,7 @@ class YouTubeDataService:
             return h * 3600 + mn * 60 + s
 
         enriched = []
+        music_filtered = 0
         for v in pool:
             detail = details_map.get(v["videoId"])
             if detail:
@@ -976,11 +986,19 @@ class YouTubeDataService:
                 }
                 if self._is_short(fake):
                     continue
+                
+                if str(detail.get("snippet", {}).get("categoryId", "")) == "10":
+                    music_filtered += 1
+                    continue
+
                 duration_iso = detail.get("contentDetails", {}).get("duration", "")
             else:
                 duration_iso = ""
             v["_seconds"] = _iso_to_seconds(duration_iso)
             enriched.append(v)
+            
+        if music_filtered:
+            print(f"  🎵 {music_filtered} vídeos musicales descartados en top canal.")
 
         enriched.sort(key=lambda x: x.get("_seconds", 0), reverse=True)
         for v in enriched:

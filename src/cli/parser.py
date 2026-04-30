@@ -337,6 +337,21 @@ def _register_recom(subparsers: argparse._SubParsersAction) -> None:
         help="Skip interactive prompts and auto-add 2 new and 2 popular catalog songs per artist",
     )
 
+    # recom new-releases
+    nr_p = nr_sub.add_parser(
+        "new-releases",
+        aliases=["ny"],
+        help="Show recommended new releases from Last.fm (out-now/recommended)",
+    )
+    nr_p.add_argument(
+        "--auto", action="store_true",
+        help="Auto-add unknown artists without interactive prompts",
+    )
+    nr_p.add_argument(
+        "--tracked-only", action="store_true",
+        help="Only show releases from artists already in your catalog (skip unknown)",
+    )
+
 
 # ── Genre ───────────────────────────────────────────────────────────────────
 
@@ -445,8 +460,6 @@ def _register_system(subparsers: argparse._SubParsersAction) -> None:
         description="System-level utilities for Vibemus.",
     )
     sys_sub = sys_parser.add_subparsers(dest="action")
-
-
 
     # system refresh-cache
     sys_sub.add_parser(
