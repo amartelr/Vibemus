@@ -89,7 +89,7 @@ class YouTubeDataService:
     """Client for YouTube Data API v3 subscription-to-playlist sync."""
 
     # Name of the custom playlist created/used for "watch later" videos
-    PLAYLIST_NAME = "! 📥 Para Ver"
+    PLAYLIST_NAME = "WL"
 
     def __init__(self):
         self._yt = None  # Lazy-initialised on first API call
@@ -128,6 +128,9 @@ class YouTubeDataService:
 
         The playlist ID is cached in the sync state so we only look it up once.
         """
+        if self.PLAYLIST_NAME == "WL":
+            return "WL"
+
         # Use cached ID if available
         playlist_id = self._sync_state.get("playlist_id")
         if playlist_id:
@@ -187,15 +190,22 @@ class YouTubeDataService:
             stop processing and save its checkpoint immediately.
         """
         try:
-            self._client().playlistItems().insert(
-                part="snippet",
-                body={
-                    "snippet": {
-                        "playlistId": playlist_id,
-                        "resourceId": {"kind": "youtube#video", "videoId": video_id},
-                    }
-                },
-            ).execute()
+            if playlist_id == "WL":
+                from .yt_service import YTMusicService
+                res = YTMusicService().yt.add_playlist_items("WL", [video_id])
+                if res.get('status') != 'STATUS_SUCCEEDED':
+                    print(f"    ⚠ Error añadiendo {video_id} a WL: {res}")
+                    return False
+            else:
+                self._client().playlistItems().insert(
+                    part="snippet",
+                    body={
+                        "snippet": {
+                            "playlistId": playlist_id,
+                            "resourceId": {"kind": "youtube#video", "videoId": video_id},
+                        }
+                    },
+                ).execute()
             # ── Record in channel history ────────────────────────────────────
             if channel_id:
                 history: dict = self._sync_state.setdefault("channel_history", {})
@@ -228,6 +238,9 @@ class YouTubeDataService:
         
         Returns a list of dicts: {'id': playlist_item_id, 'videoId': video_id, 'title': title}
         """
+        if playlist_id == "WL":
+            return []
+
         yt = self._client()
         items = []
         try:
@@ -530,6 +543,10 @@ class YouTubeDataService:
     def cleanup_playlist_shorts(self):
         """Find and remove Shorts already present in the '📥 Para Ver' playlist."""
         playlist_id = self._get_or_create_playlist()
+        if playlist_id == "WL":
+            print("\n  🚫 La API de YouTube no permite eliminar videos de 'Ver más tarde' (WL). Usa la web de YouTube.")
+            return
+
         yt = self._client()
         
         print(f"\n  🔍 Analizando playlist '{self.PLAYLIST_NAME}' en busca de Shorts...")
@@ -582,6 +599,11 @@ class YouTubeDataService:
         from .yt_service import YTMusicService
         
         playlist_id = self._get_or_create_playlist()
+        if playlist_id == "WL":
+            print(f"  ℹ️  Saltando la eliminación automática de videos vistos en '{self.PLAYLIST_NAME}'.")
+            print("      (La API ya no lo permite. Usa el botón 'Eliminar videos vistos' de YouTube manualmente).")
+            return
+
         yt = self._client()
         
         print(f"  🔍 Buscando vídeos ya vistos en '{self.PLAYLIST_NAME}'...")
@@ -619,6 +641,9 @@ class YouTubeDataService:
 
     def clear_playlist(self):
         """Remove the entire '📥 Para Ver' playlist and clear its cache to save API quota."""
+        if self.PLAYLIST_NAME == "WL":
+            return
+            
         yt = self._client()
         playlist_id = self._sync_state.get("playlist_id")
         
@@ -818,14 +843,14 @@ class YouTubeDataService:
     def sync_top_channels(
         self,
         playlist_id: str,
-        window_days: int = 7,
+        since_dt: datetime,
         max_per_channel: int = 3,
         already_added_ids: set | None = None,
     ) -> int:
         """Fetch and add videos from the cached top-5 channels.
 
-        For each top channel the method searches the last *window_days* days
-        of uploads, discards Shorts and duplicates already added in this sync
+        For each top channel the method searches since *since_dt* for new
+        uploads, discards Shorts and duplicates already added in this sync
         run, then inserts:
           - The *longest* video (always)
           - Up to *max_per_channel - 1* additional videos (second-longest, etc.)
@@ -834,8 +859,8 @@ class YouTubeDataService:
         ----------
         playlist_id:
             ID of the destination playlist.
-        window_days:
-            How far back (in days) to look for new videos.
+        since_dt:
+            How far back to look for new videos.
         max_per_channel:
             Maximum videos to add per channel (default 3).
         already_added_ids:
@@ -858,9 +883,9 @@ class YouTubeDataService:
         processed_videos = set(self._sync_state.get("processed_videos", []))
         combined_ignore_ids = already_added_ids.union(processed_videos)
 
-        window_start = datetime.now(timezone.utc) - timedelta(days=window_days)
+        window_start = since_dt
 
-        print(f"\n  ⭐ Fase 4 — Top canales ({window_days}d): añadiendo hasta {max_per_channel} vídeos/canal...\n")
+        print(f"\n  ⭐ Fase 4 — Top canales (desde {window_start.strftime('%d/%m')}): añadiendo hasta {max_per_channel} vídeos/canal...\n")
 
         total_added = 0
 
@@ -875,7 +900,7 @@ class YouTubeDataService:
             # Gather raw candidates (last window_days)
             raw_videos, _ = self._get_recent_videos(uploads_id, window_start, max_results=50)
             if not raw_videos:
-                print(f"  ─ {ch_title}: sin vídeos nuevos en los últimos {window_days} días.")
+                print(f"  ─ {ch_title}: sin vídeos nuevos desde el {window_start.strftime('%d/%m')}.")
                 continue
 
             # Tag with channelId so the filter can group them
@@ -1217,7 +1242,7 @@ class YouTubeDataService:
         if os.path.exists(Config.YT_TOP_CHANNELS_CACHE_FILE):
             top_added = self.sync_top_channels(
                 playlist_id,
-                window_days=7,
+                since_dt=last_run,
                 max_per_channel=3,
                 already_added_ids=added_video_ids,
             )
