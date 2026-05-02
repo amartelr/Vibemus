@@ -927,48 +927,65 @@ class Manager:
             if artist_songs:
                 # Sort by scrobbles descending and pick the best
                 best_song = sorted(artist_songs, key=lambda x: int(str(x.get('Scrobble') or 0).replace('.', '').replace(',', '') or 0), reverse=True)[0]
-                target_vids.append(best_song.get('Video ID'))
+                vid = best_song.get('Video ID')
+                if vid not in target_vids:
+                    target_vids.append(vid)
 
         # If we have less than 4 artists, fill with other top songs from the same playlist
         if len(target_vids) < 4:
             other_songs = [s for s in pl_songs if s.get('Video ID') and s.get('Video ID') not in target_vids]
             other_songs = sorted(other_songs, key=lambda x: int(str(x.get('Scrobble') or 0).replace('.', '').replace(',', '') or 0), reverse=True)
-            target_vids.extend([s.get('Video ID') for s in other_songs[:4-len(target_vids)]])
+            for s in other_songs:
+                vid = s.get('Video ID')
+                if vid not in target_vids:
+                    target_vids.append(vid)
+                if len(target_vids) >= 4:
+                    break
 
         if not target_vids:
             return
 
-        # 4. Get current playlist tracks to find setVideoIds
+        # 4. Perform moves sequentially
         try:
-            # Fetch more items (up to 200) to find our targets
+            # Initial fetch to check current state
             playlist_data = self.yt.yt.get_playlist(playlist_id, limit=200)
             tracks = playlist_data.get('tracks', [])
             if not tracks: return
-                
-            vid_to_setvid = {t['videoId']: t['setVideoId'] for t in tracks if 'videoId' in t and 'setVideoId' in t}
             
-            # Identify setVideoIds of our target songs
-            target_set_vids = []
-            for vid in target_vids:
-                if vid in vid_to_setvid:
-                    target_set_vids.append(vid_to_setvid[vid])
-            
-            if not target_set_vids:
+            # Check if already optimized
+            current_vids = [t['videoId'] for t in tracks[:len(target_vids)]]
+            if current_vids == target_vids:
+                print(f"    \033[90m(Portada ya optimizada para artistas principales).\033[0m")
                 return
 
-            # 5. Perform moves sequentially to ensure they end up at 0, 1, 2, 3
             moves_made = 0
             # Reverse order so the most "top" artist ends up at position 0
-            for set_vid in reversed(target_set_vids):
-                # Always get fresh top to ensure we move to the absolute beginning
-                current_top = self.yt.yt.get_playlist(playlist_id, limit=1)['tracks']
-                if not current_top: break
+            for target_vid in reversed(target_vids):
+                # Refresh data if we made a move, to ensure we have fresh setVideoIds and order
+                if moves_made > 0:
+                    playlist_data = self.yt.yt.get_playlist(playlist_id, limit=200)
+                    tracks = playlist_data.get('tracks', [])
+                    if not tracks: break
                 
-                top_set_vid = current_top[0]['setVideoId']
+                vid_to_setvid = {t['videoId']: t['setVideoId'] for t in tracks if 'videoId' in t and 'setVideoId' in t}
+                
+                if target_vid not in vid_to_setvid:
+                    continue
+                
+                set_vid = vid_to_setvid[target_vid]
+                top_set_vid = tracks[0]['setVideoId']
                 
                 if set_vid != top_set_vid:
-                    self.yt.edit_playlist(playlist_id, moveItem=(set_vid, top_set_vid))
-                    moves_made += 1
+                    try:
+                        self.yt.edit_playlist(playlist_id, moveItem=(set_vid, top_set_vid))
+                        moves_made += 1
+                        # Small delay to let YouTube process the move
+                        time.sleep(0.5)
+                    except Exception as move_err:
+                        if "409" in str(move_err):
+                            # Skip if there's a conflict, likely means it's already handled or state is weird
+                            continue
+                        raise move_err
             
             if moves_made > 0:
                 artists_desc = ", ".join(top_artist_names[:4])
@@ -978,6 +995,7 @@ class Manager:
                 
         except Exception as e:
             print(f"    \033[91m✗ Error actualizando portada: {e}\033[0m")
+
 
     def sync_playlist(self, playlist_name=None, skip_lastfm=False):
         print("\n\033[96m" + "━"*50 + "\033[0m")
@@ -1544,11 +1562,14 @@ class Manager:
 
         print("✅ Sync complete.")
 
-    def add_artist(self, name, target_playlist=None, api_choice="lastfm", interactive=True):
-        print(f"\n\033[90m🔎 Searching for artist:\033[0m \033[1;93m'{name}'\033[0m...")
+    def add_artist(self, name, target_playlist=None, api_choice="lastfm", interactive=True, status="Pending"):
+        if interactive or status != "Archived":
+            print(f"\n\033[90m🔎 Searching for artist:\033[0m \033[1;93m'{name}'\033[0m...")
+        
         results = self.yt.yt.search(name, filter='artists')
         if not results:
-            print("\033[91m✗ Artist not found on YouTube Music.\033[0m")
+            if interactive or status != "Archived":
+                print("\033[91m✗ Artist not found on YouTube Music.\033[0m")
             return "not_found", {}
         
         candidates = results[:5]
@@ -1606,37 +1627,38 @@ class Manager:
                     self.sheets.save_artists(artists)
                 return "exists", a
         
-        # ── Genre discovery (Last.fm & MusicBrainz) ──
-        print(f"      🔍 Searching for genres...")
-        lfm_genre = ""
-        mb_genre = ""
-        try:
-            lfm_genre = self.lastfm.get_artist_info(artist_name, cache_ttl_days=-1).get('genre', '')
-        except: pass
-        try:
-            mb_genre = self.musicbrainz.get_artist_info(artist_name, cache_ttl_days=-1).get('genre', '')
-        except: pass
+        genre = ""
+        if status != "Archived":
+            # ── Genre discovery (Last.fm & MusicBrainz) ──
+            print(f"      🔍 Searching for genres...")
+            lfm_genre = ""
+            mb_genre = ""
+            try:
+                lfm_genre = self.lastfm.get_artist_info(artist_name, cache_ttl_days=-1).get('genre', '')
+            except: pass
+            try:
+                mb_genre = self.musicbrainz.get_artist_info(artist_name, cache_ttl_days=-1).get('genre', '')
+            except: pass
 
-        if lfm_genre or mb_genre:
-            if lfm_genre: print(f"      📻 Last.fm: \033[95m{lfm_genre}\033[0m")
-            if mb_genre:   print(f"      🧬 MusicBrainz: \033[94m{mb_genre}\033[0m")
-        else:
-            print(f"      ℹ️ No suggested genres found.")
-        print()
-
-        genre = lfm_genre or mb_genre
+            if lfm_genre or mb_genre:
+                if lfm_genre: print(f"      📻 Last.fm: \033[95m{lfm_genre}\033[0m")
+                if mb_genre:   print(f"      🧬 MusicBrainz: \033[94m{mb_genre}\033[0m")
+            else:
+                print(f"      ℹ️ No suggested genres found.")
+            print()
+            genre = lfm_genre or mb_genre
         
         new_row = {
             'Artist Name': artist_name,
             'Artist ID': artist_id,
             'Song Count': 0,
-            'Last Checked': "",
-            'Status': 'Pending',
+            'Last Checked': datetime.now().strftime("%d/%m/%Y") if status == 'Archived' else "",
+            'Status': status,
             'Genre': genre,
             'Playlist': target_playlist or ""
         }
         
-        self.sheets.add_artist(new_row)
+        self.sheets.add_artist(new_row, silent=(status == "Archived"))
         return "added", new_row
 
     def remove_artist(self, name):
@@ -1646,8 +1668,8 @@ class Manager:
         for a in artists:
             if self._normalize(a.get('Artist Name')) == norm:
                 a['Status'] = 'Archived'
-                # Clear tracking data for archived artists
-                a['Last Checked'] = ""
+                # Mark as checked today when archiving
+                a['Last Checked'] = datetime.now().strftime("%d/%m/%Y")
                 a['Playlist'] = ""
                 found = True
                 break
@@ -2960,7 +2982,8 @@ class Manager:
             
         # Get tracked artists + songs to filter out
         all_artists = self.sheets.get_artists()
-        tracked_names = {self._normalize(a.get("Artist Name", "")) for a in all_artists}
+        tracked_names = {self._normalize(a.get("Artist Name", "")) for a in all_artists if a.get("Status") != "Archived"}
+        archived_names = {self._normalize(a.get("Artist Name", "")) for a in all_artists if a.get("Status") == "Archived"}
         all_songs = self.sheets.get_songs_records()
         songs_artist_names = {self._normalize(song.get("Artist", "")) for song in all_songs if song.get("Artist")}
         tracked_names.update(songs_artist_names)
@@ -2997,6 +3020,12 @@ class Manager:
                         continue
                         
                     norm_a = self._normalize(a)
+                    if norm_a in archived_names:
+                        # Archived = user never wants to see it again
+                        self.mark_lastfm_recommendation_seen(a)
+                        seen_artists.add(a)
+                        continue
+
                     if norm_a in tracked_names:
                         # Already tracked, mark as seen so we don't process again
                         self.mark_lastfm_recommendation_seen(a)
@@ -3093,7 +3122,8 @@ class Manager:
 
         # ── Tracked artists + songs ───────────────────────────────────────────
         all_artists = self.sheets.get_artists()
-        tracked_names = {self._normalize(a.get("Artist Name", "")) for a in all_artists}
+        tracked_names = {self._normalize(a.get("Artist Name", "")) for a in all_artists if a.get("Status") != "Archived"}
+        archived_names = {self._normalize(a.get("Artist Name", "")) for a in all_artists if a.get("Status") == "Archived"}
         all_songs = self.sheets.get_songs_records()
         songs_artist_names = {
             self._normalize(s.get("Artist", ""))
@@ -3175,7 +3205,14 @@ class Manager:
                         continue
 
                     seen_keys.add(cache_key)
-                    is_tracked = self._normalize(artist) in tracked_names
+                    norm_art = self._normalize(artist)
+                    
+                    if norm_art in archived_names:
+                        # Archived = user never wants to see it again
+                        self.mark_lastfm_new_release_seen(artist, release)
+                        continue
+
+                    is_tracked = norm_art in tracked_names
 
                     results.append({
                         'artist': artist,
@@ -3222,6 +3259,189 @@ class Manager:
             with open(cache_file, 'w') as f:
                 json.dump(list(seen_keys), f, ensure_ascii=False, indent=2)
 
+
+    # ── Last.fm Following – top artists from followed profiles ───────────────
+
+    def get_lastfm_following_artists(self):
+        """Fetches top artists (last 7 days, page 1) from every profile the user follows.
+
+        Workflow:
+        1. Scrape https://www.last.fm/es/user/<username>/following to get followed usernames.
+        2. For each followed user scrape
+           https://www.last.fm/es/user/<username>/library/artists?date_preset=LAST_7_DAYS&page=1
+           and collect the artist names listed there.
+        3. Filter out already-tracked, archived, and previously-seen artists.
+        4. Return a deduplicated list of new artist names together with the source profile.
+
+        Returns a list of dicts:
+            {
+                'artist':  str,   # Artist name
+                'profile': str,   # Last.fm username where this artist was found
+            }
+        """
+        import browser_cookie3
+        import requests
+        import re
+        import os
+        import json
+        from src.config import Config
+
+        print("   Cargando cookies de Chrome...")
+        try:
+            cj = browser_cookie3.chrome()
+        except Exception as e:
+            raise Exception(f"Error leyendo las cookies de Chrome: {e}")
+
+        headers = {
+            'User-Agent': (
+                'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) '
+                'AppleWebKit/537.36 (KHTML, like Gecko) '
+                'Chrome/124.0.0.0 Safari/537.36'
+            )
+        }
+
+        # ── Seen-cache ────────────────────────────────────────────────────────
+        cache_file = os.path.join(Config.DATA_DIR, 'lastfm_following_cache.json')
+        seen_artists: set = set()
+        if os.path.exists(cache_file):
+            try:
+                with open(cache_file, 'r') as f:
+                    seen_artists = set(json.load(f))
+            except Exception:
+                pass
+
+        # ── Tracked / archived artists ────────────────────────────────────────
+        all_artists = self.sheets.get_artists()
+        tracked_names = {self._normalize(a.get("Artist Name", "")) for a in all_artists if a.get("Status") != "Archived"}
+        archived_names = {self._normalize(a.get("Artist Name", "")) for a in all_artists if a.get("Status") == "Archived"}
+        all_songs = self.sheets.get_songs_records()
+        songs_artist_names = {
+            self._normalize(s.get("Artist", ""))
+            for s in all_songs if s.get("Artist")
+        }
+        tracked_names.update(songs_artist_names)
+
+        # ── Step 1: Get the list of followed profiles ─────────────────────────
+        following_url = f"https://www.last.fm/es/user/{Config.LASTFM_USERNAME}/following"
+        print(f"   Obteniendo lista de following de {Config.LASTFM_USERNAME}...")
+        followed_users = []
+        try:
+            r = requests.get(following_url, cookies=cj, headers=headers, timeout=20)
+            if "Entrar" in r.text or "Log in" in r.text:
+                raise Exception(
+                    "No has iniciado sesión en Last.fm en Chrome. "
+                    "Por favor inicia sesión primero."
+                )
+            # Match profile links: /user/USERNAME (avoid duplicates and own profile)
+            user_matches = re.findall(
+                r'href="/(?:es/)?user/([^/"]+)"[^>]*class="[^"]*link-block-target[^"]*"',
+                r.text
+            )
+            if not user_matches:
+                # Fallback: broader match for any user link in the following list
+                user_matches = re.findall(
+                    r'<a[^>]+href="/(?:es/)?user/([A-Za-z0-9_-]+)"[^>]*>',
+                    r.text
+                )
+            seen_profiles: set = set()
+            for u in user_matches:
+                u = u.strip()
+                if u and u.lower() != Config.LASTFM_USERNAME.lower() and u not in seen_profiles:
+                    seen_profiles.add(u)
+                    followed_users.append(u)
+        except Exception as e:
+            raise Exception(f"Error obteniendo lista de following: {e}")
+
+        if not followed_users:
+            print("   ⚠ No se encontraron perfiles seguidos (o la lista está vacía).")
+            return []
+
+        print(f"   ✓ {len(followed_users)} perfiles seguidos encontrados.")
+
+        # ── Step 2: Scrape top artists for each followed user ─────────────────
+        results: list = []
+        seen_artist_names: set = set()  # deduplicate across profiles
+
+        for username in followed_users:
+            url = (
+                f"https://www.last.fm/es/user/{username}/library/artists"
+                f"?date_preset=LAST_7_DAYS&page=1"
+            )
+            print(f"   Escaneando artistas de @{username}...")
+            try:
+                r = requests.get(url, cookies=cj, headers=headers, timeout=20)
+
+                if "Entrar" in r.text or "Log in" in r.text:
+                    print(f"   ⚠ No se pudo acceder al perfil de @{username} (requiere sesión).")
+                    continue
+
+                # Extract artist names from the library list
+                # Each artist appears as a link-block-target inside the artist row
+                artist_matches = re.findall(
+                    r'<a[^>]+class="[^"]*link-block-target[^"]*"[^>]*>([^<]+)</a>',
+                    r.text
+                )
+
+                for art_name in artist_matches:
+                    art_name = art_name.strip()
+                    if not art_name or art_name.lower() in ("más información", "more info", "ver más", "see more"):
+                        continue
+
+                    # Skip already collected (across all profiles)
+                    if art_name in seen_artist_names:
+                        continue
+                    seen_artist_names.add(art_name)
+
+                    # Skip if already seen in our cache
+                    if art_name in seen_artists:
+                        continue
+
+                    norm = self._normalize(art_name)
+
+                    # Skip archived artists silently
+                    if norm in archived_names:
+                        self.mark_lastfm_following_seen(art_name)
+                        seen_artists.add(art_name)
+                        continue
+
+                    # Skip already tracked
+                    if norm in tracked_names:
+                        self.mark_lastfm_following_seen(art_name)
+                        seen_artists.add(art_name)
+                        continue
+
+                    results.append({
+                        'artist': art_name,
+                        'profile': username,
+                    })
+                    seen_artists.add(art_name)
+
+            except Exception as e:
+                print(f"   ✗ Error al obtener artistas de @{username}: {e}")
+                continue
+
+        return results
+
+    def mark_lastfm_following_seen(self, art_name: str) -> None:
+        """Persists an artist name to the following seen-cache."""
+        import os
+        import json
+        from src.config import Config
+
+        cache_file = os.path.join(Config.DATA_DIR, 'lastfm_following_cache.json')
+        seen_artists: set = set()
+        if os.path.exists(cache_file):
+            try:
+                with open(cache_file, 'r') as f:
+                    seen_artists = set(json.load(f))
+            except Exception:
+                pass
+
+        if art_name not in seen_artists:
+            seen_artists.add(art_name)
+            os.makedirs(os.path.dirname(cache_file), exist_ok=True)
+            with open(cache_file, 'w') as f:
+                json.dump(list(seen_artists), f, ensure_ascii=False, indent=2)
 
     def split_playlist_by_year(self, playlist_name, start_year, end_year):
         """Splits a playlist into a new year-based archive interval.

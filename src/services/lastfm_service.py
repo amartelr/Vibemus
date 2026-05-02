@@ -183,6 +183,7 @@ class LastFMService:
         result = {
             "genre": "",
             "listeners": 0,
+            "user_scrobbles": 0,
             "_ts": datetime.now(timezone.utc).isoformat(),
         }
 
@@ -197,9 +198,14 @@ class LastFMService:
                 if tag_names:
                     result["genre"] = ", ".join(tag_names[:3])
             
-            # Fetch listeners
+            # Fetch listeners and user scrobbles
             try:
                 result["listeners"] = int(artist_obj.get_listener_count() or 0)
+            except:
+                pass
+
+            try:
+                result["user_scrobbles"] = int(artist_obj.get_userplaycount() or 0)
             except:
                 pass
         except Exception as e:

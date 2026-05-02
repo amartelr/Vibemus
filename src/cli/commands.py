@@ -7,6 +7,7 @@ and returns an integer exit code (0 = success).
 
 import subprocess
 import sys
+import webbrowser
 from datetime import datetime
 
 from ..config import Config
@@ -42,6 +43,7 @@ _ACTION_MAP = {
     "au": "auth",
     # Recom
     "ny": "new-releases",
+    "fw": "following",
 }
 
 
@@ -273,10 +275,12 @@ def _sync_new_releases(args, manager) -> int:
         lfm_g = ""
         mb_g = ""
         lfm_listeners = 0
+        user_scrobbles = 0
         try:
             info = manager.lastfm.get_artist_info(art_name, cache_ttl_days=-1)
             lfm_g = info.get('genre', '')
             lfm_listeners = info.get('listeners', 0)
+            user_scrobbles = info.get('user_scrobbles', 0)
         except: pass
         try:
             mb_g = manager.musicbrainz.get_artist_info(art_name, cache_ttl_days=-1).get('genre', '')
@@ -284,14 +288,14 @@ def _sync_new_releases(args, manager) -> int:
 
         if lfm_listeners:
             print(f"      📊 Listeners: \033[92m{lfm_listeners:,}\033[0m (Last.fm)".replace(",", "."))
+        if user_scrobbles:
+            print(f"      👤 My Scrobbles: \033[92m{user_scrobbles:,}\033[0m (Last.fm)".replace(",", "."))
 
         if lfm_g or mb_g:
             if lfm_g: print(f"      📻 Last.fm: \033[95m{lfm_g}\033[0m")
             if mb_g:  print(f"      🧬 MusicBrainz: \033[94m{mb_g}\033[0m")
         
         is_auto = getattr(args, "auto", False)
-        ans = None
-
         if is_auto:
             print(f"   🤖 Auto: Adding '{art_name}' directly...")
             ans = 'a'
@@ -299,17 +303,29 @@ def _sync_new_releases(args, manager) -> int:
             while True:
                 ans = input(
                     f"\n  \033[1;93m¿Qué quieres hacer con '{art_name}'?\033[0m"
-                    f" (\033[92m[A]ñadir a tracking\033[0m | [p]asar | [q]uit): "
+                    f" (\033[92m[A]ñadir a tracking\033[0m | \033[94m[o]ír\033[0m | [p]asar | [q]uit): "
                 ).strip().lower()
-                if not ans: ans = 'p'
-                if ans in ['a', 'p', 'q']: break
-                print("  Por favor responde con a/p/q.")
+                if not ans: 
+                    ans = 'p'
+                
+                if ans == 'o':
+                    import urllib.parse
+                    query = urllib.parse.quote(art_name)
+                    url = f"https://music.youtube.com/search?q={query}"
+                    print(f"  🌐 Abriendo YouTube Music para '{art_name}'...")
+                    webbrowser.open(url)
+                    continue
+                
+                if ans in ['a', 'p', 'q']: 
+                    break
+                print("  Por favor responde con a/p/o/q.")
             
         if ans == 'q':
             print("\n🛑 Sincronización cancelada por el usuario.")
             break
         elif ans == 'p':
-            print(f"  ⏭ Saltando '{art_name}'.")
+            print(f"  ⏭ Saltando y archivando '{art_name}'...")
+            manager.add_artist(art_name, status="Archived", interactive=False)
             manager.mark_lastfm_recommendation_seen(art_name)
             continue
         elif ans == 'a':
@@ -886,8 +902,10 @@ def handle_recom(args, manager) -> int:
         return _sync_new_releases(args, manager)
     elif action == "new-releases":
         return _sync_new_releases_now(args, manager)
+    elif action == "following":
+        return _sync_following_artists(args, manager)
     else:
-        print("Usage: vibemus recom <sync|new-releases>")
+        print("Usage: vibemus recom <sync|new-releases|following>")
         print("Run 'vibemus recom --help' for details.")
         return 1
 
@@ -949,16 +967,20 @@ def _sync_new_releases_now(args, manager) -> int:
 
             # Fetch quick Last.fm metadata
             lfm_listeners = 0
+            user_scrobbles = 0
             lfm_genre = ""
             try:
                 info = manager.lastfm.get_artist_info(art_name, cache_ttl_days=-1)
                 lfm_listeners = info.get('listeners', 0)
+                user_scrobbles = info.get('user_scrobbles', 0)
                 lfm_genre = info.get('genre', '')
             except Exception:
                 pass
 
             if lfm_listeners:
                 print(f"      📊 Oyentes: \033[92m{lfm_listeners:,}\033[0m".replace(",", "."))
+            if user_scrobbles:
+                print(f"      👤 Mis Scrobbles: \033[92m{user_scrobbles:,}\033[0m".replace(",", "."))
             if lfm_genre:
                 print(f"      📻 Género: \033[95m{lfm_genre}\033[0m")
 
@@ -969,13 +991,23 @@ def _sync_new_releases_now(args, manager) -> int:
                 while True:
                     ans = input(
                         f"\n  \033[1;93m¿Qué quieres hacer con '{art_name}'?\033[0m"
-                        f" (\033[92m[A]ñadir a tracking\033[0m | [p]asar | [q]uit): "
+                        f" (\033[92m[A]ñadir a tracking\033[0m | \033[94m[o]ír\033[0m | [p]asar | [q]uit): "
                     ).strip().lower()
                     if not ans:
                         ans = 'p'
+                    
+                    if ans == 'o':
+                        import urllib.parse
+                        # Para lanzamientos, buscamos "Artista - Lanzamiento"
+                        query = urllib.parse.quote(f"{art_name} {release_name}")
+                        url = f"https://music.youtube.com/search?q={query}"
+                        print(f"  🌐 Abriendo YouTube Music para '{art_name} - {release_name}'...")
+                        webbrowser.open(url)
+                        continue
+
                     if ans in ['a', 'p', 'q']:
                         break
-                    print("  Por favor responde con a/p/q.")
+                    print("  Por favor responde con a/p/o/q.")
 
             if ans == 'q':
                 print("\n🛑 Revisión cancelada por el usuario.")
@@ -983,7 +1015,8 @@ def _sync_new_releases_now(args, manager) -> int:
                 manager.mark_lastfm_new_release_seen(art_name, release_name)
                 break
             elif ans == 'p':
-                print(f"  ⏭ Saltando '{art_name} - {release_name}'.")
+                print(f"  ⏭ Saltando y archivando '{art_name}'...")
+                manager.add_artist(art_name, status="Archived", interactive=False)
                 manager.mark_lastfm_new_release_seen(art_name, release_name)
                 continue
             elif ans == 'a':
@@ -999,6 +1032,104 @@ def _sync_new_releases_now(args, manager) -> int:
         print(f"\n   ℹ️  {len(unknown_rels)} artistas desconocidos omitidos (usa sin --tracked-only para verlos).")
 
     print("\n✅ Revisión de novedades completada.")
+    return 0
+
+
+def _sync_following_artists(args, manager) -> int:
+    """Fetch top artists from followed Last.fm profiles and prompt to add them."""
+    print("\n" + "=" * 58)
+    print("👥 ARTISTAS DESTACADOS DE TUS PERFILES SEGUIDOS (LAST.FM)")
+    print("=" * 58)
+
+    try:
+        artists = manager.get_lastfm_following_artists()
+    except Exception as e:
+        print(f"  ✗ Error obteniendo artistas: {e}")
+        return 1
+
+    if not artists:
+        print("   ✨ No hay artistas nuevos que descubrir de tus followings.")
+        return 0
+
+    print(f"\n   \033[1;92m🎯 {len(artists)} artistas nuevos encontrados!\033[0m")
+
+    is_auto = getattr(args, "auto", False)
+
+    for rec in artists:
+        art_name = rec['artist']
+        profile = rec['profile']
+
+        print(f"\n   💿 Artista: \033[1;96m{art_name}\033[0m  "
+              f"\033[90m(vía @{profile})\033[0m")
+
+        # Fetch Last.fm metadata
+        lfm_listeners = 0
+        user_scrobbles = 0
+        lfm_genre = ""
+        mb_genre = ""
+        try:
+            info = manager.lastfm.get_artist_info(art_name, cache_ttl_days=-1)
+            lfm_listeners = info.get('listeners', 0)
+            user_scrobbles = info.get('user_scrobbles', 0)
+            lfm_genre = info.get('genre', '')
+        except Exception:
+            pass
+        try:
+            mb_genre = manager.musicbrainz.get_artist_info(art_name, cache_ttl_days=-1).get('genre', '')
+        except Exception:
+            pass
+
+        if lfm_listeners:
+            print(f"      📊 Oyentes: \033[92m{lfm_listeners:,}\033[0m (Last.fm)".replace(",", "."))
+        if user_scrobbles:
+            print(f"      👤 Mis Scrobbles: \033[92m{user_scrobbles:,}\033[0m (Last.fm)".replace(",", "."))
+        if lfm_genre:
+            print(f"      📻 Last.fm: \033[95m{lfm_genre}\033[0m")
+        if mb_genre:
+            print(f"      🧬 MusicBrainz: \033[94m{mb_genre}\033[0m")
+
+        if is_auto:
+            print(f"   🤖 Auto: Añadiendo '{art_name}'...")
+            ans = 'a'
+        else:
+            while True:
+                ans = input(
+                    f"\n  \033[1;93m¿Qué quieres hacer con '{art_name}'?\033[0m"
+                    f" (\033[92m[A]ñadir a tracking\033[0m | \033[94m[o]ír\033[0m | [p]asar | [q]uit): "
+                ).strip().lower()
+                if not ans:
+                    ans = 'p'
+
+                if ans == 'o':
+                    import urllib.parse
+                    query = urllib.parse.quote(art_name)
+                    url = f"https://music.youtube.com/search?q={query}"
+                    print(f"  🌐 Abriendo YouTube Music para '{art_name}'...")
+                    webbrowser.open(url)
+                    continue
+
+                if ans in ['a', 'p', 'q']:
+                    break
+                print("  Por favor responde con a/p/o/q.")
+
+        if ans == 'q':
+            print("\n🛑 Revisión cancelada por el usuario.")
+            break
+        elif ans == 'p':
+            print(f"  ⏭ Saltando y archivando '{art_name}'...")
+            manager.add_artist(art_name, status="Archived", interactive=False)
+            manager.mark_lastfm_following_seen(art_name)
+            continue
+        elif ans == 'a':
+            class FakeArgs:
+                name = art_name
+                playlist = None
+                api = "lastfm"
+                auto = is_auto
+            _artist_add(FakeArgs(), manager)
+            manager.mark_lastfm_following_seen(art_name)
+
+    print("\n✅ Revisión de followings completada.")
     return 0
 
 

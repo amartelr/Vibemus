@@ -222,7 +222,7 @@ class SheetsService:
         self._execute_with_retry(ws.update, range_name='A1', values=rows)
         self._artists_cache = artists_data
 
-    def add_artist(self, artist_row):
+    def add_artist(self, artist_row, silent=False):
         """Appends a single artist row to the Artists sheet if not already present."""
         artists = self.get_artists()
         
@@ -245,7 +245,8 @@ class SheetsService:
         if not exists:
             artists.append(artist_row)
             self.save_artists(artists)
-            print(f"      🆕 Artist '{name}' added to tracking list.")
+            if not silent:
+                print(f"      🆕 Artist '{name}' added to tracking list.")
         else:
             # If it already exists, just save artists to ensure sheet is in sync with memory
             # (In case memory had the duplicate but sheet didn't, or vice-versa)
@@ -277,7 +278,7 @@ class SheetsService:
         if updated:
             self.save_artists(artists)
 
-    def update_artist_playlist(self, artist_name, playlist_name, artist_id=None, genre=None, song_count=0):
+    def update_artist_playlist(self, artist_name, playlist_name, artist_id=None, genre=None, song_count=0, silent=False):
         """Updates the target playlist of a specific artist. Adds it if missing."""
         artists = self.get_artists()
         updated = False
@@ -299,18 +300,18 @@ class SheetsService:
             self.save_artists(artists)
         else:
             # Case B: Artist is totally new, add a new row
+            status = "Pending"
             new_artist = {
                 "Artist Name": artist_name,
                 "Artist ID": artist_id or "",
                 "Playlist": playlist_name,
-                "Status": "Pending", # Status for artists awaiting their first scan
+                "Status": status, # Status for artists awaiting their first scan
                 "Song Count": song_count or 0,
                 "Last Checked": datetime.now().strftime("%d/%m/%Y") if not artist_id else "", # empty to trigger sync if not yet performed
                 "Genre": genre or ""
             }
 
-            self.add_artist(new_artist)
-            print(f"      🆕 Artist '{artist_name}' added to sheet.")
+            self.add_artist(new_artist, silent=silent or (status == "Archived"))
 
 
 

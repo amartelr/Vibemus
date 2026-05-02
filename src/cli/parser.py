@@ -319,8 +319,8 @@ def _register_library(subparsers: argparse._SubParsersAction) -> None:
 
 def _register_recom(subparsers: argparse._SubParsersAction) -> None:
     nr_parser = subparsers.add_parser(
-        "recom",
-        aliases=["rec"],
+        "rec",
+        aliases=["recom"],
         help="Personalized artist recommendations from Last.fm",
         description="Fetch and track recommended artists based on your listening history.",
     )
@@ -350,6 +350,17 @@ def _register_recom(subparsers: argparse._SubParsersAction) -> None:
     nr_p.add_argument(
         "--tracked-only", action="store_true",
         help="Only show releases from artists already in your catalog (skip unknown)",
+    )
+
+    # recom following
+    fw_p = nr_sub.add_parser(
+        "following",
+        aliases=["fw"],
+        help="Show top artists (last 365 days) from Last.fm profiles you follow",
+    )
+    fw_p.add_argument(
+        "--auto", action="store_true",
+        help="Auto-add all discovered artists without interactive prompts",
     )
 
 
@@ -510,7 +521,7 @@ def rewrite_legacy_args(argv: list[str]) -> list[str]:
         return argv
 
     # If the first arg already looks like a subcommand, skip
-    if argv[0] in ("artist", "releases", "playlist", "library", "system", "recom", "genre"):
+    if argv[0] in ("artist", "releases", "playlist", "library", "system", "recom", "rec", "genre"):
         return argv
 
     new_argv: list[str] = []
