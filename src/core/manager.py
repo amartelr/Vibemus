@@ -77,6 +77,25 @@ class Manager:
             if start_y <= year <= end_y:
                 return f"{base_playlist} ({start_y}-{end_y})"
                 
+        # If year is strictly smaller than the earliest interval's start year
+        # we expand the earliest interval to start from 0
+        intervals.sort(key=lambda x: x[0])
+        if intervals and year < intervals[0][0]:
+            old_start, old_end = intervals[0]
+            old_name = f"{base_playlist} ({old_start}-{old_end})"
+            new_name = f"{base_playlist} (0-{old_end})"
+            
+            pid = self._resolve_playlist_id(old_name)
+            if pid:
+                print(f"    \033[93m🛠 Expandiendo histórico: Renombrando '{old_name}' a '{new_name}'\033[0m")
+                try:
+                    self.yt.edit_playlist(pid, title=new_name)
+                    intervals[0] = [0, old_end]
+                    self._save_archiving_config()
+                    return new_name
+                except Exception as e:
+                    print(f"      \033[91m✗ Error renombrando la playlist:\033[0m {e}")
+                    
         return base_playlist
 
     def _resolve_playlist_id(self, pl_name):
