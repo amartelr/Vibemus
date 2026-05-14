@@ -35,7 +35,7 @@ Para ahorrar escritura, puedes usar los siguientes alias para grupos de comandos
 | **Releases** | `rel` | `sy` (sync) |
 | **Playlist** | `pl` | `ls` (list), `sy` (sync), `ci` (cleanup-inbox), `cl` (clean), `ex` (export), `cul` (cleanup-likes), `am` (apply-moves), `sp` (split), `rp` (review-pending) |
 | **Library** | `lib` | `sy` (sync) |
-| **Recom** | `rec` | `sy` (sync), `ny` (new-releases) |
+| **Recom** | `rec` | `sy` (sync), `ny` (new-releases), `fw` (following) |
 | **Genre** | `gen` | `sy` (sync) |
 | **YouTube** | `yt` | `ss` (sync-subs), `cs` (cleanup-shorts), `cw` (cleanup-watched), `utc` (update-top-channels) |
 | **System** | `sys` | `rc` (refresh-cache), `au` (auth) |
@@ -60,6 +60,7 @@ vibemus pl sy --name "#"
 | **Descubrimiento** | `rel sy` | Escanea el perfil de cada artista seguido (Monitorización completa). |
 | | `rec ny` | Escanea nuevos lanzamientos recomendados de Last.fm (Out Now). |
 | | `rec sy` | Descubre nuevos artistas basados en tus recomendaciones de Last.fm. |
+| | `rec fw` | Descubre artistas de moda entre los perfiles que sigues en Last.fm. |
 | **Artista** | `art ad "Nombre"` | Empieza a seguir a un artista y sincroniza su discografía. |
 | | `art sy` | Añade artistas que faltan en tu biblioteca a la lista de seguimiento. |
 | | `art ls` | Muestra todos los artistas seguidos actualmente y su estado. |
@@ -432,6 +433,25 @@ Escanea la sección de **Nuevos Lanzamientos Recomendados** (Out Now) de Last.fm
 ```bash
 vibemus rec ny
 vibemus rec ny --tracked-only
+```
+
+---
+
+#### `vibemus recom following [--auto] [--min-listeners N] [--min-plays N] [--period PERIOD]`
+**Alias:** `vibemus rec fw ...`
+Escanea artistas populares de los perfiles de Last.fm que sigues.
+
+- **Filtrado Social**: Visita el perfil de cada usuario que sigues en Last.fm y extrae sus artistas más escuchados.
+- **Periodo de tiempo**: `--period` (default: `LAST_7_DAYS`). Opciones: `LAST_7_DAYS`, `LAST_30_DAYS`, `LAST_365_DAYS`, `ALL`.
+- **Doble Filtro**: 
+    - **Popularidad Global**: `--min-listeners` (default: 50.000) para filtrar por oyentes globales totales en Last.fm.
+    - **Popularidad Local**: `--min-plays` (default: 10) para asegurar que solo se muestren artistas que el usuario seguido ha escuchado significativamente en el periodo seleccionado.
+- `--auto`: Añade automáticamente todos los artistas encontrados al seguimiento.
+
+**Ejemplos:**
+```bash
+vibemus recom following --period LAST_30_DAYS
+vibemus rec fw --period ALL --min-plays 100
 ```
 
 ---

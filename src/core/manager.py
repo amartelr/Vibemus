@@ -903,98 +903,6 @@ class Manager:
 
         print("\n✅ ASISTENTE COMPLETADO\n" if not errors else f"\n⚠ COMPLETADO CON {errors} ERRORES\n")
 
-    def _reorder_playlist_for_top_artists_cover(self, playlist_name, playlist_id, all_songs):
-        """Moves representative songs of the top 4 most frequent artists to the top.
-        This triggers YouTube Music to update the playlist collage cover with its most iconic artists.
-        """
-        if not playlist_id: return
-        print(f"  \033[95m🖼 Optimizando portada (Top Artistas) para '{playlist_name}'...\033[0m")
-        
-        # 1. Filter songs for this playlist
-        pl_songs = [s for s in all_songs if s.get('Playlist', '').lower() == playlist_name.lower()]
-        if len(pl_songs) < 4:
-            return
-
-        # 2. Identify top 4 artists by song count
-        from collections import Counter
-        artist_counts = Counter([s.get('Artist') for s in pl_songs if s.get('Artist')])
-        top_artist_names = [name for name, count in artist_counts.most_common(4)]
-
-        # 3. Pick one representative song per artist (the one with most scrobbles)
-        target_vids = []
-        for artist in top_artist_names:
-            artist_songs = [s for s in pl_songs if s.get('Artist') == artist and s.get('Video ID')]
-            if artist_songs:
-                # Sort by scrobbles descending and pick the best
-                best_song = sorted(artist_songs, key=lambda x: int(str(x.get('Scrobble') or 0).replace('.', '').replace(',', '') or 0), reverse=True)[0]
-                vid = best_song.get('Video ID')
-                if vid not in target_vids:
-                    target_vids.append(vid)
-
-        # If we have less than 4 artists, fill with other top songs from the same playlist
-        if len(target_vids) < 4:
-            other_songs = [s for s in pl_songs if s.get('Video ID') and s.get('Video ID') not in target_vids]
-            other_songs = sorted(other_songs, key=lambda x: int(str(x.get('Scrobble') or 0).replace('.', '').replace(',', '') or 0), reverse=True)
-            for s in other_songs:
-                vid = s.get('Video ID')
-                if vid not in target_vids:
-                    target_vids.append(vid)
-                if len(target_vids) >= 4:
-                    break
-
-        if not target_vids:
-            return
-
-        # 4. Perform moves sequentially
-        try:
-            # Initial fetch to check current state
-            playlist_data = self.yt.yt.get_playlist(playlist_id, limit=200)
-            tracks = playlist_data.get('tracks', [])
-            if not tracks: return
-            
-            # Check if already optimized
-            current_vids = [t['videoId'] for t in tracks[:len(target_vids)]]
-            if current_vids == target_vids:
-                print(f"    \033[90m(Portada ya optimizada para artistas principales).\033[0m")
-                return
-
-            moves_made = 0
-            # Reverse order so the most "top" artist ends up at position 0
-            for target_vid in reversed(target_vids):
-                # Refresh data if we made a move, to ensure we have fresh setVideoIds and order
-                if moves_made > 0:
-                    playlist_data = self.yt.yt.get_playlist(playlist_id, limit=200)
-                    tracks = playlist_data.get('tracks', [])
-                    if not tracks: break
-                
-                vid_to_setvid = {t['videoId']: t['setVideoId'] for t in tracks if 'videoId' in t and 'setVideoId' in t}
-                
-                if target_vid not in vid_to_setvid:
-                    continue
-                
-                set_vid = vid_to_setvid[target_vid]
-                top_set_vid = tracks[0]['setVideoId']
-                
-                if set_vid != top_set_vid:
-                    try:
-                        self.yt.edit_playlist(playlist_id, moveItem=(set_vid, top_set_vid))
-                        moves_made += 1
-                        # Small delay to let YouTube process the move
-                        time.sleep(0.5)
-                    except Exception as move_err:
-                        if "409" in str(move_err):
-                            # Skip if there's a conflict, likely means it's already handled or state is weird
-                            continue
-                        raise move_err
-            
-            if moves_made > 0:
-                artists_desc = ", ".join(top_artist_names[:4])
-                print(f"    \033[92m✓ Portada actualizada (Artistas principales: {artists_desc}).\033[0m")
-            else:
-                print(f"    \033[90m(Portada ya optimizada para artistas principales).\033[0m")
-                
-        except Exception as e:
-            print(f"    \033[91m✗ Error actualizando portada: {e}\033[0m")
 
 
     def sync_playlist(self, playlist_name=None, skip_lastfm=False):
@@ -1552,9 +1460,6 @@ class Manager:
             print(f"  {status_char} Playlist '{pl_name}' synced. [YT: {yt_final_count} | Sheet: {sheet_final_count}]{dup_msg}")
             print(f"    (Kept: {len(kept_songs)}, Added: {len(new_songs)}, Archived: {len(disliked_for_archive) + len(archived_songs)})")
 
-            # ── 8. Dynamic Cover Update ──
-            # Reorder top artists' tracks to update the playlist collage cover
-            self._reorder_playlist_for_top_artists_cover(pl_name, pid, all_songs)
 
         # ── 7. Write back entire Songs sheet ──
         print("\nSaving Songs sheet...")
@@ -2506,11 +2411,19 @@ class Manager:
             for item in current_items:
                 vid = item.get('videoId')
                 if not vid: continue
+
+                # Fetch sheet status if available (try both 'status' and 'Status')
+                sheet_matches = [s for s in all_songs if s.get('Video ID') == vid]
+                sheet_rec = sheet_matches[0] if sheet_matches else {}
+                s_status = (sheet_rec.get('status') or sheet_rec.get('Status') or '').strip().capitalize()
                 
-                if item.get('likeStatus') == 'DISLIKE':
+                yt_status = item.get('likeStatus', 'INDIFFERENT')
+                
+                if yt_status == 'DISLIKE' or s_status == 'Dislike':
                     title = item.get('title', 'Unknown')
                     artist = ", ".join([a.get('name', '') for a in item.get('artists', [])])
-                    print(f"    \033[91m✗ Dislike detectado:\033[0m \033[92m{artist} - {title}\033[0m")
+                    reason = "Dislike detectado en YT" if yt_status == 'DISLIKE' else "Dislike detectado en Sheet"
+                    print(f"    \033[91m✗ {reason}:\033[0m \033[92m{artist} - {title}\033[0m")
                     try:
                         self.yt.remove_playlist_items(target_pid, [item])
                         self.yt.rate_song(vid, 'INDIFFERENT')
@@ -2569,7 +2482,7 @@ class Manager:
                     if vid in current_vids:
                         del current_vids[vid]
                         
-                elif item.get('likeStatus') == 'LIKE' or vid in liked_vids:
+                elif yt_status == 'LIKE' or vid in liked_vids or s_status == 'Like':
                     title = item.get('title', 'Unknown')
                     artist = ", ".join([a.get('name', '') for a in item.get('artists', [])])
                     print(f"    \033[94m♥ Like detectado:\033[0m \033[92m{artist} - {title}\033[0m")
@@ -2641,6 +2554,11 @@ class Manager:
                 vid = s.get('Video ID')
                 if not vid: continue
                 
+                # Excluir si ya tiene un estado asignado en el Sheet (Like/Dislike)
+                s_status = (s.get('status') or s.get('Status') or '').strip().capitalize()
+                if s_status in ['Like', 'Dislike']:
+                    continue
+                    
                 scrobbles_raw = str(s.get('Scrobble', '0')).replace('.', '').replace(',', '').strip()
                 scrobbles = 0
                 if scrobbles_raw.isdigit():
@@ -3262,7 +3180,7 @@ class Manager:
 
     # ── Last.fm Following – top artists from followed profiles ───────────────
 
-    def get_lastfm_following_artists(self):
+    def get_lastfm_following_artists(self, min_listeners=50000, min_plays=10, period="LAST_7_DAYS"):
         """Fetches top artists (last 7 days, page 1) from every profile the user follows.
 
         Workflow:
@@ -3271,7 +3189,8 @@ class Manager:
            https://www.last.fm/es/user/<username>/library/artists?date_preset=LAST_7_DAYS&page=1
            and collect the artist names listed there.
         3. Filter out already-tracked, archived, and previously-seen artists.
-        4. Return a deduplicated list of new artist names together with the source profile.
+        4. Filter by popularity (min_listeners).
+        5. Return a randomized list of new artist names together with the source profile.
 
         Returns a list of dicts:
             {
@@ -3356,6 +3275,10 @@ class Manager:
             print("   ⚠ No se encontraron perfiles seguidos (o la lista está vacía).")
             return []
 
+        # Variety: Shuffle profiles so we don't always start with the same one
+        import random
+        random.shuffle(followed_users)
+
         print(f"   ✓ {len(followed_users)} perfiles seguidos encontrados.")
 
         # ── Step 2: Scrape top artists for each followed user ─────────────────
@@ -3365,7 +3288,7 @@ class Manager:
         for username in followed_users:
             url = (
                 f"https://www.last.fm/es/user/{username}/library/artists"
-                f"?date_preset=LAST_7_DAYS&page=1"
+                f"?date_preset={period}&page=1"
             )
             print(f"   Escaneando artistas de @{username}...")
             try:
@@ -3375,15 +3298,46 @@ class Manager:
                     print(f"   ⚠ No se pudo acceder al perfil de @{username} (requiere sesión).")
                     continue
 
-                # Extract artist names from the library list
-                # Each artist appears as a link-block-target inside the artist row
-                artist_matches = re.findall(
-                    r'<a[^>]+class="[^"]*link-block-target[^"]*"[^>]*>([^<]+)</a>',
-                    r.text
-                )
+                # Extract artist data from the og:description meta tag
+                # Last.fm provides a summary like: "Artist (123), Another Artist (45), ..."
+                meta_matches = re.findall(r'<meta [^>]*property="og:description"[^>]*content="([^"]+)"', r.text)
+                
+                extracted_artists = []
+                for content in meta_matches:
+                    if '(' in content and ')' in content:
+                        # Extract "Artist Name (Plays)" pairs
+                        # The pattern matches the artist name until the opening parenthesis
+                        pairs = re.findall(r'([^,]+)\s\((\d+)\)', content)
+                        for art_name, plays_str in pairs:
+                            try:
+                                plays = int(plays_str.replace('.', '').replace(',', ''))
+                            except ValueError:
+                                plays = 0
+                            extracted_artists.append((art_name.strip(), plays))
+                        if extracted_artists:
+                            break
 
-                for art_name in artist_matches:
-                    art_name = art_name.strip()
+                # Fallback: if meta tag extraction failed, try traditional row scraping
+                if not extracted_artists:
+                    rows = re.findall(r'<tr class="chartlist-row[^>]*>(.*?)</tr>', r.text, re.DOTALL)
+                    for row_html in rows:
+                        name_match = re.search(r'<a[^>]+class="[^"]*link-block-target[^"]*"[^>]*>([^<]+)</a>', row_html)
+                        plays_match = re.search(r'<span class="chartlist-count-bar-value">([\d.,\s]+)</span>', row_html)
+                        if name_match:
+                            art_name = name_match.group(1).strip()
+                            plays = 0
+                            if plays_match:
+                                try:
+                                    plays = int(plays_match.group(1).replace('.', '').replace(',', '').strip())
+                                except ValueError:
+                                    plays = 0
+                            extracted_artists.append((art_name, plays))
+
+                for art_name, plays in extracted_artists:
+                    if plays < min_plays:
+                        # Skip artists with fewer plays than threshold
+                        continue
+
                     if not art_name or art_name.lower() in ("más información", "more info", "ver más", "see more"):
                         continue
 
@@ -3420,7 +3374,35 @@ class Manager:
                 print(f"   ✗ Error al obtener artistas de @{username}: {e}")
                 continue
 
-        return results
+        # ── Step 3: Popularity Filter & Final Shuffle ────────────────────────
+        if not results:
+            return []
+
+        print(f"   🔍 Analizando popularidad de {len(results)} artistas...")
+        final_results = []
+        
+        # We can use a small shuffle here too
+        random.shuffle(results)
+
+        for item in results:
+            art_name = item['artist']
+            try:
+                # Use cache (7 days) to speed up repeated runs
+                info = self.lastfm.get_artist_info(art_name, cache_ttl_days=7)
+                listeners = info.get('listeners', 0)
+                
+                if listeners >= min_listeners:
+                    final_results.append(item)
+                else:
+                    # Optional: mark very small artists as seen to avoid re-scanning them?
+                    # For now, just skip them so they don't appear in the review.
+                    pass
+            except:
+                # If info fails, we omit to be safe
+                continue
+
+        random.shuffle(final_results)
+        return final_results
 
     def mark_lastfm_following_seen(self, art_name: str) -> None:
         """Persists an artist name to the following seen-cache."""

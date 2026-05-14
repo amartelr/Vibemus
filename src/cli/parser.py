@@ -362,6 +362,19 @@ def _register_recom(subparsers: argparse._SubParsersAction) -> None:
         "--auto", action="store_true",
         help="Auto-add all discovered artists without interactive prompts",
     )
+    fw_p.add_argument(
+        "--min-listeners", type=int, default=50000,
+        help="Minimum Last.fm listeners to consider an artist (default: 50000)",
+    )
+    fw_p.add_argument(
+        "--min-plays", type=int, default=10,
+        help="Minimum scrobbles for the artist in the followed profile (default: 10)",
+    )
+    fw_p.add_argument(
+        "--period", type=str, default="LAST_7_DAYS",
+        choices=["LAST_7_DAYS", "LAST_30_DAYS", "LAST_365_DAYS", "ALL"],
+        help="Time period for the Last.fm library scan (default: LAST_7_DAYS)",
+    )
 
 
 # ── Genre ───────────────────────────────────────────────────────────────────

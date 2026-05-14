@@ -1042,7 +1042,11 @@ def _sync_following_artists(args, manager) -> int:
     print("=" * 58)
 
     try:
-        artists = manager.get_lastfm_following_artists()
+        artists = manager.get_lastfm_following_artists(
+            min_listeners=args.min_listeners,
+            min_plays=args.min_plays,
+            period=args.period
+        )
     except Exception as e:
         print(f"  ✗ Error obteniendo artistas: {e}")
         return 1
