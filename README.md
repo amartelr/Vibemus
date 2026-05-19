@@ -375,7 +375,9 @@ vibemus art cc
 
 ---
 
-### `releases` — Monitoreo de Lanzamientos
+### 🌟 Descubrimiento Musical (Buscar nuevas canciones)
+
+Estos comandos están diseñados específicamente para **explorar y descubrir nuevas canciones y artistas**, ya sea rastreando los lanzamientos de los artistas que ya sigues o encontrando recomendaciones completamente nuevas a través de la inteligencia de Last.fm.
 
 ---
 
@@ -397,15 +399,13 @@ vibemus rel sy --force --auto
 vibemus rel sy --liked-only
 ```
 
-### `recom` — Recomendaciones Personalizadas
-**Alias:** `rec`
-
 ---
 
 #### `vibemus recom sync [--auto]`
 **Alias:** `vibemus rec sy ...`
 Escanea recomendaciones personalizadas de artistas desde Last.fm y ofrece seguirlos.
 
+- **Origen**: Extrae datos iterando sobre `https://www.last.fm/es/music/+recommended/artists?page={n}`
 - **Descubrimiento**: Utiliza tu historial de escucha de Last.fm para encontrar artistas que te podrían gustar.
 - **Incorporación**: Para cada artista recomendado, muestra géneros y oyentes, y ofrece añadirlo a tu lista de seguimiento o **escucharlo** (`[o]ír`) abriendo su perfil en YouTube Music.
 - `--auto`: Añade automáticamente las 2 canciones más nuevas y las 2 más populares para cada artista recomendado.
@@ -422,6 +422,7 @@ vibemus rec sy --auto
 **Alias:** `vibemus rec ny ...`
 Escanea la sección de **Nuevos Lanzamientos Recomendados** (Out Now) de Last.fm.
 
+- **Origen**: Extrae datos iterando sobre `https://www.last.fm/es/music/+releases/out-now/recommended?page={n}`
 - **Personalizado**: Muestra nuevos lanzamientos de artistas que ya sigues y otros que Last.fm cree que te gustarán.
 - **Filtrado Inteligente**: 
     - **Artistas Seguidos**: Marcados con `★`. Se muestran para tu información y se marcan como "vistos" automáticamente.
@@ -441,6 +442,7 @@ vibemus rec ny --tracked-only
 **Alias:** `vibemus rec fw ...`
 Escanea artistas populares de los perfiles de Last.fm que sigues.
 
+- **Origen**: Obtiene tus seguidos en `https://www.last.fm/es/user/{tu_usuario}/following` y extrae sus escuchas desde `https://www.last.fm/es/user/{usuario_seguido}/library/artists?date_preset={periodo}&page=1`
 - **Filtrado Social**: Visita el perfil de cada usuario que sigues en Last.fm y extrae sus artistas más escuchados.
 - **Periodo de tiempo**: `--period` (default: `LAST_7_DAYS`). Opciones: `LAST_7_DAYS`, `LAST_30_DAYS`, `LAST_365_DAYS`, `ALL`.
 - **Doble Filtro**: 

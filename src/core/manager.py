@@ -272,8 +272,16 @@ class Manager:
         onboarding_artist = main_artist
         onboarding_id = (artists_list[0].get('id') or artists_list[0].get('browseId')) if artists_list else None
 
-        if artists_list and len(artists_list) > 1:
-            collab_names = [a['name'] for a in artists_list]
+        # Detect if it's a compound name returned as a single artist by YT
+        is_compound_string = bool(self._COLLAB_SEP_RE.search(main_artist))
+        
+        if (artists_list and len(artists_list) > 1) or (artists_list and len(artists_list) == 1 and is_compound_string):
+            if is_compound_string and len(artists_list) == 1:
+                # Split the single string into multiple names for the prompt
+                collab_names = [n.strip() for n in re.split(r'\s*[,&]\s*|\s+(?:and|y)\s+', main_artist, flags=re.IGNORECASE) if n.strip()]
+            else:
+                collab_names = [a['name'] for a in artists_list]
+
             # Solo preguntamos si el artista es nuevo (no está ya en tracking)
             # Si ya está tracked, lo usamos directamente sin molestar al usuario
             already_tracked = any(
@@ -923,6 +931,86 @@ class Manager:
         print("\n✅ ASISTENTE COMPLETADO\n" if not errors else f"\n⚠ COMPLETADO CON {errors} ERRORES\n")
 
 
+    def sync_likes(self, skip_lastfm=False):
+        """Iterates through the 'Likes' playlist (LM) from YouTube Music,
+        and sets 'Liked' = 'True' in the Songs sheet for those songs.
+        Also clears 'Liked' = 'True' for songs that are no longer in the LM playlist.
+        """
+        print("\n\033[96m" + "━"*50 + "\033[0m")
+        print("\033[1;96m❤️ SYNCING LIKES (LM PLAYLIST)\033[0m")
+        print("\033[96m" + "━"*50 + "\033[0m")
+        
+        print("  \033[90mFetching Liked songs from YouTube Music...\033[0m")
+        try:
+            liked_data = self.yt.get_liked_songs(limit=None)
+            liked_tracks = liked_data.get('tracks', []) if isinstance(liked_data, dict) else liked_data
+            
+            liked_vids = set()
+            for track in liked_tracks:
+                vid = track.get('videoId')
+                if vid:
+                    liked_vids.add(vid)
+            
+            print(f"    \033[92m✓\033[0m Found {len(liked_vids)} liked songs.")
+        except Exception as e:
+            print(f"    \033[91m✗ Error fetching liked songs: {e}\033[0m")
+            return
+            
+        print("  \033[90mUpdating 'Songs' sheet...\033[0m")
+        songs_records = self.sheets.get_songs_records()
+        
+        updated_count = 0
+        cleared_count = 0
+        scrobbles_updated = 0
+        update_scrobbles = not skip_lastfm
+        
+        if update_scrobbles:
+            print("  \033[90mProcessing songs and fetching Last.fm scrobbles for liked songs...\033[0m")
+        
+        total_songs = len(songs_records)
+        for i, record in enumerate(songs_records):
+            if update_scrobbles and i > 0 and i % 50 == 0:
+                print(f"    \033[90mProcessed {i}/{total_songs} songs...\033[0m")
+            vid = record.get('Video ID')
+            if not vid:
+                continue
+            was_liked = str(record.get('Liked', '')).strip().lower() == 'true'
+            is_liked = vid in liked_vids
+            
+            if is_liked:
+                if not was_liked:
+                    record['Liked'] = 'True'
+                    updated_count += 1
+            else:
+                if was_liked:
+                    record['Liked'] = ''
+                    cleared_count += 1
+                    
+            if update_scrobbles and is_liked:
+                artist = record.get('Artist', '')
+                title = record.get('Title', '')
+                if artist and title:
+                    info = self.lastfm.get_track_info(artist, title)
+                    if info:
+                        new_scrobble = str(info.get('playcount', ''))
+                        old_scrobble = str(record.get('Scrobble', ''))
+                        if new_scrobble and new_scrobble != old_scrobble:
+                            record['Scrobble'] = new_scrobble
+                            record['LastfmScrobble'] = new_scrobble
+                            scrobbles_updated += 1
+                    
+        if updated_count > 0 or cleared_count > 0 or scrobbles_updated > 0:
+            self.sheets.overwrite_songs(songs_records)
+            if updated_count > 0 or cleared_count > 0:
+                print(f"    \033[92m✓\033[0m Marked {updated_count} new songs as Liked.")
+                print(f"    \033[93m✓\033[0m Cleared Liked status from {cleared_count} songs.")
+            if scrobbles_updated > 0:
+                print(f"    \033[92m✓\033[0m Updated scrobbles for {scrobbles_updated} songs.")
+        else:
+            print("    \033[92m✓\033[0m All Liked statuses and scrobbles are up to date. No changes made.")
+            
+        print("\033[96m" + "━"*50 + "\033[0m\n")
+
 
     def sync_playlist(self, playlist_name=None, skip_lastfm=False):
         print("\n\033[96m" + "━"*50 + "\033[0m")
@@ -1118,6 +1206,7 @@ class Manager:
                                 try:
                                     self.yt.rate_song(vid, 'INDIFFERENT')
                                     status = 'INDIFFERENT' # Actualizar estado local para el resto del bucle
+                                    if existing_vids.get(vid): existing_vids[vid]['Liked'] = ''
                                 except Exception as e:
                                     print(f"      ✗ Error al quitar Like: {e}")
                 
@@ -1151,6 +1240,7 @@ class Manager:
                                         self.yt.add_playlist_items(target_pid, [vid])
                                         self.yt.remove_playlist_items(pid, [item])
                                         self.yt.rate_song(vid, 'INDIFFERENT') # Quitar like al archivar
+                                        if existing_vids.get(vid): existing_vids[vid]['Liked'] = ''
                                         
                                         # Construct robust record for the archive
                                         base_row = existing_vids.get(vid) or {}
@@ -1186,6 +1276,7 @@ class Manager:
                         
                         if status == 'DISLIKE': 
                             self.yt.rate_song(vid, 'INDIFFERENT')
+                            if existing_vids.get(vid): existing_vids[vid]['Liked'] = ''
                             # Eliminar también de la biblioteca
                             try:
                                 remove_token = (item.get('feedbackTokens') or {}).get('remove')
@@ -1228,13 +1319,12 @@ class Manager:
                     continue
 
                 if is_hash and status == 'LIKE':
-                    artists_list = item.get('artists', [])
-                    main_artist = artists_list[0]['name'] if artists_list else 'Unknown'
-                    song_title = item.get('title', 'Unknown')
-                    
-                    # Look up target playlist in sheet
-                    artist_row = self._find_artist_row(artists_records, name=main_artist, artists_list=artists_list)
+                    # Use the artist_row we already found/created at the beginning of the loop
+                    # instead of searching again by the (possibly compound) main_artist name.
                     target_pl = (artist_row.get('Playlist') or '').strip() if artist_row else ''
+                    
+                    if artist_row and artist_row.get('Artist Name'):
+                        main_artist = artist_row['Artist Name']
                     
                     actual_target_pl = ""
                     
@@ -1291,8 +1381,6 @@ class Manager:
                         # ── Final Unliking Logic ──
                         # Flag para saber si hay que quitar el Like después de mover
                         should_unlike = final_target_pl not in Config.SOURCE_PLAYLISTS
-                        if should_unlike:
-                            print(f"    \033[93m⚠ Archivo catalogado → Quitando Like tras mover:\033[0m \033[92m{main_artist} - {song_title}\033[0m")
 
                         print(f"    🚀 Moviendo a \033[1;94m[{final_target_pl}]\033[0m")
                         target_pid = self._resolve_playlist_id(final_target_pl)
@@ -1303,8 +1391,10 @@ class Manager:
 
                                 # Quitamos el Like DESPUES de mover para evitar que YT lo re-aplique al guardar
                                 if should_unlike:
+                                    print(f"    \033[93m⚠ Archivo catalogado → Quitando Like tras mover:\033[0m \033[92m{main_artist} - {song_title}\033[0m")
                                     try:
                                         self.yt.rate_song(vid, 'INDIFFERENT')
+                                        if existing_vids.get(vid): existing_vids[vid]['Liked'] = ''
                                     except Exception as e:
                                         print(f"      \033[91m✗ Error quitando Like:\033[0m {e}")
                                 
@@ -2446,6 +2536,7 @@ class Manager:
                     try:
                         self.yt.remove_playlist_items(target_pid, [item])
                         self.yt.rate_song(vid, 'INDIFFERENT')
+                        if sheet_rec: sheet_rec['Liked'] = ''
                         # Eliminar también de la biblioteca
                         try:
                             remove_token = (item.get('feedbackTokens') or {}).get('remove')
@@ -3570,6 +3661,7 @@ class Manager:
                     # Update Sheet records in memory
                     for s in songs:
                         s['Playlist'] = target_name
+                        s['Liked'] = ''
 
             # 6. Limpieza final: Eliminar playlists de archivo que ya no están en config y están vacías
             print(f"  🧹 Revisando limpieza de archivos obsoletos...")
@@ -3869,6 +3961,7 @@ class Manager:
                 for s in all_songs:
                     if s.get('Playlist', '').lower() == pl_lower and s.get('Video ID') in vids_set:
                         s['Playlist'] = archive_name
+                        s['Liked'] = ''
                 total_moved += len(vids)
 
             # --- EJECUCIÓN B: RESTAURAR ---
@@ -3894,6 +3987,7 @@ class Manager:
                 for s in all_songs:
                     if s.get('Playlist', '').lower() == archive_lower and s.get('Video ID') in vids_set:
                         s['Playlist'] = pl_name
+                        s['Liked'] = 'True'
                 total_restored += len(vids)
 
         if total_moved > 0 or total_restored > 0:
@@ -4139,6 +4233,7 @@ class Manager:
                     try:
                         self.yt.rate_song(vid, 'INDIFFERENT')
                         unliked_count += 1
+                        sheet_songs[idx]['Liked'] = ''
                         print("   ✅ Unmarked as Liked.")
                     except Exception as e:
                         print(f"   ❌ Error updating rating: {e}")
