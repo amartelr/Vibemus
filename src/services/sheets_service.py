@@ -90,7 +90,7 @@ class SheetsService:
                 elif title == "Genre":
                     ws.append_row(["Genre", "Count"])
                 elif title in ["Songs", "Archived"]:
-                    ws.append_row(["Playlist", "Artist", "Title", "Album", "Year", "Genre", "Scrobble", "LastfmScrobble", "Video ID"])
+                    ws.append_row(["Playlist", "Artist", "Title", "Album", "Liked", "Year", "Genre", "Scrobble", "LastfmScrobble", "Video ID"])
                 else:
                     # Default header for playlist exports
                     ws.append_row(["Playlist", "Artist", "Album", "Title", "Views"])
@@ -143,7 +143,7 @@ class SheetsService:
                     new_rows.append(row)
         else:
             # Sheet is empty, add header
-            new_rows.append(["Playlist", "Artist", "Title", "Album", "Year", "Genre", "Scrobble", "LastfmScrobble", "Video ID"])
+            new_rows.append(["Playlist", "Artist", "Title", "Album", "Liked", "Year", "Genre", "Scrobble", "LastfmScrobble", "Video ID"])
 
         # Add new songs
         for s in songs:
@@ -152,6 +152,7 @@ class SheetsService:
                 s.get("Artist", ""),
                 s.get("Title", ""),
                 s.get("Album", ""),
+                s.get("Liked", ""),
                 s.get("Year", ""),
                 s.get("Genre", ""),
                 self._to_int(s.get("Scrobble")),
@@ -356,7 +357,7 @@ class SheetsService:
         self._active_records_cache = None
         self._songs_vid_cache = None
         ws = self._get_worksheet("Songs")
-        header = ["Playlist", "Artist", "Title", "Album", "Year", "Genre", "Scrobble", "LastfmScrobble", "Video ID"]
+        header = ["Playlist", "Artist", "Title", "Album", "Liked", "Year", "Genre", "Scrobble", "LastfmScrobble", "Video ID"]
         rows = [header]
         for r in records:
             rows.append([
@@ -364,6 +365,7 @@ class SheetsService:
                 r.get('Artist', ''),
                 r.get('Title', ''),
                 r.get('Album', ''),
+                r.get('Liked', ''),
                 str(r.get('Year', '')),
                 r.get('Genre', ''),
                 self._to_int(r.get('Scrobble')),
@@ -391,6 +393,7 @@ class SheetsService:
                 s.get('Artist', ''),
                 s.get('Title', ''),
                 s.get('Album', ''),
+                s.get('Liked', ''),
                 s.get('Year', ''),
                 s.get('Genre', ''),
                 self._to_int(s.get('Scrobble')),
@@ -405,7 +408,7 @@ class SheetsService:
         self._archived_records_cache = None
         try:
             ws = self._get_worksheet("Archived")
-            header = ["Playlist", "Artist", "Title", "Album", "Year", "Genre", "Scrobble", "LastfmScrobble", "Video ID"]
+            header = ["Playlist", "Artist", "Title", "Album", "Liked", "Year", "Genre", "Scrobble", "LastfmScrobble", "Video ID"]
             rows = []
             for s in archived_data:
                 rows.append([
@@ -413,6 +416,7 @@ class SheetsService:
                     s.get('Artist', ''),
                     s.get('Title', ''),
                     s.get('Album', ''),
+                    s.get('Liked', ''),
                     str(s.get('Year', '')),
                     s.get('Genre', ''),
                     self._to_int(s.get('Scrobble')),
@@ -439,6 +443,7 @@ class SheetsService:
                 s.get('Artist', ''),
                 s.get('Title', ''),
                 s.get('Album', ''),
+                s.get('Liked', ''),
                 s.get('Year', ''),
                 s.get('Genre', ''),
                 self._to_int(s.get('Scrobble')),
@@ -478,7 +483,7 @@ class SheetsService:
     def overwrite_songs_sheet(self, songs_data):
         """Overwrites the Songs sheet with provided list of song dicts."""
         ws = self._get_worksheet("Songs")
-        header = ["Playlist", "Artist", "Title", "Album", "Year", "Genre", "Scrobble", "LastfmScrobble", "Video ID"]
+        header = ["Playlist", "Artist", "Title", "Album", "Liked", "Year", "Genre", "Scrobble", "LastfmScrobble", "Video ID"]
         rows = [header]
         for s in songs_data:
             rows.append([
@@ -486,6 +491,7 @@ class SheetsService:
                 s.get('Artist', ''),
                 s.get('Title', ''),
                 s.get('Album', ''),
+                s.get('Liked', ''),
                 str(s.get('Year', '')),
                 s.get('Genre', ''),
                 self._to_int(s.get('Scrobble')),

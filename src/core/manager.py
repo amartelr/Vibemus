@@ -98,6 +98,22 @@ class Manager:
                     
         return base_playlist
 
+    def _get_base_genre(self, playlist_name):
+        """Extracts the base genre from a playlist name.
+        
+        Examples:
+            'Emo (1900-2022)' → 'Emo'
+            'Folk (2015-2020)' → 'Folk'
+            'Emo' → 'Emo'
+            '#' → None
+        """
+        import re
+        match = re.match(r'^(.+?)\s*\(\d{1,4}-\d{4}\)$', playlist_name)
+        if match:
+            return match.group(1).strip()
+        # If no year range suffix, return as-is (it's already a base genre)
+        return playlist_name
+
     def _resolve_playlist_id(self, pl_name):
         if not pl_name: return None
         if pl_name == '#': return Config.PLAYLIST_ID
@@ -974,13 +990,34 @@ class Manager:
             vid = record.get('Video ID')
             if not vid:
                 continue
+                
+            pl_name = record.get('Playlist', '')
             was_liked = str(record.get('Liked', '')).strip().lower() == 'true'
             is_liked = vid in liked_vids
             
             if is_liked:
-                if not was_liked:
-                    record['Liked'] = 'True'
-                    updated_count += 1
+                if pl_name == '#':
+                    # Inbox playlist: Keep on YT, but clear from sheet
+                    if was_liked:
+                        record['Liked'] = ''
+                        cleared_count += 1
+                elif pl_name in Config.SOURCE_PLAYLISTS:
+                    # Genre playlist (Pop, Rock, etc): Keep on YT, mark as True in sheet
+                    if not was_liked:
+                        record['Liked'] = 'True'
+                        updated_count += 1
+                else:
+                    # Historical/Archive playlist: Remove Like from YT and clear from sheet
+                    print(f"    \033[93m⚡ Quitando Like de canción archivada en YT: {record.get('Artist')} - {record.get('Title')} [{pl_name}]\033[0m")
+                    try:
+                        self.yt.rate_song(vid, 'INDIFFERENT')
+                        liked_vids.remove(vid) # Remove from local set so we don't fetch scrobbles below
+                        is_liked = False
+                        if was_liked:
+                            record['Liked'] = ''
+                            cleared_count += 1
+                    except Exception as e:
+                        print(f"      ✗ Error quitando Like en YouTube: {e}")
             else:
                 if was_liked:
                     record['Liked'] = ''
@@ -1018,10 +1055,25 @@ class Manager:
         print("\033[96m" + "━"*50 + "\033[0m")
         
         if playlist_name:
-            playlists_to_sync = [playlist_name]
+            # If it's a base genre with historical archives, expand to all related playlists
+            if playlist_name != '#' and playlist_name in self._archiving_config:
+                intervals = self._archiving_config[playlist_name]
+                historical = [f"{playlist_name} ({s}-{e})" for s, e in sorted(intervals, key=lambda x: x[0])]
+                playlists_to_sync = [playlist_name] + historical
+                print(f"  \033[90m→ Expandiendo a todas las playlists del género: {', '.join(playlists_to_sync)}\033[0m")
+            else:
+                playlists_to_sync = [playlist_name]
         else:
-            # By default sync all EXCEPT '#' (Inbox) - based on user preference to handle Inbox manually
-            playlists_to_sync = [p for p in Config.SOURCE_PLAYLISTS if p != '#']
+            # By default sync all SOURCE_PLAYLISTS (except #) + their historical archives
+            playlists_to_sync = []
+            for p in Config.SOURCE_PLAYLISTS:
+                if p == '#':
+                    continue
+                playlists_to_sync.append(p)
+                if p in self._archiving_config:
+                    intervals = self._archiving_config[p]
+                    for s, e in sorted(intervals, key=lambda x: x[0]):
+                        playlists_to_sync.append(f"{p} ({s}-{e})")
         
         source_cache = self._load_source_cache()
         all_songs = self.sheets.get_songs_records()
@@ -1216,53 +1268,57 @@ class Manager:
                     try: scrobbles = int(existing_vids[vid].get('Scrobble', 0))
                     except: pass
                 
-                # ── 1. ARCHIVADO AUTOMÁTICO DESDE PLAYLISTS DE GÉNERO (No Inbox) ──
-                if not is_hash and pl_name in Config.ARCHIVABLE_PLAYLISTS:
-                    song_year = 0
-                    y_str = (existing_vids.get(vid) or {}).get('Year') or item.get('year')
-                    if not y_str:
-                        y_str = self._fetch_song_year(vid, song_title, item.get('Artist', ''))
-                    
-                    if y_str:
-                        match = re.search(r'(\d{4})', str(y_str))
-                        if match: song_year = int(match.group(1))
-                    
-                    if song_year:
-                        archive_name = self.get_target_playlist_by_year(pl_name, song_year)
-                        if archive_name != pl_name:
-                            print(f"    \033[93m📦 Propuesta de Archivo: Año {song_year} → '{archive_name}'\033[0m")
-                            ans = input(f"      ¿Mover '{song_title} ({song_year})' de '{pl_name}' a '{archive_name}'? [S/n]: ").strip().lower()
-
-                            if ans != 'n':
-                                target_pid = self._resolve_playlist_id(archive_name)
+                # ── 1. RECOLOCACIÓN AUTOMÁTICA POR AÑO (Cualquier playlist excepto #) ──
+                # Works bidirectionally: base→historical AND historical→base or other range
+                # Uses _get_base_genre to extract 'Emo' from 'Emo (1900-2022)' etc.
+                if not is_hash:
+                    base_genre = self._get_base_genre(pl_name)
+                    if base_genre and base_genre in self._archiving_config:
+                        song_year = 0
+                        y_str = (existing_vids.get(vid) or {}).get('Year') or item.get('year')
+                        if not y_str:
+                            y_str = self._fetch_song_year(vid, song_title, item.get('Artist', ''))
+                        
+                        if y_str:
+                            match = re.search(r'(\d{4})', str(y_str))
+                            if match: song_year = int(match.group(1))
+                        
+                        if song_year:
+                            correct_pl = self.get_target_playlist_by_year(base_genre, song_year)
+                            if correct_pl != pl_name:
+                                target_pid = self._resolve_playlist_id(correct_pl)
                                 if target_pid:
                                     try:
+                                        # Only remove Like if moving to a historical/archived playlist
+                                        moving_to_archive = correct_pl not in Config.SOURCE_PLAYLISTS
+                                        print(f"    \033[93m📦 Auto-recolocando: {song_title} ({song_year}) '{pl_name}' → '{correct_pl}'\033[0m")
                                         self.yt.add_playlist_items(target_pid, [vid])
                                         self.yt.remove_playlist_items(pid, [item])
-                                        self.yt.rate_song(vid, 'INDIFFERENT') # Quitar like al archivar
-                                        if existing_vids.get(vid): existing_vids[vid]['Liked'] = ''
+                                        if moving_to_archive:
+                                            self.yt.rate_song(vid, 'INDIFFERENT')
+                                            if existing_vids.get(vid): existing_vids[vid]['Liked'] = ''
                                         
-                                        # Construct robust record for the archive
                                         base_row = existing_vids.get(vid) or {}
                                         new_rec = {
-                                            'Playlist': archive_name,
+                                            'Playlist': correct_pl,
                                             'Artist': base_row.get('Artist') or item.get('Artist', 'Unknown'),
                                             'Title': base_row.get('Title') or song_title,
                                             'Album': base_row.get('Album') or (item.get('album') or {}).get('name', ''),
                                             'Year': base_row.get('Year') or str(y_str),
+                                            'Liked': '' if moving_to_archive else base_row.get('Liked', ''),
+                                            'Genre': base_row.get('Genre') or item.get('Genre', ''),
+                                            'Scrobble': base_row.get('Scrobble', 0),
+                                            'LastfmScrobble': base_row.get('LastfmScrobble', 0),
                                             'Video ID': vid
                                         }
-                                        new_rec['Playlist'] = archive_name
                                         moved_for_sheet.append(new_rec)
                                         
                                         if vid in yt_vid_map: del yt_vid_map[vid]
                                         continue # Siguiente canción
                                     except Exception as e:
-                                        print(f"      ✗ Error al auto-archivar: {e}")
+                                        print(f"      ✗ Error al auto-recolocar: {e}")
                                 else:
-                                    print(f"      ⚠ No se pudo encontrar el ID de la playlist '{archive_name}'")
-                            else:
-                                print(f"      ⏭  Canción mantenida en '{pl_name}'.")
+                                    print(f"      ⚠ No se pudo encontrar el ID de la playlist '{correct_pl}'")
                 
                 high_scrobbles = is_hash and scrobbles > Config.SCROBBLE_THRESHOLD
                 
@@ -1432,6 +1488,10 @@ class Manager:
                                 new_record['Scrobble'] = sc_val
                                 new_record['LastfmScrobble'] = lsc_val
                                 if gen_val: new_record['Genre'] = gen_val
+                                if not should_unlike and final_target_pl != '#':
+                                    new_record['Liked'] = 'True'
+                                else:
+                                    new_record['Liked'] = ''
                                 moved_for_sheet.append(new_record)
 
                                 if vid in yt_vid_map: del yt_vid_map[vid]
@@ -2667,6 +2727,10 @@ class Manager:
                 # Excluir si ya tiene un estado asignado en el Sheet (Like/Dislike)
                 s_status = (s.get('status') or s.get('Status') or '').strip().capitalize()
                 if s_status in ['Like', 'Dislike']:
+                    continue
+                    
+                # Excluir si la columna 'Liked' está a True
+                if str(s.get('Liked', '')).strip().lower() == 'true':
                     continue
                     
                 scrobbles_raw = str(s.get('Scrobble', '0')).replace('.', '').replace(',', '').strip()

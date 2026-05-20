@@ -88,8 +88,10 @@ def _build_youtube_client():
 class YouTubeDataService:
     """Client for YouTube Data API v3 subscription-to-playlist sync."""
 
-    # Name of the custom playlist created/used for "watch later" videos
-    PLAYLIST_NAME = "WL"
+    # Name of the custom playlist for subscription videos.
+    # Set as 'unlisted' so it does NOT appear in YouTube Music library.
+    # '!' prefix ensures it sorts first alphabetically in YouTube.
+    PLAYLIST_NAME = "!📥 Para Ver"
 
     def __init__(self):
         self._yt = None  # Lazy-initialised on first API call
@@ -160,7 +162,8 @@ class YouTubeDataService:
                     "title": self.PLAYLIST_NAME,
                     "description": "Videos de suscripciones añadidos automáticamente por Vibemus.",
                 },
-                "status": {"privacyStatus": "private"},
+                # 'unlisted' = not shown in YouTube Music library, but fully manageable via API
+                "status": {"privacyStatus": "unlisted"},
             },
         ).execute()
         playlist_id = resp["id"]
@@ -440,7 +443,7 @@ class YouTubeDataService:
         return False
 
     def _filter_all_candidates(
-        self, candidates: list[dict]
+        self, candidates: list[dict], max_duration_mins: int = 30
     ) -> list[dict]:
         """Global batch filter for ALL candidate videos across ALL channels.
 
@@ -497,6 +500,7 @@ class YouTubeDataService:
         by_channel: dict[str, list[dict]] = defaultdict(list)
         api_filtered = 0
         music_filtered = 0
+        long_filtered = 0
 
         for v in after_title:
             vid = v["videoId"]
@@ -523,11 +527,18 @@ class YouTubeDataService:
             else:
                 duration_iso = ""
 
-            v["_seconds"] = self._iso_to_seconds(duration_iso)
+            secs = self._iso_to_seconds(duration_iso)
+            if secs > max_duration_mins * 60:
+                long_filtered += 1
+                continue
+                
+            v["_seconds"] = secs
             by_channel[v["channelId"]].append(v)
 
         if api_filtered:
             print(f"  🚫 {api_filtered} Shorts adicionales descartados por duración.")
+        if long_filtered:
+            print(f"  ⌛ {long_filtered} vídeos largos (>{max_duration_mins} min) descartados.")
         if music_filtered:
             print(f"  🎵 {music_filtered} vídeos musicales descartados (para no ensuciar YT Music).")
 
@@ -540,113 +551,13 @@ class YouTubeDataService:
 
         return winners
 
-    def cleanup_playlist_shorts(self):
-        """Find and remove Shorts already present in the '📥 Para Ver' playlist."""
-        playlist_id = self._get_or_create_playlist()
-        if playlist_id == "WL":
-            print("\n  🚫 La API de YouTube no permite eliminar videos de 'Ver más tarde' (WL). Usa la web de YouTube.")
-            return
 
-        yt = self._client()
-        
-        print(f"\n  🔍 Analizando playlist '{self.PLAYLIST_NAME}' en busca de Shorts...")
-        
-        # 1. Get all items in playlist
-        items_to_check = self._get_all_playlist_items(playlist_id)
-            
-        if not items_to_check:
-            print("  ✨ La playlist está vacía.")
-            return
-
-        print(f"  📦 {len(items_to_check)} vídeos totales. Comprobando duraciones...")
-        
-        # 2. Batch check videos (50 at a time) to find Shorts
-        shorts_item_ids = []
-        for i in range(0, len(items_to_check), 50):
-            batch = items_to_check[i:i+50]
-            batch_ids = [v["videoId"] for v in batch]
-            
-            resp = yt.videos().list(
-                part="snippet,contentDetails",
-                id=",".join(batch_ids)
-            ).execute()
-            
-            details_map = {v["id"]: v for v in resp.get("items", [])}
-            
-            for v in batch:
-                detail = details_map.get(v["videoId"])
-                if detail and self._is_short(detail):
-                    shorts_item_ids.append((v["id"], v["title"]))
-
-        if not shorts_item_ids:
-            print("  ✨ No se encontraron Shorts en la playlist.")
-            return
-
-        print(f"  🚫 Encontrados {len(shorts_item_ids)} Shorts. Eliminando...\n")
-        
-        # 3. Delete items
-        for sub_id, title in shorts_item_ids:
-            try:
-                yt.playlistItems().delete(id=sub_id).execute()
-                print(f"    🗑️ Eliminado: {title}")
-            except Exception as e:
-                print(f"    ⚠ Error eliminando '{title}': {e}")
-
-        print("\n  ✅ Limpieza completada.")
-
-    def cleanup_watched_videos(self):
-        """Remove videos from the '📥 Para Ver' playlist that appear in recent watch history."""
-        from .yt_service import YTMusicService
-        
-        playlist_id = self._get_or_create_playlist()
-        if playlist_id == "WL":
-            print(f"  ℹ️  Saltando la eliminación automática de videos vistos en '{self.PLAYLIST_NAME}'.")
-            print("      (La API ya no lo permite. Usa el botón 'Eliminar videos vistos' de YouTube manualmente).")
-            return
-
-        yt = self._client()
-        
-        print(f"  🔍 Buscando vídeos ya vistos en '{self.PLAYLIST_NAME}'...")
-        
-        try:
-            # 1. Get recent history (200 items)
-            ytm = YTMusicService()
-            history = ytm.yt.get_history()
-            history_ids = {item["videoId"] for item in history if "videoId" in item}
-            
-            if not history_ids:
-                print("    ℹ No se pudo recuperar el historial de reproducciones.")
-                return
-
-            # 2. Get playlist items
-            playlist_items = self._get_all_playlist_items(playlist_id)
-
-            # 3. Compare and delete
-            to_remove = [item for item in playlist_items if item["videoId"] in history_ids]
-            
-            if not to_remove:
-                print("    ✨ No se encontraron vídeos vistos en la playlist.")
-                return
-
-            print(f"    🗑️ Encontrados {len(to_remove)} vídeos vistos. Eliminando...")
-            for item in to_remove:
-                try:
-                    yt.playlistItems().delete(id=item["id"]).execute()
-                    print(f"      ✅ Eliminado: {item['title']}")
-                except Exception as e:
-                    print(f"      ⚠ Error eliminando '{item['title']}': {e}")
-                    
-        except Exception as e:
-            print(f"    ⚠ Error en la limpieza de vídeos vistos: {e}")
 
     def clear_playlist(self):
-        """Remove the entire '📥 Para Ver' playlist and clear its cache to save API quota."""
-        if self.PLAYLIST_NAME == "WL":
-            return
-            
+        """Remove the entire '!📥 Para Ver' playlist and clear its cache to save API quota."""
         yt = self._client()
         playlist_id = self._sync_state.get("playlist_id")
-        
+
         if not playlist_id:
             # Intentar encontrarla si no está en caché
             request = yt.playlists().list(part="id,snippet", mine=True, maxResults=50)
@@ -661,303 +572,19 @@ class YouTubeDataService:
                 request = yt.playlists().list_next(request, response)
 
         if playlist_id:
-            print(f"  🧹 Recreando la playlist '{self.PLAYLIST_NAME}' para ahorrar cuota de API...")
+            print(f"  🧹 Eliminando playlist '{self.PLAYLIST_NAME}' para ahorrar cuota de API...")
             try:
                 yt.playlists().delete(id=playlist_id).execute()
-                print("    🗑️ Playlist anterior eliminada correctamente (ahorro masivo de cuota).")
-            except Exception as e:
-                # Si no existía o falla, lo ignoramos, se intentará crear una nueva de todas formas
+                print("    🗑️ Playlist eliminada correctamente.")
+            except Exception:
                 pass
-            
+
             # Borrar el caché para forzar que se cree de nuevo en el siguiente paso
             self._sync_state.pop("playlist_id", None)
             self._save_sync_state()
 
-    # ── Top-channels cache ────────────────────────────────────────────────────
-
-    def _load_top_channels_cache(self) -> list[dict]:
-        """Load the persisted top-5 channels list (may be empty)."""
-        if os.path.exists(Config.YT_TOP_CHANNELS_CACHE_FILE):
-            try:
-                with open(Config.YT_TOP_CHANNELS_CACHE_FILE, "r") as fh:
-                    return json.load(fh)
-            except Exception:
-                pass
-        return []
-
-    def _save_top_channels_cache(self, top: list[dict]) -> None:
-        """Persist the top-channels list to disk."""
-        os.makedirs(Config.DATA_DIR, exist_ok=True)
-        with open(Config.YT_TOP_CHANNELS_CACHE_FILE, "w") as fh:
-            json.dump(top, fh, indent=2, default=str)
-
-    def update_top_channels_cache(self, window_days: int = 7, top_n: int = 5, interactive: bool = False) -> list[dict]:
-        """Compute and persist the top *top_n* channels by additions in the
-        last *window_days* days.
-
-        If *interactive* is True, the user can manually add or remove channels
-        from the top list.
-        """
-        from datetime import timedelta
-
-        cutoff = (datetime.now(timezone.utc) - timedelta(days=window_days)).isoformat()
-        history: dict = self._sync_state.get("channel_history", {})
-
-        if not history and not interactive:
-            print("  ℹ️  No hay historial de adiciones todavía. Ejecuta al menos un sync-subs primero.")
-            return []
-
-        # 1. Calcular el top automático basado en historial
-        ranked = []
-        for ch_id, data in history.items():
-            recent_count = sum(1 for d in data.get("dates", []) if d >= cutoff)
-            if recent_count > 0:
-                ranked.append({
-                    "channelId": ch_id,
-                    "title": data.get("title", ch_id),
-                    "count": recent_count,
-                })
-
-        ranked.sort(key=lambda x: x["count"], reverse=True)
-        top = ranked[:top_n]
-
-        # 2. Si no es interactivo, guardar y salir
-        if not interactive:
-            if not top:
-                print(f"  ⚠  No hay datos de los últimos {window_days} días. Prueba con una ventana mayor o usa --interactive.")
-                return []
-            
-            print(f"\n  🏆 Top-{len(top)} canales más añadidos (últimos {window_days} días):")
-            for i, ch in enumerate(top, 1):
-                print(f"     {i}. {ch['title']}  ({ch['count']} vídeo{'s' if ch['count'] != 1 else ''})")
-
-            self._save_top_channels_cache(top)
-            print(f"\n  💾 Cache guardado en: {Config.YT_TOP_CHANNELS_CACHE_FILE}")
-            return top
-
-        # 3. MODO INTERACTIVO
-        current_top = self._load_top_channels_cache()
-        if not current_top:
-            current_top = top
-
-        while True:
-            print("\n" + "━"*50)
-            print("⭐ GESTIÓN INTERACTIVA DE TOP CANALES")
-            print("━"*50)
-            
-            if not current_top:
-                print("  (Lista vacía)")
-            else:
-                for i, ch in enumerate(current_top, 1):
-                    count_str = f" ({ch['count']} vídeos)" if 'count' in ch else ""
-                    print(f"  {i}. \033[1;96m{ch['title']}\033[0m{count_str}")
-            
-            print("\n  Opciones: [a]ñadir | [q]uitar | [s]ubir | [b]ajar | [g]uardar | [v]olver")
-            choice = input("\n👉 Elige una opción: ").strip().lower()
-
-            if choice in ['a', 'añadir']:
-                # Buscar en el historial completo
-                query = input("🔎 Buscar canal en el historial (nombre): ").strip().lower()
-                matches = []
-                for ch_id, data in history.items():
-                    title = data.get("title", "").lower()
-                    if query in title or query in ch_id.lower():
-                        matches.append({
-                            "channelId": ch_id,
-                            "title": data.get("title", ch_id),
-                            "count": sum(1 for d in data.get("dates", []) if d >= cutoff)
-                        })
-                
-                if not matches:
-                    print("  ❌ No se encontraron canales en el historial con ese nombre.")
-                    continue
-                
-                print("\n  Resultados encontrados:")
-                for i, m in enumerate(matches[:10], 1):
-                    print(f"    {i}. {m['title']} ({m['count']} vídeos recientes)")
-                
-                try:
-                    idx_str = input("\n👉 Elige el número del canal para añadir (o 'c' para cancelar): ").strip()
-                    if idx_str.lower() == 'c': continue
-                    idx = int(idx_str) - 1
-                    if 0 <= idx < len(matches):
-                        new_ch = matches[idx]
-                        if any(c['channelId'] == new_ch['channelId'] for c in current_top):
-                            print(f"  ℹ️  El canal '{new_ch['title']}' ya está en el top.")
-                        else:
-                            current_top.append(new_ch)
-                            print(f"  ✅ Añadido: {new_ch['title']}")
-                    else:
-                        print("  ❌ Índice inválido.")
-                except ValueError:
-                    print("  ❌ Entrada inválida.")
-
-            elif choice in ['q', 'quitar']:
-                if not current_top: continue
-                try:
-                    idx = int(input("👉 Número del canal a quitar: ")) - 1
-                    if 0 <= idx < len(current_top):
-                        removed = current_top.pop(idx)
-                        print(f"  🗑️ Quitado: {removed['title']}")
-                    else:
-                        print("  ❌ Índice inválido.")
-                except ValueError:
-                    print("  ❌ Entrada inválida.")
-
-            elif choice in ['s', 'subir']:
-                if not current_top: continue
-                try:
-                    idx = int(input("👉 Número del canal a subir: ")) - 1
-                    if 1 <= idx < len(current_top):
-                        current_top[idx], current_top[idx-1] = current_top[idx-1], current_top[idx]
-                    else:
-                        print("  ❌ No se puede subir.")
-                except ValueError:
-                    print("  ❌ Entrada inválida.")
-
-            elif choice in ['b', 'bajar']:
-                if not current_top: continue
-                try:
-                    idx = int(input("👉 Número del canal a bajar: ")) - 1
-                    if 0 <= idx < len(current_top) - 1:
-                        current_top[idx], current_top[idx+1] = current_top[idx+1], current_top[idx]
-                    else:
-                        print("  ❌ No se puede bajar.")
-                except ValueError:
-                    print("  ❌ Entrada inválida.")
-
-            elif choice in ['g', 'guardar']:
-                self._save_top_channels_cache(current_top)
-                print(f"\n  💾 Cache guardado en: {Config.YT_TOP_CHANNELS_CACHE_FILE}")
-                return current_top
-
-            elif choice in ['v', 'volver', 'q', 'quit', 'exit']:
-                confirm = input("⚠️  ¿Salir sin guardar cambios? (s/N): ").strip().lower()
-                if confirm == 's':
-                    return self._load_top_channels_cache()
-            else:
-                print("  ❌ Opción no reconocida.")
-
-        return current_top
-
-    def sync_top_channels(
-        self,
-        playlist_id: str,
-        since_dt: datetime,
-        max_per_channel: int = 3,
-        already_added_ids: set | None = None,
-    ) -> int:
-        """Fetch and add videos from the cached top-5 channels.
-
-        For each top channel the method searches since *since_dt* for new
-        uploads, discards Shorts and duplicates already added in this sync
-        run, then inserts:
-          - The *longest* video (always)
-          - Up to *max_per_channel - 1* additional videos (second-longest, etc.)
-
-        Parameters
-        ----------
-        playlist_id:
-            ID of the destination playlist.
-        since_dt:
-            How far back to look for new videos.
-        max_per_channel:
-            Maximum videos to add per channel (default 3).
-        already_added_ids:
-            Set of video IDs already added during this run so they are not
-            duplicated.
-
-        Returns
-        -------
-        int  — total number of videos added from top channels.
-        """
-        from datetime import timedelta
-
-        top = self._load_top_channels_cache()
-        if not top:
-            return 0
-
-        if already_added_ids is None:
-            already_added_ids = set()
-
-        processed_videos = set(self._sync_state.get("processed_videos", []))
-        combined_ignore_ids = already_added_ids.union(processed_videos)
-
-        window_start = since_dt
-
-        print(f"\n  ⭐ Fase 4 — Top canales (desde {window_start.strftime('%d/%m')}): añadiendo hasta {max_per_channel} vídeos/canal...\n")
-
-        total_added = 0
-
-        for ch in top:
-            ch_id = ch["channelId"]
-            ch_title = ch["title"]
-            uploads_id = self._get_uploads_playlist_id(ch_id)
-            if not uploads_id:
-                print(f"  ⚠  Sin playlist de uploads para: {ch_title}")
-                continue
-
-            # Gather raw candidates (last window_days)
-            raw_videos, _ = self._get_recent_videos(uploads_id, window_start, max_results=50)
-            if not raw_videos:
-                print(f"  ─ {ch_title}: sin vídeos nuevos desde el {window_start.strftime('%d/%m')}.")
-                continue
-
-            # Tag with channelId so the filter can group them
-            for v in raw_videos:
-                v.setdefault("channelId", ch_id)
-
-            # Filter Shorts + get durations via batch API
-            filtered = self._filter_all_candidates(raw_videos)
-            # After filter, we may get only 1 (the longest per channel).  To
-            # allow up to max_per_channel we redo the per-channel grouping
-            # manually from the title-filtered + duration-enriched pool.
-            # Re-derive a full sorted list from the raw pool ourselves.
-            candidates = self._enrich_and_sort_channel_videos(raw_videos, ch_id)
-
-            # Remove already-added videos
-            candidates = [v for v in candidates if v["videoId"] not in combined_ignore_ids]
-
-            if not candidates:
-                print(f"  ─ {ch_title}: todos los vídeos ya fueron añadidos hoy.")
-                continue
-
-            selected = candidates[:max_per_channel]
-            added_here = 0
-            for v in selected:
-                try:
-                    ok = self._add_video_to_playlist(
-                        playlist_id, v["videoId"],
-                        channel_id=ch_id, channel_title=ch_title,
-                    )
-                except QuotaExceededError as exc:
-                    print(f"\n  🚫 {exc}")
-                    self._save_sync_state()
-                    return total_added
-
-                if ok:
-                    already_added_ids.add(v["videoId"])
-                    processed_videos.add(v["videoId"])
-                    added_here += 1
-                    total_added += 1
-                    pub_str = v.get("publishedAt", "")
-                    try:
-                        pub_fmt = datetime.fromisoformat(
-                            pub_str.replace("Z", "+00:00")
-                        ).strftime("%d/%m/%Y")
-                    except ValueError:
-                        pub_fmt = pub_str
-                    print(f"  ⭐ [{pub_fmt}] {ch_title} — {v['title']}")
-
-            if added_here == 0:
-                print(f"  ─ {ch_title}: ningún vídeo añadido (ya estaban o errores).")
-
-        self._sync_state["processed_videos"] = list(processed_videos)[-500:]
-        self._save_sync_state()  # persist channel_history updates
-        return total_added
-
     def _enrich_and_sort_channel_videos(
-        self, raw_videos: list[dict], channel_id: str
+        self, raw_videos: list[dict], channel_id: str, max_duration_mins: int = 30
     ) -> list[dict]:
         """Return *raw_videos* for *channel_id* sorted longest-first, Shorts removed.
 
@@ -999,6 +626,7 @@ class YouTubeDataService:
 
         enriched = []
         music_filtered = 0
+        long_filtered = 0
         for v in pool:
             detail = details_map.get(v["videoId"])
             if detail:
@@ -1019,9 +647,17 @@ class YouTubeDataService:
                 duration_iso = detail.get("contentDetails", {}).get("duration", "")
             else:
                 duration_iso = ""
-            v["_seconds"] = _iso_to_seconds(duration_iso)
+            
+            secs = _iso_to_seconds(duration_iso)
+            if secs > max_duration_mins * 60:
+                long_filtered += 1
+                continue
+                
+            v["_seconds"] = secs
             enriched.append(v)
             
+        if long_filtered:
+            print(f"  ⌛ {long_filtered} vídeos largos (>{max_duration_mins} min) descartados en top canal.")
         if music_filtered:
             print(f"  🎵 {music_filtered} vídeos musicales descartados en top canal.")
 
@@ -1032,7 +668,7 @@ class YouTubeDataService:
 
     # ── Main entry point ──────────────────────────────────────────────────────
 
-    def sync_subscriptions(self, cleanup_inactive: bool = False):
+    def sync_subscriptions(self, cleanup_inactive: bool = False, max_duration_mins: int = 30):
         """Fetch new subscription videos and add them to the 'Para Ver' playlist.
 
         Quota-optimised flow
@@ -1054,6 +690,9 @@ class YouTubeDataService:
         If the API quota is exhausted mid-run, the current subscription
         index is saved so the next run can resume from exactly that point.
         """
+        now = datetime.now(timezone.utc)
+        now_iso = now.isoformat()
+
         # ── Resume detection ─────────────────────────────────────────────────
         resume_index = self._sync_state.get("resume_index", 0)
         is_resuming = resume_index > 0
@@ -1064,28 +703,9 @@ class YouTubeDataService:
                 f"(checkpoint de cuota anterior)."
             )
         else:
-            # Solo recrear la playlist si es la primera ejecución del día (UTC).
-            # Si ya se ejecutó hoy, simplemente añadimos vídeos nuevos encima.
-            raw_last_check = self._sync_state.get("last_run")
-            already_ran_today = False
-            if raw_last_check:
-                try:
-                    last_dt = datetime.fromisoformat(raw_last_check)
-                    if last_dt.tzinfo is None:
-                        last_dt = last_dt.replace(tzinfo=timezone.utc)
-                    already_ran_today = last_dt.date() == datetime.now(timezone.utc).date()
-                except ValueError:
-                    pass
-
-            if already_ran_today:
-                print("\n  ♻️  Sync del mismo día detectado — se añadirán vídeos sin recrear la playlist.")
-                print("  🧹 Limpiando primero los vídeos que ya has visto hoy...")
-                self.cleanup_watched_videos()
-            else:
-                self.clear_playlist()
-
-        now = datetime.now(timezone.utc)
-        now_iso = now.isoformat()
+            # Siempre eliminamos y recreamos la playlist para ahorrar cuota de API:
+            # así no necesitamos paginar los ítems existentes para detectar duplicados.
+            self.clear_playlist()
 
         # ── Determine search window ───────────────────────────────────────────
         raw_last = self._sync_state.get("last_run")
@@ -1102,10 +722,14 @@ class YouTubeDataService:
         if last_run:
             print(f"\n  📅 Buscando vídeos publicados desde: {last_run.strftime('%d/%m/%Y %H:%M:%S')} (UTC)")
         else:
-            from datetime import timedelta
-            last_run = now - timedelta(hours=24)
-            print(f"\n  ℹ️  Primera ejecución — buscando últimas 24 horas.")
-            print(f"  📅 Buscando desde: {last_run.strftime('%d/%m/%Y %H:%M:%S')} (UTC)")
+            # Primera ejecución: registramos el momento actual como punto de partida.
+            # No traemos vídeos anteriores — la próxima ejecución buscará desde ahora.
+            print(f"\n  ℹ️  Primera ejecución — registrando checkpoint: {now.strftime('%d/%m/%Y %H:%M:%S')} (UTC)")
+            print("  ✨ No se añaden vídeos anteriores. Los próximos syncs buscarán desde este momento.")
+            self._sync_state["last_run"] = now_iso
+            self._save_sync_state()
+            return
+
 
         # ── Step 1: playlist ──────────────────────────────────────────────────
         playlist_id = self._get_or_create_playlist()
@@ -1175,7 +799,7 @@ class YouTubeDataService:
 
         # ── Phase 2: global batch filter (≤1 unit per 50 videos total) ────────
         print("\n  🧹 Fase 2 — Filtrando Shorts y seleccionando el más largo por canal...")
-        winners = self._filter_all_candidates(all_candidates)
+        winners = self._filter_all_candidates(all_candidates, max_duration_mins)
         print(f"  ✅ {len(winners)} vídeos seleccionados tras filtrado.")
 
         if not winners:

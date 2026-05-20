@@ -30,14 +30,13 @@ _ACTION_MAP = {
     "uo": "undo-old",
     "ex": "export",
     "cul": "cleanup-likes",
+    "sl": "sync-likes",
     "am": "apply-moves",
     "sp": "split",
     "rp": "review-pending",
     # YouTube
     "ss": "sync-subs",
-    "cs": "cleanup-shorts",
-    "cw": "cleanup-watched",
-    "utc": "update-top-channels",
+    "utc": "update-top-channels",  # kept for backwards compat, will error gracefully
     # System
     "rc": "refresh-cache",
     "au": "auth",
@@ -356,6 +355,8 @@ def handle_playlist(args, manager) -> int:
         return _playlist_cleanup_inbox(manager)
     elif action == "cleanup-likes":
         return _playlist_cleanup_likes(args, manager)
+    elif action == "sync-likes":
+        return _playlist_sync_likes(args, manager)
     elif action == "apply-moves":
         return _playlist_apply_moves(args, manager)
     elif action == "split":
@@ -375,7 +376,7 @@ def handle_playlist(args, manager) -> int:
     else:
         print(
             "Usage: vibemus playlist "
-            "<list|sync|cleanup-inbox|cleanup-likes|apply-moves|split|review-pending>"
+            "<list|sync|sync-likes|cleanup-inbox|cleanup-likes|apply-moves|split|review-pending>"
         )
         print("Run 'vibemus playlist --help' for details.")
         return 1
@@ -390,6 +391,10 @@ def _playlist_cleanup_inbox(manager) -> int:
 
 def _playlist_cleanup_likes(args, manager) -> int:
     manager.cleanup_likes()
+    return 0
+def _playlist_sync_likes(args, manager) -> int:
+    skip_lastfm = getattr(args, "skip_lastfm", False)
+    manager.sync_likes(skip_lastfm=skip_lastfm)
     return 0
 def _playlist_apply_moves(args, manager) -> int:
     manager.apply_manual_moves(
@@ -514,6 +519,8 @@ def _calculate_year_buckets(years, num_parts):
     """Calculates approximately equal year buckets from a list of years.
     
     Ensures that a whole year belongs to exactly one bucket.
+    The oldest bucket always starts at 1900 to allow future additions of
+    older songs without requiring a re-split.
     """
     if not years or num_parts < 1:
         return []
@@ -543,13 +550,16 @@ def _calculate_year_buckets(years, num_parts):
             target_end_idx = total - 1
             end_year = years[-1]
 
-        start_year = years[current_start_idx]
+        # El primer bucket siempre arranca en 1900 para que canciones más
+        # antiguas puedan añadirse en el futuro sin necesidad de re-split.
+        start_year = 1900 if i == 0 else years[current_start_idx]
         count = target_end_idx - current_start_idx + 1
         buckets.append((start_year, end_year, count))
         
         current_start_idx = target_end_idx + 1
         
     return buckets
+
 
 
 
@@ -783,103 +793,26 @@ def handle_youtube(args, manager) -> int:
 
     if action == "sync-subs":
         return _sync_subs(args)
-    elif action == "cleanup-shorts":
-        return _cleanup_shorts(args)
-    elif action == "cleanup-watched":
-        return _cleanup_watched(args)
-    elif action == "update-top-channels":
-        return _update_top_channels(args)
     else:
-        print("Usage: vibemus youtube <sync-subs|cleanup-shorts|cleanup-watched|update-top-channels>")
+        print("Usage: vibemus youtube <sync-subs>")
         print("Run 'vibemus youtube --help' for details.")
         return 1
 
 
 def _sync_subs(args) -> int:
-    """Sync new subscription videos to the '📥 Para Ver' private playlist."""
+    """Sync new subscription videos to the '!📥 Para Ver' unlisted playlist."""
     from ..services.youtube_data_service import YouTubeDataService
 
     print("\n" + "=" * 60)
-    print("📺 YOUTUBE SUBSCRIPTIONS → '📥 Para Ver'")
+    print("📺 YOUTUBE SUBSCRIPTIONS → '!📥 Para Ver'")
     print("=" * 60)
 
     try:
         svc = YouTubeDataService()
-
-        # --reset: clear the saved checkpoint so we start from 24 h ago
-        if getattr(args, "reset", False):
-            svc._sync_state.pop("last_run", None)
-            print("  ⚠️  Checkpoint reiniciado. Se escanearán las últimas 24 horas.")
-
-        svc.sync_subscriptions(cleanup_inactive=getattr(args, "cleanup", False))
-        return 0
-    except FileNotFoundError as exc:
-        print(str(exc))
-        return 1
-    except Exception as exc:
-        import traceback
-        traceback.print_exc()
-        print(f"\n❌ Error inesperado: {exc}")
-        return 1
-
-
-def _cleanup_shorts(args) -> int:
-    """Find and remove Shorts already present in the '📥 Para Ver' playlist."""
-    from ..services.youtube_data_service import YouTubeDataService
-
-    print("\n" + "=" * 60)
-    print("🧹 LIMPIEZA DE SHORTS EN '📥 Para Ver'")
-    print("=" * 60)
-
-    try:
-        svc = YouTubeDataService()
-        svc.cleanup_playlist_shorts()
-        return 0
-    except Exception as exc:
-        import traceback
-        traceback.print_exc()
-        print(f"\n❌ Error inesperado: {exc}")
-        return 1
-
-
-def _cleanup_watched(args) -> int:
-    """Remove videos already watched from the '📥 Para Ver' playlist."""
-    from ..services.youtube_data_service import YouTubeDataService
-
-    print("\n" + "=" * 60)
-    print("🧹 LIMPIEZA DE VÍDEOS VISTOS EN '📥 Para Ver'")
-    print("=" * 60)
-
-    try:
-        svc = YouTubeDataService()
-        svc.cleanup_watched_videos()
-        return 0
-    except Exception as exc:
-        print(f"\n❌ Error inesperado: {exc}")
-        return 1
-
-
-def _update_top_channels(args) -> int:
-    """Recompute and persist the top-N most-added channels ranking."""
-    from ..services.youtube_data_service import YouTubeDataService
-
-    print("\n" + "=" * 60)
-    print("🏆 ACTUALIZANDO TOP CANALES")
-    print("=" * 60)
-
-    try:
-        svc = YouTubeDataService()
-        top = svc.update_top_channels_cache(
-            window_days=getattr(args, "window", 7),
-            top_n=getattr(args, "top", 5),
-            interactive=getattr(args, "interactive", False),
+        svc.sync_subscriptions(
+            cleanup_inactive=getattr(args, "cleanup", False),
+            max_duration_mins=getattr(args, "max_duration", 30)
         )
-        if not top:
-            print(
-                "\n  ⚠  No se pudo generar el top. "
-                "Asegúrate de haber ejecutado al menos un 'sync-subs' para acumular historial."
-            )
-            return 1
         return 0
     except FileNotFoundError as exc:
         print(str(exc))
@@ -889,6 +822,7 @@ def _update_top_channels(args) -> int:
         traceback.print_exc()
         print(f"\n❌ Error inesperado: {exc}")
         return 1
+
 
 
 # ── New Releases ──────────────────────────────────────────────────────────────

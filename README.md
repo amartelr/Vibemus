@@ -37,7 +37,7 @@ Para ahorrar escritura, puedes usar los siguientes alias para grupos de comandos
 | **Library** | `lib` | `sy` (sync) |
 | **Recom** | `rec` | `sy` (sync), `ny` (new-releases), `fw` (following) |
 | **Genre** | `gen` | `sy` (sync) |
-| **YouTube** | `yt` | `ss` (sync-subs), `cs` (cleanup-shorts), `cw` (cleanup-watched), `utc` (update-top-channels) |
+| **YouTube** | `yt` | `ss` (sync-subs) |
 | **System** | `sys` | `rc` (refresh-cache), `au` (auth) |
 
 **Ejemplos:**
@@ -71,8 +71,7 @@ vibemus pl sy --name "#"
 | **Mantenimiento** | `lib sy` | Añade canciones de playlists a la biblioteca / elimina huérfanas. |
 | | `pl ci` | Elimina canciones de '#' que ya están organizadas. |
 | | `pl sp --name PL --parts N` | Divide archivos en bloques basados en el año. |
-| **YouTube** | `yt ss [--reset]` | Sincroniza nuevos vídeos de suscripciones a '📥 Para Ver'. |
-| | `yt utc` | Recalcula y guarda el caché de los canales top más activos. |
+| **YouTube** | `yt ss` | Sincroniza nuevos vídeos de suscripciones a '!📥 Para Ver'. |
 | **Sistema** | `sys au` | Refresca la autenticación de la cuenta de YouTube Music. |
 | | `sys rc` | Fuerza la actualización del caché local de metadatos de playlists. |
 
@@ -689,14 +688,15 @@ Interactúa con la plataforma estándar de YouTube (no Music) para la gestión d
 
 ---
 
-#### `vibemus youtube sync-subs [--reset] [--cleanup]`
+#### `vibemus youtube sync-subs [--cleanup] [--max-duration N]`
 **Alias:** `vibemus yt ss ...`
 
-Sincroniza los nuevos vídeos publicados en tus canales suscritos en la playlist **"📥 Para Ver"**.
+Sincroniza los nuevos vídeos publicados en tus canales suscritos (desde la última ejecución) en la playlist **"!📥 Para Ver"**. En cada ejecución elimina y recrea la playlist para ahorrar cuota de API.
+Se omitirán automáticamente los "Shorts" y los vídeos que excedan la duración máxima (30 minutos por defecto).
 
 **Argumentos:**
-- `--reset`: Ignora el checkpoint y escanea las últimas 24 horas.
 - `--cleanup`: Activa el modo interactivo para cancelar suscripciones de canales inactivos (> 3 meses).
+- `--max-duration N`: Cambia el límite de duración de los vídeos en minutos (por defecto: 30).
 
 **Ejemplos:**
 ```bash
@@ -704,69 +704,13 @@ Sincroniza los nuevos vídeos publicados en tus canales suscritos en la playlist
 vibemus youtube sync-subs
 vibemus yt ss
 
-# Reiniciar y escanear las últimas 24h
-vibemus youtube sync-subs --reset
-vibemus yt ss --reset
-
 # Limpieza de canales inactivos
 vibemus youtube sync-subs --cleanup
 vibemus yt ss --cleanup
+
+# Cambiar el límite a vídeos de menos de 60 minutos
+vibemus yt ss --max-duration 60
 ```
-
----
-
-#### `vibemus youtube update-top-channels [--window DAYS] [--top N] [--interactive]`
-**Alias:** `vibemus yt utc ...`
-
-Calcula y persiste el ranking de los canales más frecuentemente añadidos.
-
-**Argumentos:**
-- `--window DAYS`: Ventana de días hacia atrás para el ranking (default: `7`).
-- `--top N`: Cuántos canales guardar en el caché (default: `5`).
-- `--interactive` (`-i`): Gestionar los canales top interactivamente.
-
-**Ejemplos:**
-```bash
-# Actualización por defecto (7 días, top 5)
-vibemus youtube update-top-channels
-vibemus yt utc
-
-# Ventana personalizada y número de top
-vibemus youtube update-top-channels --window 30 --top 10
-vibemus yt utc --window 30 --top 10
-
-# Modo interactivo
-vibemus youtube update-top-channels --interactive
-vibemus yt utc -i
-```
-
----
-
-#### `vibemus youtube cleanup-shorts`
-**Alias:** `vibemus yt cs`
-
-Eliminar vídeos cortos (Shorts) de la playlist "📥 Para Ver".
-
-**Ejemplos:**
-```bash
-vibemus youtube cleanup-shorts
-vibemus yt cs
-```
-
----
-
-#### `vibemus youtube cleanup-watched`
-**Alias:** `vibemus yt cw`
-
-Eliminar vídeos ya vistos de la playlist "📥 Para Ver".
-
-**Ejemplos:**
-```bash
-vibemus youtube cleanup-watched
-vibemus yt cw
-```
-
----
 
 ### `system` — Utilidades
 **Alias:** `sys`

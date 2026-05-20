@@ -225,6 +225,17 @@ def _register_playlist(subparsers: argparse._SubParsersAction) -> None:
         help="Interactively unlike songs from 'LM' (or Liked Songs) if plays > threshold",
     )
 
+    # playlist sync-likes
+    sl_p = pl_sub.add_parser(
+        "sync-likes",
+        aliases=["sl"],
+        help="Update the 'Liked' column in Songs sheet based on YouTube Music Likes (LM playlist)",
+    )
+    sl_p.add_argument(
+        "--skip-lastfm", action="store_true",
+        help="Skip updating Last.fm scrobble metadata for liked songs",
+    )
+
     # playlist cleanup-library (DEPRECATED → vibemus library sync)
     pl_sub.add_parser(
         "cleanup-library",
@@ -415,35 +426,23 @@ def _register_youtube(subparsers: argparse._SubParsersAction) -> None:
         aliases=["ss"],
         help=(
             "Add new subscription videos (published since last run) to "
-            "the '📥 Para Ver' playlist"
+            "the '!📥 Para Ver' playlist"
         ),
-    )
-    ss_p.add_argument(
-        "--reset",
-        action="store_true",
-        help="Ignore the saved checkpoint and scan the last 24 hours from scratch",
     )
     ss_p.add_argument(
         "--cleanup",
         action="store_true",
         help="Cancelar suscripción a canales inactivos (>3 meses)",
     )
-
-    # youtube cleanup-shorts
-    yt_sub.add_parser(
-        "cleanup-shorts",
-        aliases=["cs"],
-        help="Eliminar Shorts existentes de la playlist '📥 Para Ver'",
+    ss_p.add_argument(
+        "--max-duration",
+        type=int,
+        default=30,
+        help="Duración máxima en minutos de los vídeos a añadir (por defecto: 30).",
     )
 
-    # youtube cleanup-watched
-    yt_sub.add_parser(
-        "cleanup-watched",
-        aliases=["cw"],
-        help="Eliminar vídeos ya vistos de la playlist '📥 Para Ver'",
-    )
+    # youtube update-top-channels (kept in parser for backwards compat)
 
-    # youtube update-top-channels
     utc_p = yt_sub.add_parser(
         "update-top-channels",
         aliases=["utc"],
