@@ -889,14 +889,17 @@ def _sync_new_releases_now(args, manager) -> int:
     if unknown_rels and not only_tracked:
         print(f"\n\033[1;93m── Artistas desconocidos ({len(unknown_rels)}) ──\033[0m")
 
-        for rel in unknown_rels:
+        total_unknown = len(unknown_rels)
+        for rel_idx, rel in enumerate(unknown_rels):
             art_name = rel['artist']
             release_name = rel['release']
             date_info = f" \033[90m[{rel['date']}]\033[0m" if rel['date'] else ""
+            remaining = total_unknown - rel_idx
+            counter = f"\033[90m[{remaining}/{total_unknown} restantes]\033[0m"
 
             print(
                 f"\n   💿  \033[1;93m{art_name}\033[0m"
-                f"  →  \033[1;92m{release_name}\033[0m{date_info}"
+                f"  →  \033[1;92m{release_name}\033[0m{date_info}  {counter}"
             )
 
             # Fetch quick Last.fm metadata
@@ -993,12 +996,15 @@ def _sync_following_artists(args, manager) -> int:
 
     is_auto = getattr(args, "auto", False)
 
-    for rec in artists:
+    total_artists = len(artists)
+    for rec_idx, rec in enumerate(artists):
         art_name = rec['artist']
         profile = rec['profile']
+        remaining = total_artists - rec_idx
+        counter = f"\033[90m[{remaining}/{total_artists} restantes]\033[0m"
 
         print(f"\n   💿 Artista: \033[1;96m{art_name}\033[0m  "
-              f"\033[90m(vía @{profile})\033[0m")
+              f"\033[90m(vía @{profile})\033[0m  {counter}")
 
         # Fetch Last.fm metadata
         lfm_listeners = 0
