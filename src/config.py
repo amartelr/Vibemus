@@ -23,6 +23,8 @@ class Config:
     YT_TOP_CHANNELS_CACHE_FILE = os.path.join(DATA_DIR, 'youtube_top_channels_cache.json')
     PENDING_SNAPSHOT_FILE = os.path.join(DATA_DIR, 'pending_snapshot.json')
     SKIPPED_ARTISTS_FILE = os.path.join(DATA_DIR, 'skipped_artists.json')
+    CHORDONOMICON_CSV_FILE = os.path.join(DATA_DIR, 'chordonomicon_v2.csv')
+    CHORDONOMICON_DB_FILE = os.path.join(DATA_DIR, 'chordonomicon.db')
     
     # Internal cache for keys
     _keys = {}

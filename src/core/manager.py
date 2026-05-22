@@ -6,11 +6,12 @@ from datetime import datetime, timedelta
 from src.config import Config
 
 class Manager:
-    def __init__(self, yt_service, sheets_service, lastfm_service, musicbrainz_service):
+    def __init__(self, yt_service, sheets_service, lastfm_service, musicbrainz_service, chord_service=None):
         self.yt = yt_service
         self.sheets = sheets_service
         self.lastfm = lastfm_service
         self.musicbrainz = musicbrainz_service
+        self.chord = chord_service
         self._archiving_config = self._load_archiving_config()
         self._skipped_artists = self._load_skipped_artists()
         self.library_catalog = None
@@ -1049,7 +1050,7 @@ class Manager:
         print("\033[96m" + "━"*50 + "\033[0m\n")
 
 
-    def sync_playlist(self, playlist_name=None, skip_lastfm=False):
+    def sync_playlist(self, playlist_name=None, skip_lastfm=False, sync_chord=False):
         print("\n\033[96m" + "━"*50 + "\033[0m")
         print(f"\033[1;96m🔄 SYNCING PLAYLIST: {playlist_name or 'ALL'}\033[0m")
         print("\033[96m" + "━"*50 + "\033[0m")
@@ -1561,10 +1562,31 @@ class Manager:
                 if vid in yt_vid_map:
                     # Enrich the sheet record with data fetched in step 2c
                     yt_item = yt_vid_map[vid]
-                    # Always update metadata (Scrobbles and Genre) if they exist
-                    if 'Scrobble' in yt_item: s['Scrobble'] = yt_item['Scrobble']
-                    if 'LastfmScrobble' in yt_item: s['LastfmScrobble'] = yt_item['LastfmScrobble']
-                    if yt_item.get('Genre'): 
+
+                    # Scrobble — never downgrade: only update if new value is strictly higher
+                    new_scrobble = yt_item.get('Scrobble', 0)
+                    if new_scrobble:
+                        try:
+                            old_scrobble = int(str(s.get('Scrobble', 0)).replace('.', '').replace(',', '') or 0)
+                            new_scrobble_int = int(str(new_scrobble).replace('.', '').replace(',', '') or 0)
+                            if new_scrobble_int > old_scrobble:
+                                s['Scrobble'] = new_scrobble_int
+                        except (ValueError, TypeError):
+                            pass
+
+                    # LastfmScrobble — never downgrade: only update if new value is strictly higher
+                    new_lastfm = yt_item.get('LastfmScrobble', 0)
+                    if new_lastfm:
+                        try:
+                            old_lastfm = int(str(s.get('LastfmScrobble', 0)).replace('.', '').replace(',', '') or 0)
+                            new_lastfm_int = int(str(new_lastfm).replace('.', '').replace(',', '') or 0)
+                            if new_lastfm_int > old_lastfm:
+                                s['LastfmScrobble'] = new_lastfm_int
+                        except (ValueError, TypeError):
+                            pass
+
+                    # Genre — only fill in if the sheet record has no genre yet
+                    if yt_item.get('Genre') and not s.get('Genre'):
                         s['Genre'] = yt_item['Genre']
                     # Only fetch year from YT if it's missing in the sheet
                     if not str(s.get('Year', '')).strip():
@@ -1630,11 +1652,189 @@ class Manager:
             print(f"    (Kept: {len(kept_songs)}, Added: {len(new_songs)}, Archived: {len(disliked_for_archive) + len(archived_songs)})")
 
 
+        # ── 6b. Enrich chord progressions if flag enabled ──
+        if sync_chord:
+            if not self.chord:
+                from src.services.chord_service import ChordService
+                self.chord = ChordService()
+            
+            print("\n" + "━"*50)
+            print("🎵 ENRICHING SONGS WITH CHORD PROGRESSIONS")
+            print("━"*50)
+            
+            # Filter songs in the synced playlists that have no Chord informed
+            songs_to_enrich = [
+                s for s in all_songs
+                if s.get('Playlist') in playlists_to_sync
+                and not str(s.get('Chord', '')).strip()
+            ]
+            
+            if not songs_to_enrich:
+                print("✨ All synced songs already have chord progressions. Nothing to do!")
+            else:
+                print(f"Found {len(songs_to_enrich)} songs needing chord progressions.")
+                for idx, song in enumerate(songs_to_enrich, 1):
+                    artist = song.get('Artist', '')
+                    title = song.get('Title', '')
+                    print(f"[{idx}/{len(songs_to_enrich)}] Resolving chords for: {artist} - {title}")
+                    
+                    try:
+                        chords = self.chord.get_chords(artist, title, allow_ug=False)
+                        if chords:
+                            song['Chord'] = chords
+                    except Exception as e:
+                        print(f"  ✗ Error resolving chords: {e}")
+                
+                # Explicitly save cache at the end of the batch
+                self.chord.save_cache()
+                print("✨ Chord enrichment process complete!")
+
         # ── 7. Write back entire Songs sheet ──
         print("\nSaving Songs sheet...")
         self.sheets.overwrite_songs(all_songs)
 
         print("✅ Sync complete.")
+
+    def lookup_chords(self, artist, title) -> int:
+        """Looks up a song's chords from Chordonomicon or Ultimate Guitar and updates Google Sheets if the song exists."""
+        if not self.chord:
+            from src.services.chord_service import ChordService
+            self.chord = ChordService()
+        
+        print("\n" + "━"*60)
+        print(f"🎵 RESOLVING CHORDS FOR: {artist} - {title}")
+        print("━"*60)
+        
+        try:
+            chords = self.chord.get_chords(artist, title, bypass_negative_cache=True, interactive=True)
+            if chords:
+                print(f"\n🎉 Success! Chords resolved:")
+                print(f"\033[92m{chords}\033[0m")
+                
+                # Check if song exists in Google Sheets 'Songs' catalog
+                if self.sheets:
+                    print("\nChecking if song exists in Google Sheets 'Songs' catalog...")
+                    all_songs = self.sheets.get_songs_records()
+                    
+                    norm_artist = self._normalize(artist)
+                    norm_title = self._normalize(title)
+                    
+                    matching_songs = []
+                    for song in all_songs:
+                        if self._normalize(song.get('Artist', '')) == norm_artist and self._normalize(song.get('Title', '')) == norm_title:
+                            matching_songs.append(song)
+                    
+                    if matching_songs:
+                        # Update all matching songs in the Songs catalog
+                        for song in matching_songs:
+                            song['Chord'] = chords
+                        
+                        print("Updating chord progression in your Google Sheet 'Songs' sheet...")
+                        self.sheets.overwrite_songs(all_songs)
+                        print(f"✅ Success! Chords updated for {len(matching_songs)} matching song(s) in Google Sheets.")
+                    else:
+                        print("ℹ️ Song is not in your 'Songs' catalog. Chords resolved but NOT saved to Google Sheets.")
+                else:
+                    print("ℹ️ Sheets service not initialized. Chords resolved but NOT saved to Google Sheets.")
+            else:
+                print("\n❌ No chord progressions found in Chordonomicon or Ultimate Guitar for this song.")
+        except Exception as e:
+            print(f"\n❌ Error looking up chords: {e}")
+            return 1
+            
+        print("━"*60 + "\n")
+        return 0
+
+    def analyze_playlist_chords(self, reanalyze=False) -> int:
+        """Analyzes populated chords in active and archived sheets and populates Tonality, Progression, Complex, and Style."""
+        from src.services.chord_analyzer import ChordAnalyzer
+        
+        # 1. Process active Songs sheet
+        print("\n" + "━"*60)
+        print("🎵 HARMONIC ANALYSIS OF SONGS IN DATABASE")
+        print("━"*60)
+        
+        print("Loading Songs sheet...")
+        all_songs = self.sheets.get_songs_records()
+        
+        songs_to_analyze = []
+        for s in all_songs:
+            chord = str(s.get('Chord', '')).strip()
+            if not chord:
+                continue
+                
+            has_analysis = all(str(s.get(col, '')).strip() for col in ('Tonality', 'Progression', 'Complex', 'Style'))
+            if reanalyze or not has_analysis:
+                songs_to_analyze.append(s)
+                
+        if not songs_to_analyze:
+            print("✨ All active songs with chords are already analyzed! Nothing to do.")
+        else:
+            print(f"Found {len(songs_to_analyze)} active songs to analyze.")
+            for idx, song in enumerate(songs_to_analyze, 1):
+                artist = song.get('Artist', 'Unknown')
+                title = song.get('Title', 'Unknown')
+                chord_str = song.get('Chord', '')
+                
+                print(f"  \033[96m[{idx}/{len(songs_to_enrich if 'songs_to_enrich' in locals() else songs_to_analyze)}] Analyzing: {artist} - {title}\033[0m")
+                try:
+                    result = ChordAnalyzer.analyze(chord_str)
+                    song['Tonality'] = result['Tonality']
+                    song['Progression'] = result['Progression']
+                    song['Complex'] = result['Complex']
+                    song['Style'] = result['Style']
+                    
+                    print(f"    \033[92m➔ Key: {result['Tonality']} | Roman: {result['Progression']} | Complexity: {result['Complex']} | Style: {result['Style']}\033[0m")
+                except Exception as e:
+                    print(f"    \033[91m✗ Error analyzing chords: {e}\033[0m")
+            
+            print("\nSaving updated Songs sheet...")
+            self.sheets.overwrite_songs(all_songs)
+            print("✅ Songs sheet updated successfully.")
+
+        # 2. Process Archived sheet
+        print("\nLoading Archived sheet...")
+        archived_songs = self.sheets.get_archived_records()
+        
+        archived_to_analyze = []
+        for s in archived_songs:
+            chord = str(s.get('Chord', '')).strip()
+            if not chord:
+                continue
+                
+            has_analysis = all(str(s.get(col, '')).strip() for col in ('Tonality', 'Progression', 'Complex', 'Style'))
+            if reanalyze or not has_analysis:
+                archived_to_analyze.append(s)
+                
+        if not archived_to_analyze:
+            print("✨ All archived songs with chords are already analyzed! Nothing to do.")
+        else:
+            print(f"Found {len(archived_to_analyze)} archived songs to analyze.")
+            for idx, song in enumerate(archived_to_analyze, 1):
+                artist = song.get('Artist', 'Unknown')
+                title = song.get('Title', 'Unknown')
+                chord_str = song.get('Chord', '')
+                
+                print(f"  \033[96m[{idx}/{len(archived_to_analyze)}] Analyzing: {artist} - {title} (Archived)\033[0m")
+                try:
+                    result = ChordAnalyzer.analyze(chord_str)
+                    song['Tonality'] = result['Tonality']
+                    song['Progression'] = result['Progression']
+                    song['Complex'] = result['Complex']
+                    song['Style'] = result['Style']
+                    
+                    print(f"    \033[92m➔ Key: {result['Tonality']} | Roman: {result['Progression']} | Complexity: {result['Complex']} | Style: {result['Style']}\033[0m")
+                except Exception as e:
+                    print(f"    \033[91m✗ Error analyzing chords: {e}\033[0m")
+            
+            print("\nSaving updated Archived sheet...")
+            self.sheets.overwrite_archived(archived_songs)
+            print("✅ Archived sheet updated successfully.")
+
+        print("\n" + "━"*60)
+        print("🎉 HARMONIC ANALYSIS COMPLETE!")
+        print("━"*60 + "\n")
+        return 0
 
     def add_artist(self, name, target_playlist=None, api_choice="lastfm", interactive=True, status="Pending"):
         if interactive or status != "Archived":

@@ -81,16 +81,33 @@ def main() -> None:
         from src.services.sheets_service import SheetsService
         from src.services.lastfm_service import LastFMService
         from src.services.musicbrainz_service import MusicBrainzService
+        from src.services.chord_service import ChordService
         from src.core.manager import Manager
         
         # Initialize services
-        yt = YTMusicService()
-        sheets = SheetsService()
-        lastfm = LastFMService()
-        musicbrainz = MusicBrainzService()
+        is_chord_cmd = (command == "playlist" and getattr(args, "action", None) in ("chord", "ch"))
+        is_analyze_chords = (command == "playlist" and getattr(args, "action", None) in ("analyze-chords", "ac"))
+        
+        if is_chord_cmd:
+            yt = None
+            sheets = SheetsService()
+            lastfm = None
+            musicbrainz = None
+        elif is_analyze_chords:
+            yt = None
+            sheets = SheetsService()
+            lastfm = None
+            musicbrainz = None
+        else:
+            yt = YTMusicService()
+            sheets = SheetsService()
+            lastfm = LastFMService()
+            musicbrainz = MusicBrainzService()
+            
+        chord = ChordService()
         
         # Initialize manager with required services
-        manager = Manager(yt, sheets, lastfm, musicbrainz)
+        manager = Manager(yt, sheets, lastfm, musicbrainz, chord)
         
     except AuthenticationError:
         print("\n\033[91m" + "=" * 50)

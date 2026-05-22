@@ -25,6 +25,8 @@ _ACTION_MAP = {
     "re": "reset-empty",
     "ai": "archive-inactive",
     # Playlist
+    "ac": "analyze-chords",
+    "ch": "chord",
     "ci": "cleanup-inbox",
     "cl": "clean",
     "uo": "undo-old",
@@ -228,6 +230,7 @@ def _sync_playlist(args, manager) -> int:
     manager.sync_playlist(
         playlist_name=getattr(args, "name", None),
         skip_lastfm=args.skip_lastfm,
+        sync_chord=getattr(args, "chord", False),
     )
     return 0
 
@@ -351,6 +354,10 @@ def handle_playlist(args, manager) -> int:
 
     if action == "sync":
         return _sync_playlist(args, manager)
+    elif action == "analyze-chords":
+        return _playlist_analyze_chords(args, manager)
+    elif action == "chord":
+        return _playlist_chord(args, manager)
     elif action == "cleanup-inbox":
         return _playlist_cleanup_inbox(manager)
     elif action == "cleanup-likes":
@@ -506,6 +513,12 @@ def _playlist_split(args, manager) -> int:
 def _playlist_cleanup_library(manager) -> int:
     """Deprecated: redirects to library sync."""
     return _library_sync(manager)
+
+def _playlist_analyze_chords(args, manager) -> int:
+    return manager.analyze_playlist_chords(reanalyze=getattr(args, "reanalyze", False))
+
+def _playlist_chord(args, manager) -> int:
+    return manager.lookup_chords(args.artist, args.title)
 
 def _playlist_list(manager) -> int:
     manager.list_playlists_counts()

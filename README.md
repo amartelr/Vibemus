@@ -33,7 +33,7 @@ Para ahorrar escritura, puedes usar los siguientes alias para grupos de comandos
 |:---|:---|:---|
 | **Artist** | `art` | `ls` (list), `sh` (search), `ad` (add), `rm` (remove), `cc` (cleanup-collabs), `sy` (sync), `im` (import), `re` (reset-empty), `ai` (archive-inactive) |
 | **Releases** | `rel` | `sy` (sync) |
-| **Playlist** | `pl` | `ls` (list), `sy` (sync), `ci` (cleanup-inbox), `cl` (clean), `ex` (export), `cul` (cleanup-likes), `am` (apply-moves), `sp` (split), `rp` (review-pending) |
+| **Playlist** | `pl` | `ls` (list), `sy` (sync), `ci` (cleanup-inbox), `cl` (clean), `ex` (export), `cul` (cleanup-likes), `am` (apply-moves), `sp` (split), `rp` (review-pending), `ac` (analyze-chords), `ch` (chord) |
 | **Library** | `lib` | `sy` (sync) |
 | **Recom** | `rec` | `sy` (sync), `ny` (new-releases), `fw` (following) |
 | **Genre** | `gen` | `sy` (sync) |
@@ -71,6 +71,8 @@ vibemus pl sy --name "#"
 | **Mantenimiento** | `lib sy` | Añade canciones de playlists a la biblioteca / elimina huérfanas. |
 | | `pl ci` | Elimina canciones de '#' que ya están organizadas. |
 | | `pl sp --name PL --parts N` | Divide archivos en bloques basados en el año. |
+| | `pl ac [--reanalyze]` | Analiza acordes del Sheet y calcula Tonalidad, Progresión, Complejidad y Estilo. |
+| | `pl ch "Art" "Tit"` | Busca en la web y dataset la progresión armónica de una canción. |
 | **YouTube** | `yt ss` | Sincroniza nuevos vídeos de suscripciones a '!📥 Para Ver'. |
 | **Sistema** | `sys au` | Refresca la autenticación de la cuenta de YouTube Music. |
 | | `sys rc` | Fuerza la actualización del caché local de metadatos de playlists. |
@@ -526,7 +528,7 @@ vibemus pl ls
 
 ---
 
-#### `vibemus playlist sync [--name PL] [--skip-lastfm] [--no-covers]`
+#### `vibemus playlist sync [--name PL] [--skip-lastfm] [--no-covers] [--chord]`
 **Alias:** `vibemus pl sy ...`
 
 Concilia una o todas las playlists de origen con tu hoja 'Songs'.
@@ -535,6 +537,7 @@ Concilia una o todas las playlists de origen con tu hoja 'Songs'.
 - `--name PL`: Limita la sincronización a una sola playlist específica (ej. `vibemus pl sy --name "#"`).
 - `--skip-lastfm`: Omite el enriquecimiento de Last.fm para una ejecución mucho más rápida.
 - `--no-covers`: Omite la fase de generación/reordenación de portadas de playlists.
+- `--chord`: Busca y rellena la progresión armónica (columna `Chord`) a partir del dataset Chordonomicon (usando fuzzy matching web).
 
 **Ejemplos:**
 ```bash
@@ -678,6 +681,43 @@ vibemus pl am --playlist "Pop" --api musicbrainz
 
 > [!IMPORTANT]
 > **Cambios manuales en YouTube**: Si has estado moviendo canciones usando la app de YouTube Music, el caché local estará obsoleto. **Usa siempre `--refresh-cache`** para asegurar que `apply-moves` vea el estado actual de tus playlists.
+
+---
+
+#### `vibemus playlist chord "Artist" "Title"`
+**Alias:** `vibemus pl ch ...`
+
+Busca la progresión armónica de una canción específica en el dataset Chordonomicon (usando fuzzy matching web) y la imprime en colores por consola.
+
+**Argumentos:**
+- `Artist`: Nombre del artista de la canción.
+- `Title`: Título de la canción.
+
+**Ejemplos:**
+```bash
+vibemus playlist chord "Pink Floyd" "Wish You Were Here"
+vibemus pl ch "Pink Floyd" "Wish You Were Here"
+```
+
+---
+
+#### `vibemus playlist analyze-chords [--reanalyze]`
+**Alias:** `vibemus pl ac [--reanalyze]`
+
+Realiza un análisis armónico automático por lotes a partir de las canciones que tienen informada la columna `Chord` en Google Sheets, y calcula y rellena 4 columnas nuevas:
+- `Tonality`: La tonalidad/escala musical de la canción (ej. `G Major`, `C Minor`).
+- `Progression`: La progresión armónica simplificada en números romanos (ej. `I - V - vi - IV`).
+- `Complex`: El nivel de complejidad armónica (`Baja`, `Media`, `Media-Alta`, `Alta`) según la variedad, acordes con tensiones/extensiones (`maj7`, `min7`, `7`, `sus4`, `add9`), acordes híbridos (`/Bass`) e intercambios modales no diatónicos.
+- `Style`: La vibra o estilo estético de la canción (`Oscura`, `moderna`, `Alegre`, `simple`).
+
+**Argumentos:**
+- `--reanalyze`: Fuerza la re-evaluación y sobreescritura de las canciones aunque ya tengan pobladas sus columnas de análisis.
+
+**Ejemplos:**
+```bash
+vibemus playlist analyze-chords
+vibemus pl ac --reanalyze
+```
 
 ---
 
