@@ -528,7 +528,7 @@ vibemus pl ls
 
 ---
 
-#### `vibemus playlist sync [--name PL] [--skip-lastfm] [--no-covers] [--chord]`
+#### `vibemus playlist sync [--name PL] [--skip-lastfm] [--no-covers] [--chord [chordonomicon|ultimate-guitar|both]]`
 **Alias:** `vibemus pl sy ...`
 
 Concilia una o todas las playlists de origen con tu hoja 'Songs'.
@@ -537,13 +537,22 @@ Concilia una o todas las playlists de origen con tu hoja 'Songs'.
 - `--name PL`: Limita la sincronización a una sola playlist específica (ej. `vibemus pl sy --name "#"`).
 - `--skip-lastfm`: Omite el enriquecimiento de Last.fm para una ejecución mucho más rápida.
 - `--no-covers`: Omite la fase de generación/reordenación de portadas de playlists.
-- `--chord`: Busca y rellena la progresión armónica (columna `Chord`) a partir del dataset Chordonomicon (usando fuzzy matching web).
+- `--chord [provider]`: Busca y rellena la progresión armónica (columna `Chord`) a partir del proveedor seleccionado:
+  - `chordonomicon`: Solo realiza búsquedas en la base de datos local indexada de Chordonomicon.
+  - `ultimate-guitar`: Solo realiza búsquedas mediante scraping estructurado en Ultimate Guitar.
+  - `both`: Intenta obtener la progresión primero de Chordonomicon y, en caso de no encontrarla, realiza la búsqueda en Ultimate Guitar. Es el valor por defecto si se incluye `--chord` sin especificar un valor.
 
 **Ejemplos:**
 ```bash
-# Sincronizar todas las playlists de origen
-vibemus playlist sync
-vibemus pl sy
+# Sincronizar todas las playlists de origen buscando acordes en ambos proveedores
+vibemus playlist sync --chord
+vibemus pl sy --chord both
+
+# Sincronizar solo usando Chordonomicon
+vibemus pl sy --chord chordonomicon
+
+# Sincronizar solo usando Ultimate Guitar
+vibemus pl sy --chord ultimate-guitar
 
 # Sincronizar una playlist específica omitiendo enriquecimiento
 vibemus playlist sync --name "Indie" --skip-lastfm
@@ -684,19 +693,27 @@ vibemus pl am --playlist "Pop" --api musicbrainz
 
 ---
 
-#### `vibemus playlist chord "Artist" "Title"`
+#### `vibemus playlist chord "Artist" "Title" [--chord [chordonomicon|ultimate-guitar|both]]`
 **Alias:** `vibemus pl ch ...`
 
-Busca la progresión armónica de una canción específica en el dataset Chordonomicon (usando fuzzy matching web) y la imprime en colores por consola.
+Busca la progresión armónica de una canción específica. Permite elegir la fuente de acordes. Si se encuentran múltiples hojas en Ultimate Guitar en modo interactivo, te permitirá seleccionar visualmente cuál de ellas deseas utilizar.
 
 **Argumentos:**
 - `Artist`: Nombre del artista de la canción.
 - `Title`: Título de la canción.
+- `--chord [provider]`: El proveedor a utilizar: `chordonomicon`, `ultimate-guitar` o `both` (por defecto: `both`).
 
 **Ejemplos:**
 ```bash
+# Buscar usando ambos proveedores
 vibemus playlist chord "Pink Floyd" "Wish You Were Here"
-vibemus pl ch "Pink Floyd" "Wish You Were Here"
+vibemus pl ch "Pink Floyd" "Wish You Were Here" --chord both
+
+# Buscar solo en Chordonomicon
+vibemus pl ch "Pink Floyd" "Wish You Were Here" --chord chordonomicon
+
+# Buscar solo en Ultimate Guitar
+vibemus pl ch "Pink Floyd" "Wish You Were Here" --chord ultimate-guitar
 ```
 
 ---

@@ -977,7 +977,38 @@ class YouTubeDataService:
         now = datetime.now(timezone.utc)
         now_iso = now.isoformat()
 
-        # ── Resume detection ─────────────────────────────────────────────────
+        # ── Determine search window ───────────────────────────────────────────
+        raw_last = self._sync_state.get("last_run")
+        last_run = None
+        if raw_last:
+            try:
+                last_run = datetime.fromisoformat(raw_last)
+                if last_run.tzinfo is None:
+                    last_run = last_run.replace(tzinfo=timezone.utc)
+            except ValueError:
+                pass
+
+        # Check if last_run is from today (local system timezone comparison)
+        today_local = datetime.now().date()
+        is_today = False
+        if last_run:
+            try:
+                last_run_local = last_run.astimezone().date()
+                if last_run_local == today_local:
+                    is_today = True
+            except Exception:
+                if last_run.date() == now.date():
+                    is_today = True
+
+        if is_today:
+            print(f"\n  📅 Última actualización fue hoy. Buscando vídeos desde: {last_run.strftime('%d/%m/%Y %H:%M:%S')} (UTC)")
+        else:
+            # Reiniciar la búsqueda a fecha de hoy primera hora (00:00:00 hora local, convertido a UTC)
+            local_first_hour = datetime.combine(today_local, datetime.min.time())
+            last_run = local_first_hour.astimezone(timezone.utc)
+            print(f"\n  📅 Última actualización no fue hoy (o no existe). Reiniciando búsqueda a hoy a primera hora (00:00:00 local): {last_run.strftime('%d/%m/%Y %H:%M:%S')} (UTC)")
+
+        # ── Resume detection & Playlist management ─────────────────────────────
         resume_index = self._sync_state.get("resume_index", 0)
         is_resuming = resume_index > 0
 
@@ -986,33 +1017,9 @@ class YouTubeDataService:
                 f"\n  ⏩ Reanudando sync desde la suscripción #{resume_index + 1} "
                 f"(checkpoint de cuota anterior)."
             )
-        else:
-            # Siempre eliminamos y recreamos la playlist para ahorrar cuota de API:
-            # así no necesitamos paginar los ítems existentes para detectar duplicados.
+        elif not is_today:
+            # Solo eliminamos la playlist si no se ha actualizado hoy
             self.clear_playlist()
-
-        # ── Determine search window ───────────────────────────────────────────
-        raw_last = self._sync_state.get("last_run")
-        if raw_last:
-            try:
-                last_run = datetime.fromisoformat(raw_last)
-                if last_run.tzinfo is None:
-                    last_run = last_run.replace(tzinfo=timezone.utc)
-            except ValueError:
-                last_run = None
-        else:
-            last_run = None
-
-        if last_run:
-            print(f"\n  📅 Buscando vídeos publicados desde: {last_run.strftime('%d/%m/%Y %H:%M:%S')} (UTC)")
-        else:
-            # Primera ejecución: registramos el momento actual como punto de partida.
-            # No traemos vídeos anteriores — la próxima ejecución buscará desde ahora.
-            print(f"\n  ℹ️  Primera ejecución — registrando checkpoint: {now.strftime('%d/%m/%Y %H:%M:%S')} (UTC)")
-            print("  ✨ No se añaden vídeos anteriores. Los próximos syncs buscarán desde este momento.")
-            self._sync_state["last_run"] = now_iso
-            self._save_sync_state()
-            return
 
 
         # ── Step 1: playlist ──────────────────────────────────────────────────
@@ -1104,6 +1111,10 @@ class YouTubeDataService:
         processed_videos = set(self._sync_state.get("processed_videos", []))
 
         for v in winners:
+            if v["videoId"] in actual_playlist_vids or v["videoId"] in processed_videos:
+                print(f"  ⏭️  [Ya añadido] {v['channel']} — {v['title']}")
+                continue
+
             pub_str = v.get("publishedAt", "")
             try:
                 pub_dt = datetime.fromisoformat(pub_str.replace("Z", "+00:00"))

@@ -150,6 +150,10 @@ def _register_releases(subparsers: argparse._SubParsersAction) -> None:
         "--liked-only", action="store_true",
         help="Only check artists that have at least one song in your Liked Songs playlist",
     )
+    sync_p.add_argument(
+        "--playlist", type=str, metavar="PL",
+        help="Only check artists assigned to this target playlist (e.g. 'Folk', 'Rock')",
+    )
 
 
 
@@ -184,8 +188,8 @@ def _register_playlist(subparsers: argparse._SubParsersAction) -> None:
         help="Skip playlist cover generation (reordering)",
     )
     sp_p.add_argument(
-        "--chord", action="store_true",
-        help="Enrich songs with harmonic progression (chords) from the Chordonomicon dataset",
+        "--chord", nargs="?", const="both", choices=["chordonomicon", "ultimate-guitar", "both"],
+        help="Enrich songs with harmonic progression (chords) from Chordonomicon, Ultimate Guitar, or both (defaults to both)",
     )
 
     # playlist chord
@@ -196,6 +200,10 @@ def _register_playlist(subparsers: argparse._SubParsersAction) -> None:
     )
     ch_p.add_argument("artist", type=str, help="Artist name")
     ch_p.add_argument("title", type=str, help="Song title")
+    ch_p.add_argument(
+        "--chord", nargs="?", const="both", choices=["chordonomicon", "ultimate-guitar", "both"], default="both",
+        help="Harmonic progression (chords) provider to use (defaults to both)",
+    )
 
     # playlist cleanup-inbox (was --cleanup-inbox)
     pl_sub.add_parser(

@@ -45,6 +45,18 @@ class ChordService:
     def _cache_key(self, artist, title):
         return f"{str(artist).lower().strip()}||{str(title).lower().strip()}"
 
+    def _get_ug_cookies(self):
+        cj = None
+        try:
+            import browser_cookie3
+            cj = browser_cookie3.chrome(domain_name='ultimate-guitar.com')
+        except Exception:
+            try:
+                cj = browser_cookie3.load(domain_name='ultimate-guitar.com')
+            except Exception:
+                pass
+        return cj
+
     def ensure_database(self):
         """Ensures that the SQLite database is populated from the Chordonomicon dataset."""
         if os.path.exists(self.db_path):
@@ -215,7 +227,8 @@ class ChordService:
             encoded_query = urllib.parse.quote(query)
             url = f"https://www.ultimate-guitar.com/search.php?search_type=title&value={encoded_query}"
             
-            response = requests.get(url, headers=headers, timeout=15)
+            cookies = self._get_ug_cookies()
+            response = requests.get(url, headers=headers, cookies=cookies, timeout=15)
             if response.status_code == 200:
                 match = re.search(r'class="js-store"[^>]*data-content="([^"]+)"', response.text)
                 if not match:
@@ -424,7 +437,8 @@ class ChordService:
         }
         
         try:
-            response = requests.get(url, headers=headers, timeout=15)
+            cookies = self._get_ug_cookies()
+            response = requests.get(url, headers=headers, cookies=cookies, timeout=15)
             if response.status_code != 200:
                 print(f"    Warning: Ultimate Guitar returned HTTP {response.status_code}")
                 return ""
@@ -475,22 +489,53 @@ class ChordService:
             if not chords_content:
                 return ""
                 
-            # Find all chords marked with [ch]Chord[/ch]
+            # Parse structured sections matching Chordonomicon format (from mysongs/server.py)
+            section_pattern = r'(\[(?!ch\])(?!/ch\])(?!tab\])(?!/tab\])[^\]]+\])'
+            parts = re.split(section_pattern, chords_content, flags=re.IGNORECASE)
+            
+            formatted_parts = []
+            
+            first_text = parts[0]
+            first_chords = re.findall(r'\[ch\](.*?)\[/ch\]', first_text)
+            if first_chords:
+                formatted_parts.append("<intro> " + " ".join([c.strip() for c in first_chords if c.strip()]))
+                
+            for i in range(1, len(parts), 2):
+                if i >= len(parts):
+                    break
+                section_name = parts[i].strip()
+                # Clean section name, e.g. [Verse 1] -> <verse_1>
+                clean_section = section_name.lower().replace(" ", "_").replace("[", "<").replace("]", ">")
+                
+                section_text = parts[i+1] if (i+1) < len(parts) else ""
+                chords = re.findall(r'\[ch\](.*?)\[/ch\]', section_text)
+                if chords:
+                    formatted_parts.append(f"{clean_section} " + " ".join([c.strip() for c in chords if c.strip()]))
+                    
+            if formatted_parts:
+                return " ".join(formatted_parts)
+                
+            # Fallback: Find all chords marked with [ch]Chord[/ch] if no sections
             chords = re.findall(r"\[ch\](.*?)\[/ch\]", chords_content)
             if not chords:
                 return ""
-                
-            # Filter empty values and strip whitespace
-            cleaned_chords = [c.strip() for c in chords if c.strip()]
-            
-            # Return space-separated chords
-            return " ".join(cleaned_chords)
+            return " ".join([c.strip() for c in chords if c.strip()])
         except Exception as e:
             print(f"    Warning: Error scraping UG URL '{url}': {e}")
             return ""
 
-    def get_chords(self, artist: str, title: str, bypass_negative_cache: bool = False, interactive: bool = False, allow_ug: bool = True) -> str:
+    def get_chords(self, artist: str, title: str, bypass_negative_cache: bool = False, interactive: bool = False, allow_ug: bool = True, provider: str = "both") -> str:
         """Resolves chord progression for a song by fetching its Spotify IDs and querying SQLite, with Ultimate Guitar fallback."""
+        # Map provider choice to flags
+        allow_chordonomicon = True
+        if provider == "chordonomicon":
+            allow_ug = False
+        elif provider == "ultimate-guitar":
+            allow_chordonomicon = False
+            allow_ug = True
+        elif provider == "both":
+            allow_ug = True
+
         key = self._cache_key(artist, title)
         
         # Check cache first
@@ -500,39 +545,41 @@ class ChordService:
                 if not (bypass_negative_cache and cached_val == ""):
                     return cached_val
   
-        # Ensure database and index exist
-        try:
-            self.ensure_database()
-        except Exception as e:
-            print(f"Error preparing Chordonomicon DB: {e}")
-            return ""
- 
-        # Search for Spotify IDs in Chordonomicon
-        print(f"  🔍 Searching chords in Chordonomicon for '{artist} - {title}'...")
-        spotify_ids = self.search_spotify_ids(artist, title)
-        
         chords_found = ""
-        if spotify_ids:
-            # Query SQLite for the first matching ID
-            conn = sqlite3.connect(self.db_path)
-            cursor = conn.cursor()
-            
+        if allow_chordonomicon:
+            # Ensure database and index exist
             try:
-                for song_id in spotify_ids:
-                    cursor.execute("SELECT chords FROM chord_progression WHERE spotify_song_id = ?", (song_id,))
-                    row = cursor.fetchone()
-                    if row and row[0]:
-                        chords_found = row[0]
-                        print(f"  ✨ Found chords in Chordonomicon (Spotify ID: {song_id})")
-                        break
+                self.ensure_database()
             except Exception as e:
-                print(f"  Warning: Database lookup failed: {e}")
-            finally:
-                conn.close()
+                print(f"Error preparing Chordonomicon DB: {e}")
+                return ""
+     
+            # Search for Spotify IDs in Chordonomicon
+            print(f"  🔍 Searching chords in Chordonomicon for '{artist} - {title}'...")
+            spotify_ids = self.search_spotify_ids(artist, title)
+            
+            if spotify_ids:
+                # Query SQLite for the first matching ID
+                conn = sqlite3.connect(self.db_path)
+                cursor = conn.cursor()
+                
+                try:
+                    for song_id in spotify_ids:
+                        cursor.execute("SELECT chords FROM chord_progression WHERE spotify_song_id = ?", (song_id,))
+                        row = cursor.fetchone()
+                        if row and row[0]:
+                            chords_found = row[0]
+                            print(f"  ✨ Found chords in Chordonomicon (Spotify ID: {song_id})")
+                            break
+                except Exception as e:
+                    print(f"  Warning: Database lookup failed: {e}")
+                finally:
+                    conn.close()
         
-        # Ultimate Guitar Fallback
+        # Ultimate Guitar Fallback/Primary
         if not chords_found:
-            print(f"  ❌ No chords found in Chordonomicon for '{artist} - {title}'")
+            if allow_chordonomicon:
+                print(f"  ❌ No chords found in Chordonomicon for '{artist} - {title}'")
             if allow_ug:
                 print(f"  🔍 Searching Ultimate Guitar for '{artist} - {title}'...")
                 ug_url = self.search_ultimate_guitar_url(artist, title, interactive=interactive)
@@ -546,7 +593,8 @@ class ChordService:
                 else:
                     print(f"  ❌ No Ultimate Guitar page found.")
             else:
-                print(f"  ℹ️ Ultimate Guitar search disabled for batch sync.")
+                if allow_chordonomicon:
+                    print(f"  ℹ️ Ultimate Guitar search disabled for batch sync.")
 
         # Cache results (including empty string for negative caching)
         with self._lock:

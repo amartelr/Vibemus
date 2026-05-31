@@ -249,6 +249,7 @@ def _sync_releases(args, manager) -> int:
         force=getattr(args, "force", False),
         interactive=not getattr(args, "auto", False),
         liked_only=getattr(args, "liked_only", False),
+        target_playlist=getattr(args, "playlist", None),
     )
     return 0
 
@@ -518,7 +519,8 @@ def _playlist_analyze_chords(args, manager) -> int:
     return manager.analyze_playlist_chords(reanalyze=getattr(args, "reanalyze", False))
 
 def _playlist_chord(args, manager) -> int:
-    return manager.lookup_chords(args.artist, args.title)
+    provider = getattr(args, "chord", "both")
+    return manager.lookup_chords(args.artist, args.title, provider=provider)
 
 def _playlist_list(manager) -> int:
     manager.list_playlists_counts()

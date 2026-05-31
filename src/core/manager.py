@@ -299,6 +299,19 @@ class Manager:
             else:
                 collab_names = [a['name'] for a in artists_list]
 
+            # ── Verificar si alguno de los colaboradores ya está registrado en la hoja ──
+            # Esto evita preguntar de nuevo por colaboraciones donde el artista elegido ya fue onboarding.
+            tracked_collab = None
+            for name in collab_names:
+                row = self._find_artist_row(artists_records, name=name)
+                if row:
+                    tracked_collab = row
+                    break
+            
+            if tracked_collab:
+                print(f"    \033[90mℹ Colaboración [{', '.join(repr(n) for n in collab_names)}] → usando ya trackeado: '{tracked_collab.get('Artist Name')}'\033[0m")
+                return tracked_collab
+
             # Solo preguntamos si el artista es nuevo (no está ya en tracking)
             # Si ya está tracked, lo usamos directamente sin molestar al usuario
             already_tracked = any(
@@ -333,6 +346,12 @@ class Manager:
                     print(f"      Opción no válida.")
             else:
                 print(f"    \033[90mℹ Colaboración [{', '.join(repr(n) for n in collab_names)}] → usando: '{onboarding_artist}'\033[0m")
+
+        # ── Doble verificación: si el artista de onboarding elegido ya está registrado, reutilizarlo ──
+        # Esto previene que se vuelva a preguntar por la playlist si ya se guardó en una ejecución previa.
+        artist_row = self._find_artist_row(artists_records, name=onboarding_artist, artists_list=[{'name': onboarding_artist, 'id': onboarding_id}] if onboarding_id else None)
+        if artist_row:
+            return artist_row
 
         # ── YouTube channel verification ──
         # If the browseId came from the track metadata AND the name looks like a
@@ -1239,29 +1258,6 @@ class Manager:
                 else:
                     artist_row = self._find_artist_row(artists_records, name=main_artist, artists_list=artists_list)
                 
-                # REGLA SOLICITADA: Quitar Like a canciones viejas fuera de SOURCE_PLAYLISTS (Archivos)
-                if status == 'LIKE':
-                    sheet_rec = all_tracked_vids.get(vid)
-                    if sheet_rec:
-                        pl_in_sheet = sheet_rec.get('Playlist', '')
-                        if pl_in_sheet not in Config.SOURCE_PLAYLISTS:
-                            # Candidata a un-like si es vieja (menos que el umbral de novedades)
-                            song_year = 0
-                            y_str = sheet_rec.get('Year')
-                            if y_str:
-                                match = re.search(r'(\d{4})', str(y_str))
-                                if match: song_year = int(match.group(1))
-                            
-                            # Umbral: Si MAX_NEW_RELEASE_YEARS=1, threshold es 2025. 2024 y anteriores se quitan.
-                            threshold = datetime.now().year - Config.MAX_NEW_RELEASE_YEARS
-                            if song_year and song_year < threshold:
-                                print(f"    \033[93m⚡ Quitando Like de canción antigua archivada: {song_year} | Playlist: {pl_in_sheet}\033[0m")
-                                try:
-                                    self.yt.rate_song(vid, 'INDIFFERENT')
-                                    status = 'INDIFFERENT' # Actualizar estado local para el resto del bucle
-                                    if existing_vids.get(vid): existing_vids[vid]['Liked'] = ''
-                                except Exception as e:
-                                    print(f"      ✗ Error al quitar Like: {e}")
                 
                 # Get current scrobbles for logic
                 scrobbles = item.get('Scrobble', 0)
@@ -1658,6 +1654,13 @@ class Manager:
                 from src.services.chord_service import ChordService
                 self.chord = ChordService()
             
+            # Resolve provider option
+            provider = "both"
+            if isinstance(sync_chord, str):
+                provider = sync_chord
+            elif sync_chord is True:
+                provider = "chordonomicon"
+            
             print("\n" + "━"*50)
             print("🎵 ENRICHING SONGS WITH CHORD PROGRESSIONS")
             print("━"*50)
@@ -1679,7 +1682,7 @@ class Manager:
                     print(f"[{idx}/{len(songs_to_enrich)}] Resolving chords for: {artist} - {title}")
                     
                     try:
-                        chords = self.chord.get_chords(artist, title, allow_ug=False)
+                        chords = self.chord.get_chords(artist, title, provider=provider)
                         if chords:
                             song['Chord'] = chords
                     except Exception as e:
@@ -1695,18 +1698,18 @@ class Manager:
 
         print("✅ Sync complete.")
 
-    def lookup_chords(self, artist, title) -> int:
+    def lookup_chords(self, artist, title, provider="both") -> int:
         """Looks up a song's chords from Chordonomicon or Ultimate Guitar and updates Google Sheets if the song exists."""
         if not self.chord:
             from src.services.chord_service import ChordService
             self.chord = ChordService()
         
         print("\n" + "━"*60)
-        print(f"🎵 RESOLVING CHORDS FOR: {artist} - {title}")
+        print(f"🎵 RESOLVING CHORDS FOR: {artist} - {title} ({provider})")
         print("━"*60)
         
         try:
-            chords = self.chord.get_chords(artist, title, bypass_negative_cache=True, interactive=True)
+            chords = self.chord.get_chords(artist, title, bypass_negative_cache=True, interactive=True, provider=provider)
             if chords:
                 print(f"\n🎉 Success! Chords resolved:")
                 print(f"\033[92m{chords}\033[0m")
@@ -2326,26 +2329,48 @@ class Manager:
         if not tracks:
             return 0
             
+        # Deduplicate by Video ID to prevent whole batch failing if one is duplicate or suggested twice
+        vids = list(dict.fromkeys([s['Video ID'] for s in tracks if s.get('Video ID')]))
+        print(f"  Añadiendo {len(vids)} canciones únicas a tu playlist Inbox '#' en YouTube Music...")
+        
+        added_vids = set()
+        
+        # Intento 1: lote completo (más rápido)
         try:
-            # Deduplicate by Video ID to prevent whole batch failing if one is duplicate or suggested twice
-            vids = list(dict.fromkeys([s['Video ID'] for s in tracks if s.get('Video ID')]))
-            print(f"  Añadiendo {len(vids)} canciones únicas a tu playlist Inbox '#' en YouTube Music...")
-            
             res = self.yt.add_playlist_items(playlist_id, vids)
-            
-            # Check status: some versions return a dict. If it failed, don't update Excel yet.
             if res and isinstance(res, dict) and res.get('status') == "STATUS_FAILED":
-                print(f"  ✗ Error: YouTube rechazó la adición (posibl. duplicados o límite).")
-                return 0
-            
+                raise Exception("STATUS_FAILED")
+            # Si llegamos aquí, el lote tuvo éxito
+            added_vids = set(vids)
         except Exception as e:
-            print(f"  ✗ Error añadiendo a la playlist de YouTube: {e}")
+            print(f"  ⚠ Lote completo falló ({e}). Reintentando una a una...")
+            # Intento 2: una a una para maximizar los que se añaden
+            for vid in vids:
+                try:
+                    res = self.yt.add_playlist_items(playlist_id, [vid])
+                    if not (res and isinstance(res, dict) and res.get('status') == "STATUS_FAILED"):
+                        added_vids.add(vid)
+                except Exception as e2:
+                    err = str(e2)
+                    if 'duplicate' in err.lower() or '409' in err.lower():
+                        added_vids.add(vid)  # Ya estaba, lo contamos como añadida
+                    else:
+                        print(f"    ✗ No se pudo añadir {vid}: {e2}")
+
+        if not added_vids:
             return 0
 
-        # 2. Add to Excel only if YouTube succeeded
-        print(f"  Guardando {len(tracks)} canciones en el Excel...")
-        self.sheets.add_to_songs_batch(tracks)
-        return len(tracks)
+        # 2. Guardar en Excel solo las que YouTube aceptó
+        accepted_tracks = [s for s in tracks if s.get('Video ID') in added_vids]
+        if accepted_tracks:
+            print(f"  Guardando {len(accepted_tracks)} canciones en el Excel...")
+            self.sheets.add_to_songs_batch(accepted_tracks)
+        
+        skipped = len(vids) - len(added_vids)
+        if skipped:
+            print(f"  ⚠ {skipped} canción(es) no se pudieron añadir (posibles duplicados o error de API).")
+        
+        return len(accepted_tracks)
 
     def check_new_releases(self, playlist_id, force=False, target_artist_name=None, target_artist_id=None, clear_empty=False, interactive=False, skip_summary=False, scope='all', auto=False):
         """Revisa la discografía del artista en YouTube y añade las canciones limitadas.
@@ -2466,7 +2491,9 @@ class Manager:
             except Exception:
                 continue
                 
-            album_year_str = str(album_info.get('year', ''))
+            album_year_raw = album_info.get('year', '')
+            year_match_raw = re.search(r'(\d{4})', str(album_year_raw) if album_year_raw else '')
+            album_year_str = year_match_raw.group(1) if year_match_raw else ''
             
             is_recent = False
             match = re.search(r'(\d{4})', album_year_str)
@@ -2576,13 +2603,26 @@ class Manager:
                 listeners = int(t.get('LastfmScrobble', 0))
                 user_scrobbles = int(t.get('Scrobble', 0))
                 listeners_fmt = f"{listeners:,}".replace(",", ".")
+                # Obtener año: AlbumYear (del álbum), luego campo 'year' del track, luego fetch lazy
+                album_year = str(t.get('AlbumYear') or '').strip()
+                if not album_year:
+                    track_year_raw = t.get('year', '')
+                    yr_m = re.search(r'(\d{4})', str(track_year_raw)) if track_year_raw else None
+                    album_year = yr_m.group(1) if yr_m else ''
+                if not album_year:
+                    vid_tmp = t.get('videoId')
+                    if vid_tmp:
+                        album_year = self._fetch_song_year(vid_tmp, t.get('title', ''), target_artist_name)
+                if album_year:
+                    t['AlbumYear'] = album_year  # cachear para reutilizar al añadir
+                year_str = f" \033[93m({album_year})\033[0m" if album_year else ""
                 
                 add_this = False
                 if auto:
-                    print(f"      + Añadiendo automática: \033[1;96m{target_artist_name}\033[0m - \033[1;92m{t.get('title')}\033[0m [{listeners_fmt}🎧]")
+                    print(f"      + Añadiendo automática: \033[1;96m{target_artist_name}\033[0m - \033[1;92m{t.get('title')}\033[0m{year_str} [{listeners_fmt}🎧]")
                     add_this = True
                 else:
-                    ans = input(f"      - \033[1;96m{target_artist_name}\033[0m \033[90m-\033[0m \033[1;92m{t.get('title')}\033[0m \033[90m[{listeners_fmt}🎧 | {user_scrobbles}👤]\033[0m. ¿Añadir? [\033[92mS\033[0m/n/q]: ").strip().lower()
+                    ans = input(f"      - \033[1;96m{target_artist_name}\033[0m \033[90m-\033[0m \033[1;92m{t.get('title')}\033[0m{year_str} \033[90m[{listeners_fmt}🎧 | {user_scrobbles}👤]\033[0m. ¿Añadir? [\033[92mS\033[0m/n/q]: ").strip().lower()
                     if ans == 'q': return -1
                     if ans != 'n': add_this = True
                 
@@ -2650,13 +2690,26 @@ class Manager:
                     listeners = int(t.get('LastfmScrobble', 0))
                     user_scrobbles = int(t.get('Scrobble', 0))
                     listeners_fmt = f"{listeners:,}".replace(",", ".")
+                    # Obtener año: AlbumYear (del álbum), luego campo 'year' del track, luego fetch lazy
+                    album_year = str(t.get('AlbumYear') or '').strip()
+                    if not album_year:
+                        track_year_raw = t.get('year', '')
+                        yr_m = re.search(r'(\d{4})', str(track_year_raw)) if track_year_raw else None
+                        album_year = yr_m.group(1) if yr_m else ''
+                    if not album_year:
+                        vid_tmp = t.get('videoId')
+                        if vid_tmp:
+                            album_year = self._fetch_song_year(vid_tmp, t.get('title', ''), target_artist_name)
+                    if album_year:
+                        t['AlbumYear'] = album_year  # cachear para reutilizar al añadir
+                    year_str = f" \033[93m({album_year})\033[0m" if album_year else ""
                     
                     add_this = False
                     if auto:
-                        print(f"      + Añadiendo automática (catálogo): \033[1;96m{target_artist_name}\033[0m - \033[1;92m{t.get('title')}\033[0m [{listeners_fmt}🎧]")
+                        print(f"      + Añadiendo automática (catálogo): \033[1;96m{target_artist_name}\033[0m - \033[1;92m{t.get('title')}\033[0m{year_str} [{listeners_fmt}🎧]")
                         add_this = True
                     else:
-                        ans = input(f"      - \033[1;96m{target_artist_name}\033[0m \033[90m-\033[0m \033[1;92m{t.get('title')}\033[0m \033[90m({t.get('AlbumYear')}) [{listeners_fmt}🎧 | {user_scrobbles}👤]\033[0m. ¿Añadir? [\033[92mS\033[0m/n/q]: ").strip().lower()
+                        ans = input(f"      - \033[1;96m{target_artist_name}\033[0m \033[90m-\033[0m \033[1;92m{t.get('title')}\033[0m{year_str} \033[90m[{listeners_fmt}🎧 | {user_scrobbles}👤]\033[0m. ¿Añadir? [\033[92mS\033[0m/n/q]: ").strip().lower()
                         if ans == 'q': return -1
                         if ans != 'n': add_this = True
                     
@@ -3047,12 +3100,14 @@ class Manager:
             print(f"  Entrada no válida. Por favor, introduce un número entre 0 y {len(options)}.")
 
 
-    def sync_all_artist_releases(self, force=False, interactive=False, liked_only=False):
+    def sync_all_artist_releases(self, force=False, interactive=False, liked_only=False, target_playlist=None):
         """Scans all tracked artists for new releases (skips artists checked within the cache window)."""
         print(f"\n==================================================")
         print(f"🚀 SYNCING ALL ARTIST RELEASES (Force: {force})")
         if liked_only:
             print(f"   🎯 Modo: Solo artistas con canciones en 'Me gusta'")
+        if target_playlist:
+            print(f"   🎵 Filtro Playlist: {target_playlist}")
         print(f"==================================================\n")
 
         # Filtrar artistas por fecha (solo si NO es force)
@@ -3150,6 +3205,16 @@ class Manager:
                     print(f"  → {len(artists)} de {before} artistas tienen canciones en tu colección.\n")
             except Exception as e:
                 print(f"  ⚠ Error al filtrar por colección: {e}. Procesando todos los artistas.\n")
+
+        # ── Filtro --playlist: solo artistas asignados a esa playlist ──
+        if target_playlist:
+            norm_pl = self._normalize(target_playlist)
+            before = len(artists)
+            artists = [
+                a for a in artists
+                if self._normalize(a.get("Playlist", "")) == norm_pl
+            ]
+            print(f"  🎵 Filtrando por playlist '{target_playlist}': {len(artists)} de {before} artistas.\n")
 
         if not artists:
             print("✨ Todos tus artistas están al día. Nada que sincronizar hoy.")
