@@ -136,32 +136,39 @@ class Manager:
 
     def _print_artist_catalog_summary(self, artist_name):
         """Prints a summary of already tracked songs for the given artist."""
+        # Clear/bypass sheet cache to ensure we get the latest directly from the spreadsheet!
+        self.sheets._active_records_cache = None
+        self.sheets._archived_records_cache = None
+        self.sheets._songs_vid_cache = None
+
         norm_name = self._normalize(artist_name)
         active_songs = self.sheets.get_songs_records()
         archived_songs = self.sheets.get_archived_records()
         
         all_tracked_songs = []
         seen_vids = set()
-        active_vids = set()
         
         for s in active_songs:
             vid = s.get("Video ID")
+            s_copy = dict(s)
+            s_copy["is_archived"] = False
             if vid:
                 if vid not in seen_vids:
                     seen_vids.add(vid)
-                    active_vids.add(vid)
-                    all_tracked_songs.append(s)
+                    all_tracked_songs.append(s_copy)
             else:
-                all_tracked_songs.append(s)
+                all_tracked_songs.append(s_copy)
                 
         for s in archived_songs:
             vid = s.get("Video ID")
+            s_copy = dict(s)
+            s_copy["is_archived"] = True
             if vid:
                 if vid not in seen_vids:
                     seen_vids.add(vid)
-                    all_tracked_songs.append(s)
+                    all_tracked_songs.append(s_copy)
             else:
-                all_tracked_songs.append(s)
+                all_tracked_songs.append(s_copy)
         
         all_artists = self.sheets.get_artists()
         tracked_artists = {self._normalize(a.get("Artist Name", "")) for a in all_artists}
@@ -184,29 +191,108 @@ class Manager:
         artist_songs = [s for s in all_tracked_songs if song_has_artist(s, norm_name)]
         
         if artist_songs:
+            # Enrich from Last.fm cache (fast: uses cached data, only hits API if stale/missing)
+            print(f"\n  \033[90m🔍 Consultando Last.fm para {len(artist_songs)} canciones...\033[0m", end="\r")
+            songs_changed = False
+            for s in artist_songs:
+                try:
+                    info = self.lastfm.get_track_info(
+                        s.get("Artist", artist_name),
+                        s.get("Title", ""),
+                        force_scrobbles=False,   # use cache, only API if stale
+                        cache_ttl_days=7,
+                    )
+                    if info:
+                        listeners = int(info.get("lastfm_listeners", 0) or info.get("lastfm_scrobble", 0))
+                        user_plays = int(info.get("scrobble", 0))
+                        # Only upgrade (never downgrade)
+                        if listeners > int(s.get("LastfmScrobble") or 0):
+                            s["LastfmScrobble"] = listeners
+                            songs_changed = True
+                        if user_plays > int(s.get("Scrobble") or 0):
+                            s["Scrobble"] = user_plays
+                            songs_changed = True
+                except Exception:
+                    pass
+            print(" " * 60, end="\r")  # clear the "consultando" line
+
+            # Persist updates back to the spreadsheet if any values changed
+            if songs_changed:
+                # Build a lookup from the enriched artist_songs by Video ID → updated values
+                enriched_by_vid = {s.get("Video ID"): s for s in artist_songs if s.get("Video ID")}
+                enriched_by_key = {
+                    f"{self._normalize(s.get('Artist',''))}||{self._normalize(s.get('Title',''))}": s
+                    for s in artist_songs
+                }
+
+                songs_sheet_changed = False
+                for orig in active_songs:
+                    vid = orig.get("Video ID")
+                    enriched = enriched_by_vid.get(vid) if vid else enriched_by_key.get(
+                        f"{self._normalize(orig.get('Artist',''))}||{self._normalize(orig.get('Title',''))}"
+                    )
+                    if enriched:
+                        new_l = enriched.get("LastfmScrobble", 0)
+                        new_s = enriched.get("Scrobble", 0)
+                        if new_l > int(orig.get("LastfmScrobble") or 0):
+                            orig["LastfmScrobble"] = new_l
+                            songs_sheet_changed = True
+                        if new_s > int(orig.get("Scrobble") or 0):
+                            orig["Scrobble"] = new_s
+                            songs_sheet_changed = True
+
+                archived_sheet_changed = False
+                for orig in archived_songs:
+                    vid = orig.get("Video ID")
+                    enriched = enriched_by_vid.get(vid) if vid else enriched_by_key.get(
+                        f"{self._normalize(orig.get('Artist',''))}||{self._normalize(orig.get('Title',''))}"
+                    )
+                    if enriched:
+                        new_l = enriched.get("LastfmScrobble", 0)
+                        new_s = enriched.get("Scrobble", 0)
+                        if new_l > int(orig.get("LastfmScrobble") or 0):
+                            orig["LastfmScrobble"] = new_l
+                            archived_sheet_changed = True
+                        if new_s > int(orig.get("Scrobble") or 0):
+                            orig["Scrobble"] = new_s
+                            archived_sheet_changed = True
+
+                if songs_sheet_changed:
+                    self.sheets.overwrite_songs(active_songs)
+                if archived_sheet_changed:
+                    self.sheets.overwrite_archived(archived_songs)
+
             artist_songs_sorted = sorted(artist_songs, key=lambda x: int(x.get("LastfmScrobble") or 0), reverse=True)
             print(f"\n  \033[94m🎵 Biblioteca Actual ({len(artist_songs)}):\033[0m")
             # Mostrar solo el top 15 si hay muchas para no saturar la pantalla
             limit = 15
             for s in artist_songs_sorted[:limit]:
                 s_title = s.get("Title", "")
-                s_scrobble = int(s.get("LastfmScrobble") or 0)
-                s_scrobble_fmt = f"{s_scrobble:,}".replace(",", ".")
+                s_listeners = int(s.get("LastfmScrobble") or 0)
+                s_user_plays = int(s.get("Scrobble") or 0)
+                listeners_fmt = f"{s_listeners:,}".replace(",", ".")
                 s_pl = s.get("Playlist", "")
                 s_year = s.get("Year", "")
                 year_str = f" {s_year}" if s_year else ""
                 
-                # Tag si es archivada (solo si NO está en activas)
-                is_archived = s.get("Video ID") not in active_vids
+                # Tag si es archivada
+                is_archived = s.get("is_archived", False)
                 arch_tag = " \033[33m[ARCH]\033[0m" if is_archived else ""
                 
-                print(f"    - \033[1;92m{s_title}\033[0m\033[90m{year_str} [{s_scrobble_fmt}🎧]\033[0m \033[35m[{s_pl}]{arch_tag}\033[0m")
+                # Mostrar mis plays si los hay
+                user_tag = f" \033[96m[{s_user_plays}👤]\033[0m" if s_user_plays > 0 else ""
+                
+                print(f"    - \033[1;92m{s_title}\033[0m\033[90m{year_str} [{listeners_fmt}🎧]{user_tag}\033[0m \033[35m[{s_pl}]{arch_tag}\033[0m")
             
             if len(artist_songs) > limit:
                 print(f"    \033[90m... y {len(artist_songs) - limit} canciones más.\033[0m")
             print()
         else:
             print(f"\n  \033[90m[✕ Biblioteca Actual: 0 canciones conocidas para '{artist_name}']\033[0m\n")
+
+        active_count = sum(1 for s in artist_songs if not s.get("is_archived", False))
+        archived_count = sum(1 for s in artist_songs if s.get("is_archived", False))
+        return len(artist_songs), active_count, archived_count
 
     def _split_artist_names(self, raw_name, artist_map):
         """Intelligently splits an artist string into its individual artists, 
@@ -2742,315 +2828,247 @@ class Manager:
 
 
     def sync_pending_playlist(self, threshold=None, skip_lastfm=False):
+        """Flujo de 3 pasos para revisar y reconstruir la playlist 'Pendiente':
+
+        1. Recorre la playlist Pendiente en YT Music; archiva canciones con DISLIKE
+           (las mueve de Songs → Archived, las elimina de su playlist original y de
+           la biblioteca de YT Music).
+        2. Elimina la playlist 'Pendiente' completa de YT Music.
+        3. Crea una nueva playlist 'Pendiente' y añade todas las canciones del Sheet
+           (excluyendo '#') cuyo Scrobble <= threshold.
+        """
         print("\n" + "━"*50)
         title_suffix = f" (<= {threshold} reproducciones)" if threshold is not None else " (Solo limpieza)"
         print(f"📋 REVISIÓN DE CANCIONES PENDIENTES{title_suffix}")
         print("━"*50)
-        
+
         pl_name = "Pendiente"
+
+        # ──────────────────────────────────────────────────────────────────────
+        # PASO 1: Recorrer Pendiente y archivar canciones con dislike
+        # ──────────────────────────────────────────────────────────────────────
+        print("\n\033[1m📌 Paso 1: Revisando dislikes en la playlist 'Pendiente'...\033[0m")
         target_pid = self._resolve_playlist_id(pl_name)
-        if not target_pid:
-            print(f"  📝 Creando playlist '{pl_name}' en YouTube Music...")
-            target_pid = self.yt.create_playlist(pl_name, "Canciones con pocas reproducciones para revisar")
-            if not target_pid:
-                print("  \033[91m✗ Error creando la playlist.\033[0m")
-                return
-                
-        print(f"  Obteniendo canciones actuales de la playlist '{pl_name}'...")
-        try:
-            current_items = self.yt.get_playlist_items_with_status(target_pid, limit=None)
-        except Exception:
-            current_items = []
-        current_vids = {it.get('videoId'): it for it in current_items if it.get('videoId')}
-        
-        # Resolve liked vids once for both cleanup and exclusion
-        print("  Comprobando colección 'Me gusta' para exclusión y limpieza...")
-        liked_data = self.yt.get_liked_songs(limit=None)
-        liked_vids = {t.get('videoId') for t in liked_data.get('tracks', []) if t.get('videoId')}
 
         all_songs = self.sheets.get_songs_records()
-        updated_any_songs = False
-
-        # ── Detect Manual Removals (Snapshot) ──
-        if os.path.exists(Config.PENDING_SNAPSHOT_FILE):
-            try:
-                with open(Config.PENDING_SNAPSHOT_FILE, 'r') as f:
-                    snapshot = set(json.load(f))
-                
-                # Missing from YT but present in snapshot
-                manually_removed = snapshot - set(current_vids.keys())
-                
-                if manually_removed:
-                    print(f"  🔍 Detectando canciones eliminadas manualmente de 'Pendiente'...")
-                    graduated_count = 0
-                    for vid in manually_removed:
-                        # Find in sheet
-                        matches = [s for s in all_songs if s.get('Video ID') == vid]
-                        if matches:
-                            s = matches[0]
-                            scrobbles_raw = str(s.get('Scrobble', '0')).replace('.', '').replace(',', '').strip()
-                            c_scrobbles = int(scrobbles_raw) if scrobbles_raw.isdigit() else 0
-                            
-                            new_scrobbles = max(c_scrobbles, 3)
-                            s['Scrobble'] = new_scrobbles
-                            updated_any_songs = True
-                            graduated_count += 1
-                            print(f"    🎓 \033[92m{s.get('Artist')} - {s.get('Title')}\033[0m consolidada ({new_scrobbles} scrobbles).")
-                    
-                    if graduated_count == 0:
-                        print("    ℹ️ No se han graduado nuevas canciones por eliminación manual.")
-            except Exception as e:
-                print(f"  ⚠ Error al procesar el snapshot: {e}")
-
         to_remove_from_all_songs = set()
         archived_batch = []
 
-        # ── Refresh Scrobbles from Last.fm for songs currently in Pendiente ──────
-        if current_items and not skip_lastfm:
-            print("  🔄 Actualizando Scrobbles desde Last.fm...")
-            vid_to_sheet = {s.get('Video ID'): s for s in all_songs if s.get('Video ID')}
-            # Solo enriquecemos canciones que aún tienen < 3 scrobbles en el Sheet.
-            # Si el usuario ha puesto un 3 o más manualmente, respetamos ese valor para que se gradúe.
-            pending_for_enrichment = [
-                vid_to_sheet[item.get('videoId')]
-                for item in current_items
-                if item.get('videoId') and item.get('videoId') in vid_to_sheet
-                and int(str(vid_to_sheet[item.get('videoId')].get('Scrobble', 0)).replace('.', '').replace(',', '') or 0) < 3
-            ]
+        if target_pid:
+            print(f"  Obteniendo canciones de '{pl_name}'...")
+            try:
+                current_items = self.yt.get_playlist_items_with_status(target_pid, limit=None)
+            except Exception:
+                current_items = []
 
-            if pending_for_enrichment:
-                print(f"  ⌛ Actualizando scrobbles para {len(pending_for_enrichment)} canciones con < 3 reproducciones...")
-                self.lastfm.enrich_songs(pending_for_enrichment, force_scrobbles=True, cache_ttl_days=0)
-                updated_any_songs = True 
-            elif not vid_to_sheet:
-                print("  ℹ️  Ninguna canción de Pendiente encontrada en el Sheet para enriquecer.")
-            else:
-                print("  ℹ️  Todas las canciones ya alcanzan el umbral o no necesitan actualización de scrobbles.")
+            if current_items:
+                # ── Enriquecer metadatos Last.fm para todas las canciones de Pendiente ──
+                # El LastFMService tiene caché propio por TTL, así que con ttl=1 día solo
+                # llamará a la API si los datos tienen más de 24h — no se satura la API.
+                vid_to_sheet = {s.get('Video ID'): s for s in all_songs if s.get('Video ID')}
+                songs_in_pending = [
+                    vid_to_sheet[item.get('videoId')]
+                    for item in current_items
+                    if item.get('videoId') and item.get('videoId') in vid_to_sheet
+                ]
 
-        # 1. Check for Dislikes in the current playlist
-        if current_items:
-            print("  Revisando dislikes de la playlist Pendiente...")
-            for item in current_items:
-                vid = item.get('videoId')
-                if not vid: continue
+                if songs_in_pending:
+                    print(f"  🎵 Actualizando metadatos Last.fm para {len(songs_in_pending)} canciones de '{pl_name}'...")
+                    # Guardar snapshot de scrobbles antes del enriquecimiento para detectar cambios
+                    pre_enrich = {s.get('Video ID'): (s.get('Scrobble', 0), s.get('LastfmScrobble', 0)) for s in songs_in_pending}
+                    self.lastfm.enrich_songs(songs_in_pending, force_scrobbles=True, cache_ttl_days=1)
 
-                # Fetch sheet status if available (try both 'status' and 'Status')
-                sheet_matches = [s for s in all_songs if s.get('Video ID') == vid]
-                sheet_rec = sheet_matches[0] if sheet_matches else {}
-                s_status = (sheet_rec.get('status') or sheet_rec.get('Status') or '').strip().capitalize()
-                
-                yt_status = item.get('likeStatus', 'INDIFFERENT')
-                
-                if yt_status == 'DISLIKE' or s_status == 'Dislike':
+                    # Comprobar si algo cambió y persistir al Sheet solo si es necesario
+                    any_updated = any(
+                        (s.get('Scrobble', 0), s.get('LastfmScrobble', 0)) != pre_enrich.get(s.get('Video ID'))
+                        for s in songs_in_pending
+                    )
+                    if any_updated:
+                        print("  💾 Guardando scrobbles actualizados en Songs...")
+                        self.sheets.overwrite_songs(all_songs)
+                    else:
+                        print("  ℹ️  Scrobbles ya al día — sin cambios en el Sheet.")
+
+                for item in current_items:
+                    vid = item.get('videoId')
+                    if not vid:
+                        continue
+
+                    yt_status = item.get('likeStatus', 'INDIFFERENT')
+
+                    # Comprobamos también el estado en el Sheet
+                    sheet_matches = [s for s in all_songs if s.get('Video ID') == vid]
+                    sheet_rec = sheet_matches[0] if sheet_matches else {}
+                    s_status = (sheet_rec.get('status') or sheet_rec.get('Status') or '').strip().capitalize()
+
+                    if yt_status != 'DISLIKE' and s_status != 'Dislike':
+                        continue  # Solo nos interesan los dislikes en este paso
+
                     title = item.get('title', 'Unknown')
                     artist = ", ".join([a.get('name', '') for a in item.get('artists', [])])
-                    reason = "Dislike detectado en YT" if yt_status == 'DISLIKE' else "Dislike detectado en Sheet"
+                    reason = "Dislike en YT Music" if yt_status == 'DISLIKE' else "Dislike en Sheet"
                     print(f"    \033[91m✗ {reason}:\033[0m \033[92m{artist} - {title}\033[0m")
+
+                    # Resetear el rating a neutro
                     try:
-                        self.yt.remove_playlist_items(target_pid, [item])
                         self.yt.rate_song(vid, 'INDIFFERENT')
-                        if sheet_rec: sheet_rec['Liked'] = ''
-                        # Eliminar también de la biblioteca
-                        try:
-                            remove_token = (item.get('feedbackTokens') or {}).get('remove')
-                            if not remove_token:
-                                lib = self._get_library_catalog()
-                                lib_item = lib.get(vid)
-                                if lib_item:
-                                    remove_token = (lib_item.get('feedbackTokens') or {}).get('remove')
-                            if remove_token:
-                                self.yt.edit_song_library_status(feedback_tokens=[remove_token])
-                                print(f"      🗑 Eliminado de la biblioteca")
-                        except Exception as lib_e:
-                            print(f"      ⚠ No se pudo eliminar de la biblioteca: {lib_e}")
                     except Exception as e:
-                        print(f"      ⚠ Error actualizando YouTube: {e}")
-                    
-                    # Check where this song is in the main sheet
-                    sheet_matches = [s for s in all_songs if s.get('Video ID') == vid]
+                        print(f"      ⚠ No se pudo resetear el rating: {e}")
+
+                    # Eliminar de la biblioteca de YT Music
+                    try:
+                        remove_token = (item.get('feedbackTokens') or {}).get('remove')
+                        if not remove_token:
+                            lib = self._get_library_catalog()
+                            lib_item = lib.get(vid)
+                            if lib_item:
+                                remove_token = (lib_item.get('feedbackTokens') or {}).get('remove')
+                        if remove_token:
+                            self.yt.edit_song_library_status(feedback_tokens=[remove_token])
+                            print(f"      🗑 Eliminado de la biblioteca de YT Music")
+                    except Exception as lib_e:
+                        print(f"      ⚠ No se pudo eliminar de la biblioteca: {lib_e}")
+
+                    # Eliminar de su playlist original en YT Music (si tiene una asociada)
+                    # Incluye '#' (Inbox): se usa Config.PLAYLIST_ID directamente para mayor fiabilidad
+                    if sheet_rec:
+                        original_pl = sheet_rec.get('Playlist', '')
+                        if original_pl and original_pl != pl_name:
+                            # Para '#' usamos el ID de Inbox directamente en vez de resolver por nombre
+                            orig_pid = Config.PLAYLIST_ID if original_pl == '#' else self._resolve_playlist_id(original_pl)
+                            if orig_pid:
+                                try:
+                                    orig_items = self.yt.get_playlist_items(orig_pid, limit=1000)
+                                    it_to_remove = [i for i in orig_items if i.get('videoId') == vid]
+                                    if it_to_remove:
+                                        self.yt.remove_playlist_items(orig_pid, it_to_remove)
+                                        print(f"      📤 Eliminado de la playlist '{original_pl}' en YT Music")
+                                except Exception as e:
+                                    print(f"      ⚠ Error eliminando de '{original_pl}': {e}")
+
+                    # Mover al Sheet: Songs → Archived
                     if sheet_matches:
                         for s in sheet_matches:
-                            original_pl = s.get('Playlist')
-                            
-                            # Proactivamente intentamos eliminar de la original si podemos resolver su id
-                            if original_pl and original_pl != '#':
-                                orig_pid = self._resolve_playlist_id(original_pl)
-                                if orig_pid:
-                                    try:
-                                        orig_items = self.yt.get_playlist_items(orig_pid, limit=1000)
-                                        it_to_remove = [i for i in orig_items if i.get('videoId') == vid]
-                                        if it_to_remove:
-                                            self.yt.remove_playlist_items(orig_pid, it_to_remove)
-                                    except: pass
-                            
-                            s_clone = s.copy()
-                            # Preparar para archivo
-                            archived_batch.append(s_clone)
+                            archived_batch.append(s.copy())
+                        to_remove_from_all_songs.add(vid)
                     else:
-                        # Si no estaba en el sheet, creamos un record base
-                        row = {
+                        # Canción no registrada en el Sheet; crear entrada mínima para Archived
+                        archived_batch.append({
                             'Playlist': pl_name,
-                            'Artist': item.get('Artist', artist),
-                            'Title': item.get('Title', title),
-                            'Album': (item.get('album', {}) or {}).get('name', ''),
+                            'Artist': artist,
+                            'Title': title,
+                            'Album': (item.get('album') or {}).get('name', ''),
                             'Year': str(item.get('year', '')),
-                            'Video ID': vid, 
+                            'Video ID': vid,
                             'Scrobble': 0,
                             'LastfmScrobble': 0,
-                            'Genre': ''
-                        }
-                        archived_batch.append(row)
-                    
-                    to_remove_from_all_songs.add(vid)
-                    if vid in current_vids:
-                        del current_vids[vid]
-                        
-                elif yt_status == 'LIKE' or vid in liked_vids or s_status == 'Like':
-                    title = item.get('title', 'Unknown')
-                    artist = ", ".join([a.get('name', '') for a in item.get('artists', [])])
-                    print(f"    \033[94m♥ Like detectado:\033[0m \033[92m{artist} - {title}\033[0m")
-                    try:
-                        self.yt.remove_playlist_items(target_pid, [item])
-                        # Se ha dado a Me Gusta, así que lo mantenemos en YouTube como 'LIKE' para tus recomendaciones.
-                    except Exception as e:
-                        print(f"      ⚠ Error removiendo de YouTube: {e}")
-                        
-                    sheet_matches = [s for s in all_songs if s.get('Video ID') == vid]
-                    for s in sheet_matches:
-                        scrobbles_raw = str(s.get('Scrobble', '0')).replace('.', '').replace(',', '').strip()
-                        c_scrobbles = int(scrobbles_raw) if scrobbles_raw.isdigit() else 0
-                        
-                        new_scrobbles = max(c_scrobbles, 3)
-                        if str(s.get('Scrobble')) != str(new_scrobbles):
-                            s['Scrobble'] = new_scrobbles
-                            updated_any_songs = True
-                            print(f"      → Consolidada ({new_scrobbles} scrobbles) en tu hoja.")
-                            
-                    if vid in current_vids:
-                        del current_vids[vid]
+                            'Genre': '',
+                        })
 
-                else:
-                    # ── AUTO GRADUATION: Pasó de reproducciones naturalmente ──
-                    title = item.get('title', 'Unknown')
-                    artist = ", ".join([a.get('name', '') for a in item.get('artists', [])])
-                    sheet_matches = [s for s in all_songs if s.get('Video ID') == vid]
-                    if sheet_matches:
-                        s = sheet_matches[0]
-                        scrobbles_raw = str(s.get('Scrobble', '0')).replace('.', '').replace(',', '').strip()
-                        c_scrobbles = int(scrobbles_raw) if scrobbles_raw.isdigit() else 0
-
-                        # Regla de consolidación: >= 3 scrobbles propios → ya está asentada en tu biblioteca
-                        _CONSOLIDATION_MIN = 3
-                        consolidated = c_scrobbles >= _CONSOLIDATION_MIN
-                        # Cuando se pasa threshold n, se elimina al superar n+3 (margen sobre el umbral de entrada)
-                        removal_threshold = (threshold + 3) if threshold is not None else None
-                        exceeded_threshold = removal_threshold is not None and c_scrobbles > removal_threshold
-
-                        if consolidated or exceeded_threshold:
-                            if consolidated:
-                                print(f"    \033[93m🏆 Consolidada ({c_scrobbles} scrobbles):\033[0m \033[92m{artist} - {title}\033[0m")
-                                print(f"      → Alcanzó {_CONSOLIDATION_MIN}+ reproducciones, eliminando de Pendiente.")
-                            else:
-                                print(f"    \033[93m🏆 Graduada ({c_scrobbles} scrobbles):\033[0m \033[92m{artist} - {title}\033[0m")
-                                print(f"      → Superó el límite (>{removal_threshold} = {threshold}+3), eliminando de Pendiente.")
-                            try:
-                                self.yt.remove_playlist_items(target_pid, [item])
-                            except Exception as e:
-                                print(f"      ⚠ Error removiendo de YouTube: {e}")
-
-                            if vid in current_vids:
-                                del current_vids[vid]
-                        
-        # 2. Add candidates to Pendiente
-        if threshold is not None:
-            print(f"  Escaneando catálogo global (<= {threshold} reproducciones)...")
-            candidates_to_add = []
-            
-            for s in all_songs:
-                if s.get('Video ID') in to_remove_from_all_songs:
-                    continue
-                    
-                pl = s.get('Playlist', '')
-                if not pl or pl == '#' or pl == 'Pendiente':
-                    continue
-                    
-                vid = s.get('Video ID')
-                if not vid: continue
-                
-                # Excluir si ya tiene un estado asignado en el Sheet (Like/Dislike)
-                s_status = (s.get('status') or s.get('Status') or '').strip().capitalize()
-                if s_status in ['Like', 'Dislike']:
-                    continue
-                    
-                # Excluir si la columna 'Liked' está a True
-                if str(s.get('Liked', '')).strip().lower() == 'true':
-                    continue
-                    
-                scrobbles_raw = str(s.get('Scrobble', '0')).replace('.', '').replace(',', '').strip()
-                scrobbles = 0
-                if scrobbles_raw.isdigit():
-                    scrobbles = int(scrobbles_raw)
-                    
-                if scrobbles <= threshold:
-                    if vid not in current_vids:
-                        candidates_to_add.append(s)
-
-            # Dedup candidates
-            unique_candidates = {}
-            for c in candidates_to_add:
-                unique_candidates[c.get('Video ID')] = c
-            candidates_to_add = list(unique_candidates.values())
-            
-            # 3. Excluir candidatos que tengan 'Me gusta' activo
-            # Una canción con like ya ha sido evaluada positivamente → no va a Pendiente
-            if candidates_to_add:
-                before = len(candidates_to_add)
-                candidates_to_add = [c for c in candidates_to_add if c.get('Video ID') not in liked_vids]
-                skipped = before - len(candidates_to_add)
-                if skipped:
-                    print(f"    ℹ️  {skipped} canciones con 'Me gusta' omitidas (no se añaden a Pendiente).")
-
-            if candidates_to_add:
-                print(f"  \033[92m📥 Añadiendo {len(candidates_to_add)} canciones a 'Pendiente'...\033[0m")
-                vids_to_add = [c.get('Video ID') for c in candidates_to_add]
-                batch_size = 50
-                for i in range(0, len(vids_to_add), batch_size):
-                    batch = vids_to_add[i:i+batch_size]
-                    try:
-                        self.yt.add_playlist_items(target_pid, batch)
-                    except Exception as e:
-                        print(f"    ⚠ Error añadiendo batch: {e}")
-                        
-            else:
-                print("  ✨ Tu playlist 'Pendiente' ya está al día.")
-        else:
-            print("\n  ⏭ Saltando búsqueda de nuevos candidatos (no se especificó un límite de reproducciones).")
-
-        # Apply changes to sheet
-        if to_remove_from_all_songs or updated_any_songs:
-            if to_remove_from_all_songs:
-                print(f"  Archivando {len(archived_batch)} canciones (Disliked)...")
-            else:
-                print(f"  Actualizando base de datos local (Likes ajustados a 3)...")
-                
-            updated_all_songs = [s for s in all_songs if s.get('Video ID') not in to_remove_from_all_songs]
-            self.sheets.overwrite_songs(updated_all_songs)
-            
             if archived_batch:
+                print(f"\n  \033[91m📦 Archivando {len(archived_batch)} canción(es) disliked...\033[0m")
+                updated_all_songs = [s for s in all_songs if s.get('Video ID') not in to_remove_from_all_songs]
+                self.sheets.overwrite_songs(updated_all_songs)
                 self.sheets.add_to_archived_batch(archived_batch)
-            
-        # ── Save Final Snapshot ──
+                # Refresh in-memory songs list so step 3 works with clean data
+                all_songs = updated_all_songs
+                print(f"  \033[92m✓ {len(archived_batch)} canción(es) movidas a Archived.\033[0m")
+            else:
+                print("  ℹ️  Sin dislikes detectados en 'Pendiente'.")
+        else:
+            print(f"  ℹ️  La playlist '{pl_name}' no existe en YT Music — se omite el paso 1.")
+
+        # ──────────────────────────────────────────────────────────────────────
+        # PASO 2: Eliminar la playlist Pendiente
+        # ──────────────────────────────────────────────────────────────────────
+        print("\n\033[1m🗑  Paso 2: Eliminando la playlist 'Pendiente'...\033[0m")
+        if target_pid:
+            try:
+                self.yt.delete_playlist(target_pid)
+                print(f"  \033[92m✓ Playlist '{pl_name}' eliminada de YT Music.\033[0m")
+            except Exception as e:
+                print(f"  \033[91m✗ Error al eliminar la playlist: {e}\033[0m")
+        else:
+            print(f"  ℹ️  La playlist '{pl_name}' no existía — nada que eliminar.")
+
+        # ──────────────────────────────────────────────────────────────────────
+        # PASO 3: Crear nueva Pendiente y añadir candidatos (Scrobble <= threshold)
+        # ──────────────────────────────────────────────────────────────────────
+        print("\n\033[1m📝 Paso 3: Creando nueva playlist 'Pendiente'...\033[0m")
+        new_pid = self.yt.create_playlist(pl_name, "Canciones con pocas reproducciones para revisar")
+        if not new_pid:
+            print("  \033[91m✗ Error creando la playlist. Abortando paso 3.\033[0m")
+            print("\n✅ Proceso completado (con errores en paso 3).")
+            return
+
+        print(f"  \033[92m✓ Playlist '{pl_name}' creada.\033[0m")
+
+        if threshold is None:
+            print("\n  ⏭ No se especificó límite de reproducciones — playlist creada vacía.")
+            print("\n✅ Proceso completado.")
+            return
+
+        print(f"  Escaneando catálogo (Scrobble <= {threshold})...")
+
+        # Obtener likes una vez para exclusión
         try:
-            # Re-collect current Video IDs (including newly added candidates)
-            final_vids = list(current_vids.keys())
-            if threshold is not None and 'candidates_to_add' in locals():
-                for c in candidates_to_add:
-                    final_vids.append(c.get('Video ID'))
-            
-            with open(Config.PENDING_SNAPSHOT_FILE, 'w') as f:
-                json.dump(list(set(final_vids)), f, indent=4)
-        except Exception as e:
-            print(f"  ⚠ Error al guardar el snapshot: {e}")
+            liked_data = self.yt.get_liked_songs(limit=None)
+            liked_vids = {t.get('videoId') for t in liked_data.get('tracks', []) if t.get('videoId')}
+        except Exception:
+            liked_vids = set()
+
+        candidates_to_add = []
+        seen_vids = set()
+
+        for s in all_songs:
+            pl = s.get('Playlist', '')
+            # Excluir Inbox, Pendiente (ya eliminada pero por si acaso), y playlist vacía
+            if not pl or pl == '#' or pl == pl_name:
+                continue
+
+            vid = s.get('Video ID')
+            if not vid or vid in seen_vids or vid in to_remove_from_all_songs:
+                continue
+            seen_vids.add(vid)
+
+            # Excluir canciones con estado Like/Dislike explícito
+            s_status = (s.get('status') or s.get('Status') or '').strip().capitalize()
+            if s_status in ('Like', 'Dislike'):
+                continue
+
+            # Excluir si la columna 'Liked' está a True
+            if str(s.get('Liked', '')).strip().lower() == 'true':
+                continue
+
+            # Excluir canciones con like activo en YT Music
+            if vid in liked_vids:
+                continue
+
+            scrobbles_raw = str(s.get('Scrobble', '0')).replace('.', '').replace(',', '').strip()
+            scrobbles = int(scrobbles_raw) if scrobbles_raw.isdigit() else 0
+
+            if scrobbles <= threshold:
+                candidates_to_add.append(vid)
+
+        if candidates_to_add:
+            print(f"  \033[92m📥 Añadiendo {len(candidates_to_add)} canciones a '{pl_name}'...\033[0m")
+            batch_size = 50
+            added = 0
+            errors = 0
+            for i in range(0, len(candidates_to_add), batch_size):
+                batch = candidates_to_add[i:i + batch_size]
+                try:
+                    self.yt.add_playlist_items(new_pid, batch)
+                    added += len(batch)
+                    print(f"    ✓ Batch {i // batch_size + 1}: {len(batch)} canciones añadidas")
+                except Exception as e:
+                    errors += len(batch)
+                    print(f"    ⚠ Error en batch {i // batch_size + 1}: {e}")
+            print(f"\n  \033[92m✓ {added} canciones añadidas a '{pl_name}'.\033[0m")
+            if errors:
+                print(f"  \033[93m⚠ {errors} canciones con errores.\033[0m")
+        else:
+            print(f"  ℹ️  No hay canciones con Scrobble <= {threshold} que añadir.")
 
         print("\n✅ Proceso completado.")
 
@@ -3231,7 +3249,17 @@ class Manager:
             # --- NUEVO PROMPT PRE-SINCRONIZACIÓN ---
             if interactive:
                 # Mostramos un breve resumen antes de preguntar
-                self._print_artist_catalog_summary(name)
+                total_songs, active_count, archived_count = self._print_artist_catalog_summary(name)
+                
+                # REGLA: Si todas las canciones conocidas están archivadas, archivar directamente el artista
+                if total_songs > 0 and active_count == 0:
+                    print(f"  \033[93m⚠️  Todas las canciones de '{name}' están archivadas. Archivando artista automáticamente...\033[0m")
+                    print(f"  \033[91m📦 Archivando artista:\033[0m \033[1m{name}\033[0m")
+                    self.sheets.update_artist_status(name, "Archived")
+                    self.sheets.update_artist_last_checked(name, now.strftime("%d/%m/%Y"))
+                    releases_cache[name] = now.strftime("%Y-%m-%d")
+                    self._save_releases_sync_cache(releases_cache)
+                    continue
                 
                 while True:
                     ans = input(f"\n  \033[1;93m🔍 Artista: '{name}'. ¿Qué quieres hacer?\033[0m (\033[92m[S]incronizar\033[0m | \033[91m[a]rchivar\033[0m | [p]asar | [q]uit): ").strip().lower()
