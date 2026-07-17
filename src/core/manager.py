@@ -262,9 +262,11 @@ class Manager:
                 if archived_sheet_changed:
                     self.sheets.overwrite_archived(archived_songs)
 
+            active_count = sum(1 for s in artist_songs if not s.get("is_archived", False))
+            archived_count = sum(1 for s in artist_songs if s.get("is_archived", False))
+            
             artist_songs_sorted = sorted(artist_songs, key=lambda x: int(x.get("LastfmScrobble") or 0), reverse=True)
-            print(f"\n  \033[94m🎵 Biblioteca Actual ({len(artist_songs)}):\033[0m")
-            # Mostrar solo el top 15 si hay muchas para no saturar la pantalla
+            print(f"\n  \033[94m🎵 Biblioteca Actual ({len(artist_songs)} - {archived_count} [ARCH] | {active_count} no [ARCH]):\033[0m")
             limit = 15
             for s in artist_songs_sorted[:limit]:
                 s_title = s.get("Title", "")
@@ -273,20 +275,38 @@ class Manager:
                 listeners_fmt = f"{s_listeners:,}".replace(",", ".")
                 s_pl = s.get("Playlist", "")
                 s_year = s.get("Year", "")
-                year_str = f" {s_year}" if s_year else ""
                 
-                # Tag si es archivada
                 is_archived = s.get("is_archived", False)
-                arch_tag = " \033[33m[ARCH]\033[0m" if is_archived else ""
+                user_tag = f" [{s_user_plays}👤]" if s_user_plays > 0 else ""
                 
-                # Mostrar mis plays si los hay
-                user_tag = f" \033[96m[{s_user_plays}👤]\033[0m" if s_user_plays > 0 else ""
+                from datetime import datetime
+                current_year = datetime.now().year
+                year_val = None
+                if s_year:
+                    m = re.search(r'(\d{4})', str(s_year))
+                    if m:
+                        year_val = int(m.group(1))
                 
-                print(f"    - \033[1;92m{s_title}\033[0m\033[90m{year_str} [{listeners_fmt}🎧]{user_tag}\033[0m \033[35m[{s_pl}]{arch_tag}\033[0m")
+                is_recent = year_val is not None and year_val >= (current_year - 1)
+                
+                if is_recent:
+                    if is_archived:
+                        colored_year = f" \033[1;93m{s_year}\033[90m"
+                    else:
+                        colored_year = f" \033[1;93m{s_year}\033[1;92m"
+                else:
+                    colored_year = f" {s_year}" if s_year else ""
+
+                if is_archived:
+                    print(f"    - \033[90m{s_title}{colored_year} [{listeners_fmt}🎧]{user_tag} [{s_pl}] [ARCH]\033[0m")
+                else:
+                    print(f"    - \033[1;92m{s_title}{colored_year} [{listeners_fmt}🎧]{user_tag} [{s_pl}]\033[0m")
+
             
             if len(artist_songs) > limit:
                 print(f"    \033[90m... y {len(artist_songs) - limit} canciones más.\033[0m")
             print()
+
         else:
             print(f"\n  \033[90m[✕ Biblioteca Actual: 0 canciones conocidas para '{artist_name}']\033[0m\n")
 
@@ -2543,7 +2563,10 @@ class Manager:
             # Si el último año en biblioteca es anterior al límite por defecto, ampliamos.
             # Usamos max_y + 1 para buscar estrictamente "mayores de X".
             if max_y < limit_year:
-                print(f"    \033[93m📅 Biblioteca detectada hasta {max_y}. Buscando nuevas canciones (> {max_y})...\033[0m")
+                if scope == 'catalog':
+                    print(f"    \033[93m📅 Biblioteca detectada hasta {max_y}. Buscando en catálogo anterior (<= {max_y})...\033[0m")
+                else:
+                    print(f"    \033[93m📅 Biblioteca detectada hasta {max_y}. Buscando nuevas canciones (> {max_y})...\033[0m")
                 limit_year = max_y + 1
 
         new_batch = []

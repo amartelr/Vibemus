@@ -272,7 +272,8 @@ def _sync_new_releases(args, manager) -> int:
 
     print(f"\n   \033[1;92m🎯 Found {len(new_artists)} NEW recommendations!\033[0m")
     
-    for art_name in new_artists:
+    total_recs = len(new_artists)
+    for idx, art_name in enumerate(new_artists, 1):
         print(f"\n   💿 Recommended Artist: \033[1;96m{art_name}\033[0m")
         
         lfm_g = ""
@@ -337,6 +338,7 @@ def _sync_new_releases(args, manager) -> int:
                 playlist = None
                 api = "lastfm"
                 auto = is_auto
+            print(f"  ⌛ [{idx}/{total_recs}] Checking \033[1m{art_name}\033[0m...")
             _artist_add(FakeArgs(), manager)
             manager.mark_lastfm_recommendation_seen(art_name)
 
@@ -620,7 +622,10 @@ def _library_sync(manager) -> int:
     print("\n\033[1m2. Scanning YouTube Music Library...\033[0m")
     library_songs = manager.yt.get_library_songs(limit=None)
     library_vids = {s.get('videoId'): s for s in library_songs if s.get('videoId')}
-    print(f"   Found \033[1m{len(library_vids)}\033[0m songs in the Library.")
+    archived_vids = manager.sheets.get_archived_vids()
+    archived_in_lib = sum(1 for vid in library_vids if vid in archived_vids)
+    active_in_lib = len(library_vids) - archived_in_lib
+    print(f"   Found \033[1m{len(library_vids)}\033[0m songs in the Library ({archived_in_lib} [ARCH] | {active_in_lib} no [ARCH]).")
 
     # ── Step 2: Identify MISSING (in playlists but not in library) ───────────
     print("\n\033[1m3. Analyzing differences...\033[0m")
@@ -977,6 +982,7 @@ def _sync_new_releases_now(args, manager) -> int:
                     playlist = None
                     api = "lastfm"
                     auto = is_auto
+                print(f"  ⌛ [{rel_idx + 1}/{total_unknown}] Checking \033[1m{art_name}\033[0m...")
                 _artist_add(FakeArgs(), manager)
                 manager.mark_lastfm_new_release_seen(art_name, release_name)
 
@@ -1085,6 +1091,7 @@ def _sync_following_artists(args, manager) -> int:
                 playlist = None
                 api = "lastfm"
                 auto = is_auto
+            print(f"  ⌛ [{rec_idx + 1}/{total_artists}] Checking \033[1m{art_name}\033[0m...")
             _artist_add(FakeArgs(), manager)
             manager.mark_lastfm_following_seen(art_name)
 
