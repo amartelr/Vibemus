@@ -224,9 +224,23 @@ class SheetsService:
                 artist.get("Playlist", "")
             ])
         
-        self._execute_with_retry(ws.clear)
+        # Overwrite content at A1 (without separate ws.clear call to save network latency)
         self._execute_with_retry(ws.update, range_name='A1', values=rows)
         self._artists_cache = artists_data
+
+    def update_artist_fields(self, artist_name, fields: dict):
+        """Updates multiple fields of a specific artist in memory and saves to Sheets in a single call."""
+        artists = self.get_artists()
+        updated = False
+        norm_target = str(artist_name).lower().strip()
+        for a in artists:
+            if str(a.get("Artist Name", "")).lower().strip() == norm_target:
+                for k, v in fields.items():
+                    a[k] = v
+                updated = True
+                break
+        if updated:
+            self.save_artists(artists)
 
     def add_artist(self, artist_row, silent=False):
         """Appends a single artist row to the Artists sheet if not already present."""
@@ -260,29 +274,11 @@ class SheetsService:
 
     def update_artist_status(self, artist_name, status):
         """Updates the status of a specific artist."""
-        artists = self.get_artists()
-        updated = False
-        norm_target = str(artist_name).lower().strip()
-        for a in artists:
-            if str(a.get("Artist Name", "")).lower().strip() == norm_target:
-                a["Status"] = status
-                updated = True
-                break
-        if updated:
-            self.save_artists(artists)
+        self.update_artist_fields(artist_name, {"Status": status})
 
     def update_artist_last_checked(self, artist_name, date_str):
         """Updates the last checked date of a specific artist."""
-        artists = self.get_artists()
-        updated = False
-        norm_target = str(artist_name).lower().strip()
-        for a in artists:
-            if str(a.get("Artist Name", "")).lower().strip() == norm_target:
-                a["Last Checked"] = date_str
-                updated = True
-                break
-        if updated:
-            self.save_artists(artists)
+        self.update_artist_fields(artist_name, {"Last Checked": date_str})
 
     def update_artist_playlist(self, artist_name, playlist_name, artist_id=None, genre=None, song_count=0, silent=False):
         """Updates the target playlist of a specific artist. Adds it if missing."""

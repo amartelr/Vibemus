@@ -127,14 +127,21 @@ class YTMusicService:
             
         # Ensure we only send necessary fields and it's a list
         clean_videos = []
+        skipped = []
         for v in videos:
             if isinstance(v, dict) and 'setVideoId' in v:
                 clean_videos.append({
                     'videoId': v.get('videoId'),
                     'setVideoId': v.get('setVideoId')
                 })
+            else:
+                skipped.append(v.get('videoId', '?') if isinstance(v, dict) else str(v))
+        
+        if skipped:
+            print(f"  \033[93m⚠ remove_playlist_items: {len(skipped)} ítems ignorados por falta de 'setVideoId': {skipped}\033[0m")
         
         if not clean_videos:
+            print(f"  \033[91m✗ remove_playlist_items: ningún ítem válido para eliminar (todos carecen de setVideoId).\033[0m")
             return
 
         try:
@@ -200,7 +207,10 @@ class YTMusicService:
                 playlist = self.yt_browser.get_playlist(playlist_id, limit=limit)
                 return playlist.get('tracks', [])
             except Exception as e:
-                print(f"  Warning: Browser auth playlist fetch failed ({e}). Falling back to OAuth.")
+                print(f"  \033[91m⚠ Browser auth falló al obtener la playlist ({e}).\033[0m")
+                print(f"  \033[93m⚠ Usando OAuth como fallback — likeStatus NO estará disponible. Los dislikes NO se detectarán correctamente.\033[0m")
+        else:
+            print(f"  \033[93m⚠ Browser auth no disponible — usando OAuth. likeStatus NO estará disponible. Los dislikes NO se detectarán correctamente.\033[0m")
         return self.get_playlist_items(playlist_id, limit=limit)
 
     def add_playlist_items(self, playlist_id, video_ids):

@@ -62,8 +62,9 @@ def test_sync_all_artist_releases_auto_archive():
     manager._load_releases_sync_cache = MagicMock(return_value={})
     manager._save_releases_sync_cache = MagicMock()
     
-    # Should archive directly without calling input()
-    manager.sync_all_artist_releases(force=True, interactive=True)
+    # Mock input to select 's' (Sincronizar)
+    with patch("builtins.input", return_value="s"):
+        manager.sync_all_artist_releases(force=True, interactive=True)
     
     # Verify status is updated to Archived directly
     sheets_service.update_artist_status.assert_called_with("Radiohead", "Archived")

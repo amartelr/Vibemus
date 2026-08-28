@@ -87,13 +87,16 @@ def main() -> None:
         # Initialize services
         is_chord_cmd = (command == "playlist" and getattr(args, "action", None) in ("chord", "ch"))
         is_analyze_chords = (command == "playlist" and getattr(args, "action", None) in ("analyze-chords", "ac"))
-        
-        if is_chord_cmd:
+        is_system_auth = (command == "system" and getattr(args, "action", None) in ("auth",))
+
+        if is_system_auth:
+            # system auth only runs grab_cookies.js — no services needed.
+            # Skip initialization entirely so a fully expired token doesn't block the command.
             yt = None
-            sheets = SheetsService()
+            sheets = None
             lastfm = None
             musicbrainz = None
-        elif is_analyze_chords:
+        elif is_chord_cmd or is_analyze_chords:
             yt = None
             sheets = SheetsService()
             lastfm = None

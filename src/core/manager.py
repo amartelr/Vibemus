@@ -1332,6 +1332,15 @@ class Manager:
                 force_th = 3 if pl_name in Config.SOURCE_PLAYLISTS else None
                 self.lastfm.enrich_songs(fresh_items, force_scrobbles=False, force_threshold=force_th)
 
+            # ── Comprobación de browser auth: si ningún item tiene 'likeStatus', el token está caducado ──
+            if is_hash:
+                has_like_status = any('likeStatus' in it for it in fresh_items)
+                if not has_like_status:
+                    print(f"\n  \033[91m✗ ERROR: La playlist '{pl_name}' no devuelve 'likeStatus' en ningún track.\033[0m")
+                    print(f"  \033[91m  Esto significa que el browser auth está caducado y los dislikes NO se detectarán.\033[0m")
+                    print(f"  \033[93m  → Ejecuta: \033[1mvibemus system auth\033[0;93m para renovar el token y vuelve a intentarlo.\033[0m\n")
+                    continue  # No tiene sentido procesar sin likeStatus
+
             print(f"  Checking {len(fresh_items)} songs for likes/dislikes...")
             
             # Important: iterate over a copy or tracking list to handle removals
@@ -2281,26 +2290,98 @@ class Manager:
                     print(f"    (Ya sigues a: {', '.join(tracked_list)})")
                 
                 print(f"    ¿Qué deseas hacer con esta entrada?")
-                print(f"    - 's': Registrar como UN SOLO artista/banda (ej: 'Mumford & Sons').")
-                print(f"    - 'n': Tratar como VARIOS artistas independientes (y registrar los que falten).")
-                print(f"    - 'i': DESCARTAR COMBO para siempre (no volver a preguntar por esta unión).")
+                print(f"    - 's': MANTENER como un solo artista/banda (Tipo: Single).")
+                print(f"    - 'i': Marcar como 'Multi' (se enviará a Status: Archived). No se trackeará como uno.")
                 print(f"    - 'c': Omitir por ahora.")
                 
-                choice = input(f"    Opción (s/n/i/c): ").strip().lower()
+                choice = input(f"    Opción (s/i/c): ").strip().lower()
                 
                 if choice == 's':
                     targets = [raw_name]
                 elif choice == 'i':
-                    print(f"    Marcando combo '{raw_name}' como 'Multi' permanentemente...")
-                    # Forzar Status: Archived para cumplir con los 3 estados permitidos por el usuario
-                    self.sheets.add_artist({'Artist Name': raw_name, 'Status': 'Archived', 'Type': 'Multi'})
-                    artist_map[self._normalize(raw_name)] = {'Artist Name': raw_name, 'Status': 'Archived', 'Type': 'Multi'}
+                    print(f"    Marcando combo '{raw_name}' como 'Multi' (Archived) permanentemente...")
+                    total_songs = artist_counts.get(self._normalize(raw_name), 0)
+                    combo_row = {
+                        'Artist Name': raw_name,
+                        'Artist ID': '',
+                        'Song Count': total_songs,
+                        'Last Checked': datetime.now().strftime("%d/%m/%Y"),
+                        'Status': 'Archived',
+                        'Genre': '',
+                        'Playlist': ''
+                    }
+                    all_artists.append(combo_row)
+                    artist_map[self._normalize(raw_name)] = combo_row
+                    
+                    print(f"\n    Configurando los artistas individuales para el combo '{raw_name}':")
+                    for part in parts:
+                        norm_part = self._normalize(part)
+                        if norm_part in artist_map:
+                            print(f"    - El artista '{part}' ya está registrado.")
+                            continue
+                            
+                        print(f"\n    🎤 Configurando artista individual: '{part}'")
+                        custom_name = input(f"      Nombre del artista (Enter para '{part}'): ").strip()
+                        artist_to_register = custom_name if custom_name else part
+                        
+                        custom_id = input(f"      YouTube Artist ID (Enter para buscar automáticamente): ").strip()
+                        
+                        best_pl = ""
+                        pl_data = artist_pl_matrix.get(self._normalize(raw_name), {})
+                        if pl_data:
+                            best_pl = max(pl_data, key=pl_data.get)
+                            
+                        prompt = f"      ¿A qué playlist enviamos a '{artist_to_register}'?"
+                        if best_pl:
+                            prompt += f" [Predeterminada: {best_pl}] "
+                        else:
+                            prompt += " "
+                            
+                        res_pl = input(prompt).strip()
+                        if not res_pl:
+                            if best_pl:
+                                res_pl = best_pl
+                            else:
+                                print(f"      ⏭ Omitiendo registro de '{artist_to_register}'...")
+                                continue
+                                
+                        m_id = custom_id
+                        if not m_id:
+                            print(f"      ⌛ Buscando metadatos en YouTube Music para '{artist_to_register}'...")
+                            try:
+                                res = self.yt.yt.search(artist_to_register, filter='artists')
+                                if res:
+                                    for r in res:
+                                        if self._normalize(r.get('artist')) == self._normalize(artist_to_register):
+                                            m_id = r.get('browseId')
+                                            break
+                                    if not m_id:
+                                        m_id = res[0].get('browseId')
+                            except Exception:
+                                pass
+                                
+                        m_genre = ""
+                        try:
+                            a_info = self.lastfm.get_artist_info(artist_to_register)
+                            m_genre = a_info.get('genre', '')
+                        except Exception:
+                            pass
+                            
+                        new_row = {
+                            'Artist Name': artist_to_register,
+                            'Artist ID': m_id or '',
+                            'Song Count': 0,
+                            'Last Checked': datetime.now().strftime("%d/%m/%Y"),
+                            'Status': 'Done',
+                            'Genre': m_genre,
+                            'Playlist': res_pl
+                        }
+                        all_artists.append(new_row)
+                        artist_map[self._normalize(artist_to_register)] = new_row
+                        new_artists_added += 1
+                        status_genre = f" ({m_genre})" if m_genre else ""
+                        print(f"      ✅ Registrado: '{artist_to_register}' → {res_pl}{status_genre} (ID: {m_id or 'No encontrado'})")
                     continue
-                elif choice == 'n':
-                    print(f"    Registrando componentes faltantes: {', '.join(missing_parts)}")
-                    targets = missing_parts
-                    # Opcionalmente, para no volver a preguntar por este combo aunque no registremos todos sus componentes,
-                    # podríamos marcar el combo como ignorado también. Pero el usuario ha sugerido registrar cada uno.
                 else:
                     continue
             else:
@@ -3264,36 +3345,75 @@ class Manager:
         added_total = 0
         for idx, a in enumerate(artists, 1):
             name = a.get("Artist Name")
+            # Prioridad 1: Columna 'Playlist' de la pestaña Artists
+            artist_genre = str(a.get("Playlist", "")).strip()
+            # Prioridad 2: Columna 'Genre' de la pestaña Artists
+            if not artist_genre:
+                artist_genre = str(a.get("Genre", "")).strip()
+            # Prioridad 3: Columna 'Genre' de las canciones en la pestaña Songs
+            if not artist_genre:
+                norm_n = self._normalize(name)
+                for s in self.sheets.get_songs_records():
+                    if self._normalize(s.get("Artist", "")) == norm_n and s.get("Genre"):
+                        artist_genre = str(s.get("Genre")).strip()
+                        break
+
+            # Buscar el año de la canción más reciente en Songs y Archived
+            latest_year = None
+            is_from_archived = False
+            norm_n = self._normalize(name)
+            artist_year_entries = []
+            
+            for s in self.sheets.get_songs_records():
+                if self._normalize(s.get("Artist", "")) == norm_n:
+                    y_str = str(s.get("Year", "")).strip()
+                    m = re.search(r'(\d{4})', y_str)
+                    if m:
+                        artist_year_entries.append((int(m.group(1)), False))
+
+            for s in self.sheets.get_archived_records():
+                if self._normalize(s.get("Artist", "")) == norm_n:
+                    y_str = str(s.get("Year", "")).strip()
+                    m = re.search(r'(\d{4})', y_str)
+                    if m:
+                        artist_year_entries.append((int(m.group(1)), True))
+
+            if artist_year_entries:
+                # Ordenar por año desc; a igualdad de año, preferir False (canción en Songs activa)
+                artist_year_entries.sort(key=lambda x: (x[0], not x[1]), reverse=True)
+                latest_year, is_from_archived = artist_year_entries[0]
+
+            song_count = a.get("Song Count", 0)
+            
+            info_tokens = []
+            if artist_genre:
+                info_tokens.append(artist_genre)
+            if song_count is not None and song_count != "":
+                info_tokens.append(f"{song_count} 🎵")
+            if latest_year:
+                if is_from_archived:
+                    info_tokens.append(f"Último: \033[91m{latest_year}\033[1;93m")
+                else:
+                    info_tokens.append(f"Último: {latest_year}")
+                
+            artist_info = f" [{ ' | '.join(info_tokens) }]" if info_tokens else ""
             
             last_checked = a.get("Last Checked", "Nunca")
-            print(f"  ⌛ [{idx}/{len(artists)}] Checking \033[1m{name}\033[0m... (Última vez: {last_checked})")
+            print(f"  ⌛ [{idx}/{len(artists)}] Checking \033[1m{name}\033[0m{artist_info}... (Última vez: {last_checked})")
             
             sync_scope = 'all'  # default: new + catalog
             # --- NUEVO PROMPT PRE-SINCRONIZACIÓN ---
             if interactive:
-                # Mostramos un breve resumen antes de preguntar
-                total_songs, active_count, archived_count = self._print_artist_catalog_summary(name)
-                
-                # REGLA: Si todas las canciones conocidas están archivadas, archivar directamente el artista
-                if total_songs > 0 and active_count == 0:
-                    print(f"  \033[93m⚠️  Todas las canciones de '{name}' están archivadas. Archivando artista automáticamente...\033[0m")
-                    print(f"  \033[91m📦 Archivando artista:\033[0m \033[1m{name}\033[0m")
-                    self.sheets.update_artist_status(name, "Archived")
-                    self.sheets.update_artist_last_checked(name, now.strftime("%d/%m/%Y"))
-                    releases_cache[name] = now.strftime("%Y-%m-%d")
-                    self._save_releases_sync_cache(releases_cache)
-                    continue
-                
                 while True:
-                    ans = input(f"\n  \033[1;93m🔍 Artista: '{name}'. ¿Qué quieres hacer?\033[0m (\033[92m[S]incronizar\033[0m | \033[91m[a]rchivar\033[0m | [p]asar | [q]uit): ").strip().lower()
-                    if not ans: ans = 's'
-                    if ans in ['s', 'a', 'p', 'q']: break
-                    print("  Por favor responde con s/a/p/q.")
+                    ans = input(f"\n  \033[1;93m🔍 Artista: '{name}'{artist_info}\n  ¿Qué quieres hacer?\033[0m (\033[92m[C]ontinuar\033[0m | \033[94m[s]incronizar\033[0m | \033[91m[a]rchivar\033[0m | [q]uit): ").strip().lower()
+                    if not ans: ans = 'c'
+                    if ans in ['c', 's', 'a', 'q']: break
+                    print("  Por favor responde con c/s/a/q.")
                 
                 if ans == 'q':
                     print("\n🛑 Sincronización detenida por el usuario.")
                     break
-                elif ans == 'p':
+                elif ans == 'c':
                     print(f"  ⏭ Saltando '{name}' por ahora (actualizando fecha).")
                     self.sheets.update_artist_last_checked(name, now.strftime("%d/%m/%Y"))
                     releases_cache[name] = now.strftime("%Y-%m-%d")
@@ -3301,18 +3421,43 @@ class Manager:
                     continue
                 elif ans == 'a':
                     print(f"  \033[91m📦 Archivando artista:\033[0m \033[1m{name}\033[0m")
-                    self.sheets.update_artist_status(name, "Archived")
-                    # Marcamos como chequeado para que no estorbe si se desarchiva pronto
+                    self.sheets.update_artist_fields(name, {
+                        "Status": "Archived",
+                        "Last Checked": now.strftime("%d/%m/%Y")
+                    })
+                    releases_cache[name] = now.strftime("%Y-%m-%d")
+                    self._save_releases_sync_cache(releases_cache)
+                    continue
+                
+                # Mostramos un breve resumen del catálogo tras seleccionar [S]incronizar
+                total_songs, active_count, archived_count = self._print_artist_catalog_summary(name)
+                
+                # REGLA: Si todas las canciones conocidas están archivadas, archivar directamente el artista
+                if total_songs > 0 and active_count == 0:
+                    print(f"  \033[93m⚠️  Todas las canciones de '{name}' están archivadas. Archivando artista automáticamente...\033[0m")
+                    print(f"  \033[91m📦 Archivando artista:\033[0m \033[1m{name}\033[0m")
+                    self.sheets.update_artist_fields(name, {
+                        "Status": "Archived",
+                        "Last Checked": now.strftime("%d/%m/%Y")
+                    })
+                    releases_cache[name] = now.strftime("%Y-%m-%d")
+                    self._save_releases_sync_cache(releases_cache)
+                    continue
+                
+                # Si se sincroniza: elegir qué tipo de canciones revisar
+                while True:
+                    scope_ans = input(f"  \033[1;93m¿Qué canciones revisar?\033[0m (\033[92m[C]ontinuar\033[0m | [t]odas | [n]uevas | [a]nteriores del catálogo): ").strip().lower()
+                    if not scope_ans: scope_ans = 'c'
+                    if scope_ans in ['c', 't', 'n', 'a']: break
+                    print("  Por favor responde con c/t/n/a.")
+                
+                if scope_ans == 'c':
+                    print(f"  ⏭ Saltando '{name}' por ahora (actualizando fecha).")
                     self.sheets.update_artist_last_checked(name, now.strftime("%d/%m/%Y"))
                     releases_cache[name] = now.strftime("%Y-%m-%d")
                     self._save_releases_sync_cache(releases_cache)
                     continue
-                # Si es 's': elegir qué tipo de canciones revisar
-                while True:
-                    scope_ans = input(f"  \033[1;93m¿Qué canciones revisar?\033[0m (\033[92m[T]odas\033[0m | [n]uevas | [a]nteriores del catálogo): ").strip().lower()
-                    if not scope_ans: scope_ans = 't'
-                    if scope_ans in ['t', 'n', 'a']: break
-                    print("  Por favor responde con t/n/a.")
+
                 sync_scope = {'t': 'all', 'n': 'new', 'a': 'catalog'}[scope_ans]
 
             count = self.check_new_releases(
@@ -3330,8 +3475,11 @@ class Manager:
                 break
 
             # Actualizamos metadatos de escaneo SIEMPRE que se haya completado el proceso
-            self.sheets.update_artist_last_checked(name, now.strftime("%d/%m/%Y"))
-            self.sheets.update_artist_status(name, "Done")
+            new_status = "Archived" if a.get("Status", "").strip().lower() == "archived" else "Done"
+            self.sheets.update_artist_fields(name, {
+                "Last Checked": now.strftime("%d/%m/%Y"),
+                "Status": new_status
+            })
             
             # Actualizamos cache local inmediatamente para poder reanudar tras interrupción
             releases_cache[name] = now.strftime("%Y-%m-%d")
