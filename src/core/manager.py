@@ -321,22 +321,49 @@ class Manager:
         if not raw_name: return []
         norm_raw = self._normalize(raw_name)
         
+        def _is_multi(entry):
+            if not entry:
+                return False
+            val = str(entry.get('Multiple', entry.get('Type', ''))).strip().upper()
+            return val in ('TRUE', 'MULTI', 'YES', '1') or entry.get('Multiple') is True
+
         # 1. If the exact combination is already tracked as a single entity, don't split
-        if norm_raw in artist_map:
+        if norm_raw in artist_map and not _is_multi(artist_map[norm_raw]):
             return [artist_map[norm_raw].get('Artist Name') or raw_name]
         
         # 2. Split by comma first, then by ampersand
         parts = [p.strip() for p in re.split(r'[,]', raw_name) if p.strip()]
         final_parts = []
         for p in parts:
-            if self._normalize(p) in artist_map:
-                final_parts.append(p)
+            norm_p = self._normalize(p)
+            if norm_p in artist_map and not _is_multi(artist_map[norm_p]):
+                final_parts.append(artist_map[norm_p].get('Artist Name') or p)
             else:
-                # If the part is not a tracked artist, check for ampersands
+                # If the part is not a single tracked artist, check for ampersands
                 sub_parts = [sp.strip() for sp in re.split(r'[&]', p) if sp.strip()]
-                final_parts.extend(sub_parts)
+                for sp in sub_parts:
+                    norm_sp = self._normalize(sp)
+                    if norm_sp in artist_map and not _is_multi(artist_map[norm_sp]):
+                        final_parts.append(artist_map[norm_sp].get('Artist Name') or sp)
+                    else:
+                        final_parts.append(sp)
                 
         return final_parts
+
+    def _get_artist_channel_url(self, artist_name, artist_id=None):
+        """Builds or fetches the YouTube Music channel URL for an artist."""
+        import urllib.parse
+        aid = str(artist_id or '').strip()
+        if aid:
+            return f"https://music.youtube.com/channel/{aid}"
+        if hasattr(self, 'yt') and self.yt:
+            try:
+                res = self.yt.yt.search(artist_name, filter='artists')
+                if res and res[0].get('browseId'):
+                    return f"https://music.youtube.com/channel/{res[0].get('browseId')}"
+            except Exception:
+                pass
+        return f"https://music.youtube.com/search?q={urllib.parse.quote(str(artist_name))}"
 
     def _normalize_id(self, text):
         if not text: return ""
@@ -2047,7 +2074,8 @@ class Manager:
             'Last Checked': datetime.now().strftime("%d/%m/%Y") if status == 'Archived' else "",
             'Status': status,
             'Genre': genre,
-            'Playlist': target_playlist or ""
+            'Playlist': target_playlist or "",
+            'Multiple': 'FALSE'
         }
         
         self.sheets.add_artist(new_row, silent=(status == "Archived"))
@@ -2282,16 +2310,18 @@ class Manager:
             if len(parts) > 1:
                 # COLLABORATION / DUAL NAME
                 any_tracked = any(self._normalize(p) in artist_map for p in parts)
+                artist_url = self._get_artist_channel_url(raw_name)
                 
                 print(f"\n\033[1;93m⚠ Posible colaboración detectada: '{raw_name}'\033[0m")
+                print(f"    🔗 YT Music: \033[94m{artist_url}\033[0m")
                 print(f"    Artistas individuales encontrados: {', '.join(parts)}")
                 if any_tracked:
                     tracked_list = [p for p in parts if self._normalize(p) in artist_map]
                     print(f"    (Ya sigues a: {', '.join(tracked_list)})")
                 
                 print(f"    ¿Qué deseas hacer con esta entrada?")
-                print(f"    - 's': MANTENER como un solo artista/banda (Tipo: Single).")
-                print(f"    - 'i': Marcar como 'Multi' (se enviará a Status: Archived). No se trackeará como uno.")
+                print(f"    - 's': MANTENER como un solo artista/banda (Multiple: FALSE).")
+                print(f"    - 'i': Marcar como 'Multiple' (Multiple: TRUE, Status: Archived). No se trackeará como uno.")
                 print(f"    - 'c': Omitir por ahora.")
                 
                 choice = input(f"    Opción (s/i/c): ").strip().lower()
@@ -2299,7 +2329,7 @@ class Manager:
                 if choice == 's':
                     targets = [raw_name]
                 elif choice == 'i':
-                    print(f"    Marcando combo '{raw_name}' como 'Multi' (Archived) permanentemente...")
+                    print(f"    Marcando combo '{raw_name}' como 'Multiple' (Archived) permanentemente...")
                     total_songs = artist_counts.get(self._normalize(raw_name), 0)
                     combo_row = {
                         'Artist Name': raw_name,
@@ -2308,7 +2338,8 @@ class Manager:
                         'Last Checked': datetime.now().strftime("%d/%m/%Y"),
                         'Status': 'Archived',
                         'Genre': '',
-                        'Playlist': ''
+                        'Playlist': '',
+                        'Multiple': 'TRUE'
                     }
                     all_artists.append(combo_row)
                     artist_map[self._normalize(raw_name)] = combo_row
@@ -2353,8 +2384,8 @@ class Manager:
                                 if res:
                                     for r in res:
                                         if self._normalize(r.get('artist')) == self._normalize(artist_to_register):
-                                            m_id = r.get('browseId')
-                                            break
+                                             m_id = r.get('browseId')
+                                             break
                                     if not m_id:
                                         m_id = res[0].get('browseId')
                             except Exception:
@@ -2374,7 +2405,8 @@ class Manager:
                             'Last Checked': datetime.now().strftime("%d/%m/%Y"),
                             'Status': 'Done',
                             'Genre': m_genre,
-                            'Playlist': res_pl
+                            'Playlist': res_pl,
+                            'Multiple': 'FALSE'
                         }
                         all_artists.append(new_row)
                         artist_map[self._normalize(artist_to_register)] = new_row
@@ -2446,7 +2478,8 @@ class Manager:
                     'Last Checked': datetime.now().strftime("%d/%m/%Y"),
                     'Status': 'Done',
                     'Genre': m_genre,
-                    'Playlist': res_pl
+                    'Playlist': res_pl,
+                    'Multiple': 'FALSE'
                 }
                 all_artists.append(new_row)
                 artist_map[norm_name] = new_row
@@ -4535,7 +4568,7 @@ class Manager:
 
 
     def audit_fused_artists(self, artists):
-        """Scans the current tracking list for artists with separators and asks if they should be ignored."""
+        """Scans the current tracking list for artists with separators and asks if they should be marked as Multiple or Single."""
         import re
         collab_pattern = re.compile(r'\s*,\s*|(?<!\w)&\s*|\s+vs\.?\s+', re.IGNORECASE)
         
@@ -4545,33 +4578,47 @@ class Manager:
         for a in artists:
             name = a.get('Artist Name', '')
             status = a.get('Status', '')
+            mult_raw = a.get('Multiple', a.get('Type', ''))
+            mult_val = str(mult_raw).strip().upper()
             
-            # Skip if already marked as Multi or explicitly as a Single entity in the Type column
-            if a.get('Type') in ('Multi', 'Single') or not collab_pattern.search(name):
+            # Skip if already marked as Multiple (TRUE/MULTI) or Single (FALSE/SINGLE), or does not match collab pattern
+            is_already_multi = mult_val in ('TRUE', 'MULTI', 'YES', '1') or mult_raw is True
+            is_already_single = mult_val in ('FALSE', 'SINGLE', 'NO', '0') or mult_raw is False
+            
+            if is_already_multi or is_already_single or not collab_pattern.search(name):
+                # Ensure standard boolean-string format in dictionary
+                if is_already_multi and a.get('Multiple') != 'TRUE':
+                    a['Multiple'] = 'TRUE'
+                    modified = True
+                elif is_already_single and a.get('Multiple') != 'FALSE':
+                    a['Multiple'] = 'FALSE'
+                    modified = True
                 to_keep.append(a)
                 continue
             
             # SUSPECTED FUSION
+            artist_url = self._get_artist_channel_url(name, a.get('Artist ID'))
             print(f"\n\033[1;93m⚠ Artista en seguimiento detectado con múltiples nombres: '{name}'\033[0m")
-            print(f"    Estado: {status} | Tipo: {a.get('Type', 'Normal')}")
+            print(f"    🔗 YT Music: \033[94m{artist_url}\033[0m")
+            print(f"    Estado: {status} | Multiple: {a.get('Multiple', 'No definido')}")
             print(f"    ¿Qué deseas hacer con este registro?")
-            print(f"    - 'i': Marcar como 'Multi' (se enviará a Status: Archived). No se trackeará como uno.")
-            print(f"    - 's': MANTENER como un solo artista/banda (Tipo: Single).")
+            print(f"    - 'i': Marcar como 'Multiple' (Multiple: TRUE, Status: Archived). No se trackeará como uno.")
+            print(f"    - 's': MANTENER como un solo artista/banda (Multiple: FALSE).")
             print(f"    - 'c': Continuar sin cambios (preguntar la próxima vez).")
             
             choice = input(f"    Opción (i/s/c): ").strip().lower()
             
             if choice == 'i':
-                a['Type'] = 'Multi'
+                a['Multiple'] = 'TRUE'
                 a['Status'] = 'Archived'  # Mantenemos los 3 estados del usuario en Status
                 to_keep.append(a)
                 modified = True
-                print(f"    ✅ '{name}' marcado como Multi (fusionado).")
+                print(f"    ✅ '{name}' marcado como Multiple (Archivado).")
             elif choice == 's':
-                a['Type'] = 'Single'
+                a['Multiple'] = 'FALSE'
                 to_keep.append(a)
                 modified = True
-                print(f"    ✅ '{name}' confirmado como un solo artista/banda.")
+                print(f"    ✅ '{name}' confirmado como un solo artista/banda (Multiple: FALSE).")
             else:
                 to_keep.append(a)
                 

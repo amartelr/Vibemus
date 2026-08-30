@@ -86,7 +86,7 @@ class SheetsService:
             except gspread.WorksheetNotFound:
                 ws = self.spreadsheet.add_worksheet(title=title, rows=1000, cols=15)
                 if title == "Artists":
-                    ws.append_row(["Artist Name", "Artist ID", "Song Count", "Last Checked", "Status", "Genre", "Playlist"])
+                    ws.append_row(["Artist Name", "Artist ID", "Song Count", "Last Checked", "Status", "Genre", "Playlist", "Multiple"])
                 elif title == "Genre":
                     ws.append_row(["Genre", "Count"])
                 elif title in ["Songs", "Archived"]:
@@ -204,7 +204,7 @@ class SheetsService:
         """
         ws = self._get_worksheet("Artists")
         # Header
-        headers = ["Artist Name", "Artist ID", "Song Count", "Last Checked", "Status", "Genre", "Playlist"]
+        headers = ["Artist Name", "Artist ID", "Song Count", "Last Checked", "Status", "Genre", "Playlist", "Multiple"]
         
         # Safety check: if artists_data is empty but we HAD artists before, abort to prevent wiping.
         if not artists_data and self._artists_cache:
@@ -214,6 +214,11 @@ class SheetsService:
         # Prepare rows
         rows = [headers]
         for artist in artists_data:
+            mult_val = artist.get("Multiple", "")
+            if mult_val is True:
+                mult_val = "TRUE"
+            elif mult_val is False:
+                mult_val = "FALSE"
             rows.append([
                 artist.get("Artist Name", ""),
                 artist.get("Artist ID", ""),
@@ -221,7 +226,8 @@ class SheetsService:
                 artist.get("Last Checked", ""),
                 artist.get("Status", ""),
                 artist.get("Genre", ""),
-                artist.get("Playlist", "")
+                artist.get("Playlist", ""),
+                mult_val
             ])
         
         # Overwrite content at A1 (without separate ws.clear call to save network latency)
@@ -310,7 +316,8 @@ class SheetsService:
                 "Status": status, # Status for artists awaiting their first scan
                 "Song Count": song_count or 0,
                 "Last Checked": datetime.now().strftime("%d/%m/%Y") if not artist_id else "", # empty to trigger sync if not yet performed
-                "Genre": genre or ""
+                "Genre": genre or "",
+                "Multiple": ""
             }
 
             self.add_artist(new_artist, silent=silent or (status == "Archived"))
