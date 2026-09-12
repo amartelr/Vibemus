@@ -3255,7 +3255,7 @@ class Manager:
             print(f"  Entrada no válida. Por favor, introduce un número entre 0 y {len(options)}.")
 
 
-    def sync_all_artist_releases(self, force=False, interactive=False, liked_only=False, target_playlist=None):
+    def sync_all_artist_releases(self, force=False, interactive=False, liked_only=False, target_playlist=None, year_filter=None):
         """Scans all tracked artists for new releases (skips artists checked within the cache window)."""
         print(f"\n==================================================")
         print(f"🚀 SYNCING ALL ARTIST RELEASES (Force: {force})")
@@ -3263,6 +3263,8 @@ class Manager:
             print(f"   🎯 Modo: Solo artistas con canciones en 'Me gusta'")
         if target_playlist:
             print(f"   🎵 Filtro Playlist: {target_playlist}")
+        if year_filter:
+            print(f"   📅 Filtro Año: solo artistas sin canciones desde {year_filter}")
         print(f"==================================================\n")
 
         # Filtrar artistas por fecha (solo si NO es force)
@@ -3370,6 +3372,35 @@ class Manager:
                 if self._normalize(a.get("Playlist", "")) == norm_pl
             ]
             print(f"  🎵 Filtrando por playlist '{target_playlist}': {len(artists)} de {before} artistas.\n")
+
+        # ── Filtro --year: solo artistas SIN canciones desde ese año ──
+        if year_filter:
+            print(f"  📅 Pre-calculando años máximos por artista para filtrar (año ≥ {year_filter})...")
+            # Pre-computar max year de Songs+Archived una sola vez (eficiente)
+            artist_max_year: dict[str, int] = {}
+            for s in self.sheets.get_songs_records():
+                norm_n = self._normalize(s.get("Artist", ""))
+                y_str = str(s.get("Year", "")).strip()
+                m = re.search(r'(\d{4})', y_str)
+                if m:
+                    y = int(m.group(1))
+                    if y > artist_max_year.get(norm_n, 0):
+                        artist_max_year[norm_n] = y
+            for s in self.sheets.get_archived_records():
+                norm_n = self._normalize(s.get("Artist", ""))
+                y_str = str(s.get("Year", "")).strip()
+                m = re.search(r'(\d{4})', y_str)
+                if m:
+                    y = int(m.group(1))
+                    if y > artist_max_year.get(norm_n, 0):
+                        artist_max_year[norm_n] = y
+
+            before = len(artists)
+            artists = [
+                a for a in artists
+                if artist_max_year.get(self._normalize(a.get("Artist Name", "")), 0) < year_filter
+            ]
+            print(f"  📅 {len(artists)} de {before} artistas sin canciones desde {year_filter}.\n")
 
         if not artists:
             print("✨ Todos tus artistas están al día. Nada que sincronizar hoy.")
