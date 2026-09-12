@@ -251,6 +251,7 @@ def _sync_releases(args, manager) -> int:
         liked_only=getattr(args, "liked_only", False),
         target_playlist=getattr(args, "playlist", None),
         year_filter=getattr(args, "year", None),
+        recent_filter=getattr(args, "recent", None),
     )
     return 0
 

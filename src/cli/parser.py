@@ -158,6 +158,10 @@ def _register_releases(subparsers: argparse._SubParsersAction) -> None:
         "--year", type=int, metavar="YEAR",
         help="Only check artists with no songs (in Songs or Archived) from this year onwards (e.g. --year 2025)",
     )
+    sync_p.add_argument(
+        "--recent", type=int, metavar="YEAR",
+        help="Only check artists that have at least one song (in Songs or Archived) from this year onwards (e.g. --recent 2026)",
+    )
 
 
 
