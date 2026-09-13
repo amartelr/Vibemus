@@ -267,8 +267,7 @@ class Manager:
             
             artist_songs_sorted = sorted(artist_songs, key=lambda x: int(x.get("LastfmScrobble") or 0), reverse=True)
             print(f"\n  \033[94m🎵 Biblioteca Actual ({len(artist_songs)} - {archived_count} [ARCH] | {active_count} no [ARCH]):\033[0m")
-            limit = 15
-            for s in artist_songs_sorted[:limit]:
+            for s in artist_songs_sorted:
                 s_title = s.get("Title", "")
                 s_listeners = int(s.get("LastfmScrobble") or 0)
                 s_user_plays = int(s.get("Scrobble") or 0)
@@ -302,9 +301,7 @@ class Manager:
                 else:
                     print(f"    - \033[1;92m{s_title}{colored_year} [{listeners_fmt}🎧]{user_tag} [{s_pl}]\033[0m")
 
-            
-            if len(artist_songs) > limit:
-                print(f"    \033[90m... y {len(artist_songs) - limit} canciones más.\033[0m")
+
             print()
 
         else:
