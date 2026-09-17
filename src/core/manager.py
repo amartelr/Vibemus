@@ -1435,7 +1435,8 @@ class Manager:
                                             if existing_vids.get(vid): existing_vids[vid]['Liked'] = ''
                                         
                                         base_row = existing_vids.get(vid) or {}
-                                        new_rec = {
+                                        new_rec = dict(base_row)
+                                        new_rec.update({
                                             'Playlist': correct_pl,
                                             'Artist': base_row.get('Artist') or item.get('Artist', 'Unknown'),
                                             'Title': base_row.get('Title') or song_title,
@@ -1446,7 +1447,7 @@ class Manager:
                                             'Scrobble': base_row.get('Scrobble', 0),
                                             'LastfmScrobble': base_row.get('LastfmScrobble', 0),
                                             'Video ID': vid
-                                        }
+                                        })
                                         moved_for_sheet.append(new_rec)
                                         
                                         if vid in yt_vid_map: del yt_vid_map[vid]
@@ -1494,17 +1495,18 @@ class Manager:
                     
                     # Construct robust record for the Archive sheet
                     base_row = existing_vids.get(vid) or {}
-                    row = {
+                    row = dict(base_row)
+                    row.update({
                         'Playlist': pl_name,
                         'Artist': base_row.get('Artist') or item.get('Artist', 'Unknown'),
                         'Title': base_row.get('Title') or item.get('Title', 'Unknown'),
                         'Album': base_row.get('Album') or (item.get('album', {}) or {}).get('name', ''),
                         'Year': base_row.get('Year') or str(item.get('year', '')),
-                        'Video ID': vid, 
+                        'Video ID': vid,
                         'Scrobble': scrobble_val,
                         'LastfmScrobble': lastfm_val,
                         'Genre': genre_val or base_row.get('Genre', '')
-                    }
+                    })
                     disliked_for_archive.append(row)
                     disliked_vids_global.add(vid)
                     if vid in yt_vid_map: del yt_vid_map[vid]

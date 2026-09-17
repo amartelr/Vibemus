@@ -84,13 +84,13 @@ class SheetsService:
             try:
                 return self.spreadsheet.worksheet(title)
             except gspread.WorksheetNotFound:
-                ws = self.spreadsheet.add_worksheet(title=title, rows=1000, cols=15)
+                ws = self.spreadsheet.add_worksheet(title=title, rows=1000, cols=17)
                 if title == "Artists":
                     ws.append_row(["Artist Name", "Artist ID", "Song Count", "Last Checked", "Status", "Genre", "Playlist", "Multiple"])
                 elif title == "Genre":
                     ws.append_row(["Genre", "Count"])
                 elif title in ["Songs", "Archived"]:
-                    ws.append_row(["Playlist", "Artist", "Title", "Album", "Liked", "Year", "Genre", "Scrobble", "LastfmScrobble", "Video ID", "Chord", "Tonality", "Progression", "Complex", "Style"])
+                    ws.append_row(["Playlist", "Artist", "Title", "Album", "Liked", "Year", "Genre", "Scrobble", "LastfmScrobble", "Video ID", "Chord", "Tonality", "Progression", "Complex", "Style", "LastScanned", "Lyrics"])
                 else:
                     # Default header for playlist exports
                     ws.append_row(["Playlist", "Artist", "Album", "Title", "Views"])
@@ -143,7 +143,7 @@ class SheetsService:
                     new_rows.append(row)
         else:
             # Sheet is empty, add header
-            new_rows.append(["Playlist", "Artist", "Title", "Album", "Liked", "Year", "Genre", "Scrobble", "LastfmScrobble", "Video ID", "Chord", "Tonality", "Progression", "Complex", "Style"])
+            new_rows.append(["Playlist", "Artist", "Title", "Album", "Liked", "Year", "Genre", "Scrobble", "LastfmScrobble", "Video ID", "Chord", "Tonality", "Progression", "Complex", "Style", "LastScanned", "Lyrics"])
 
         # Add new songs
         for s in songs:
@@ -162,7 +162,9 @@ class SheetsService:
                 s.get("Tonality", ""),
                 s.get("Progression", ""),
                 s.get("Complex", ""),
-                s.get("Style", "")
+                s.get("Style", ""),
+                s.get("LastScanned", ""),
+                s.get("Lyrics", "")
             ])
             
         print(f"Updating sheet... (Total rows: {len(new_rows)})")
@@ -365,7 +367,7 @@ class SheetsService:
         self._active_records_cache = None
         self._songs_vid_cache = None
         ws = self._get_worksheet("Songs")
-        header = ["Playlist", "Artist", "Title", "Album", "Liked", "Year", "Genre", "Scrobble", "LastfmScrobble", "Video ID", "Chord", "Tonality", "Progression", "Complex", "Style"]
+        header = ["Playlist", "Artist", "Title", "Album", "Liked", "Year", "Genre", "Scrobble", "LastfmScrobble", "Video ID", "Chord", "Tonality", "Progression", "Complex", "Style", "LastScanned", "Lyrics"]
         rows = [header]
         for r in records:
             rows.append([
@@ -383,7 +385,9 @@ class SheetsService:
                 r.get('Tonality', ''),
                 r.get('Progression', ''),
                 r.get('Complex', ''),
-                r.get('Style', '')
+                r.get('Style', ''),
+                r.get('LastScanned', ''),
+                r.get('Lyrics', '')
             ])
         try:
             self._execute_with_retry(ws.clear)
@@ -416,7 +420,9 @@ class SheetsService:
                 s.get('Tonality', ''),
                 s.get('Progression', ''),
                 s.get('Complex', ''),
-                s.get('Style', '')
+                s.get('Style', ''),
+                s.get('LastScanned', ''),
+                s.get('Lyrics', '')
             ])
         if new_rows:
             self._execute_with_retry(ws.append_rows, new_rows)
@@ -426,7 +432,7 @@ class SheetsService:
         self._archived_records_cache = None
         try:
             ws = self._get_worksheet("Archived")
-            header = ["Playlist", "Artist", "Title", "Album", "Liked", "Year", "Genre", "Scrobble", "LastfmScrobble", "Video ID", "Chord", "Tonality", "Progression", "Complex", "Style"]
+            header = ["Playlist", "Artist", "Title", "Album", "Liked", "Year", "Genre", "Scrobble", "LastfmScrobble", "Video ID", "Chord", "Tonality", "Progression", "Complex", "Style", "LastScanned", "Lyrics"]
             rows = []
             for s in archived_data:
                 rows.append([
@@ -444,7 +450,9 @@ class SheetsService:
                     s.get('Tonality', ''),
                     s.get('Progression', ''),
                     s.get('Complex', ''),
-                    s.get('Style', '')
+                    s.get('Style', ''),
+                    s.get('LastScanned', ''),
+                    s.get('Lyrics', '')
                 ])
             self._execute_with_retry(ws.clear)
             self._execute_with_retry(ws.append_row, header)
@@ -476,7 +484,9 @@ class SheetsService:
                 s.get('Tonality', ''),
                 s.get('Progression', ''),
                 s.get('Complex', ''),
-                s.get('Style', '')
+                s.get('Style', ''),
+                s.get('LastScanned', ''),
+                s.get('Lyrics', '')
             ])
         if new_rows:
             self._execute_with_retry(ws.append_rows, new_rows)
@@ -511,7 +521,7 @@ class SheetsService:
     def overwrite_songs_sheet(self, songs_data):
         """Overwrites the Songs sheet with provided list of song dicts."""
         ws = self._get_worksheet("Songs")
-        header = ["Playlist", "Artist", "Title", "Album", "Liked", "Year", "Genre", "Scrobble", "LastfmScrobble", "Video ID", "Chord", "Tonality", "Progression", "Complex", "Style"]
+        header = ["Playlist", "Artist", "Title", "Album", "Liked", "Year", "Genre", "Scrobble", "LastfmScrobble", "Video ID", "Chord", "Tonality", "Progression", "Complex", "Style", "LastScanned", "Lyrics"]
         rows = [header]
         for s in songs_data:
             rows.append([
@@ -529,7 +539,9 @@ class SheetsService:
                 s.get('Tonality', ''),
                 s.get('Progression', ''),
                 s.get('Complex', ''),
-                s.get('Style', '')
+                s.get('Style', ''),
+                s.get('LastScanned', ''),
+                s.get('Lyrics', '')
             ])
         self._execute_with_retry(ws.clear)
         self._execute_with_retry(ws.update, range_name='A1', values=rows)
