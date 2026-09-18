@@ -3,6 +3,22 @@ import time
 from datetime import datetime
 from ..config import Config
 
+# Columns Vibemus owns: it is free to rewrite them on every run.
+MANAGED_SONG_COLUMNS = [
+    "Playlist", "Artist", "Title", "Album", "Liked",
+    "Year", "Genre", "Scrobble", "LastfmScrobble", "Video ID"
+]
+
+# Columns fed by the companion app that shares this spreadsheet. Vibemus may
+# fill one in while it is empty (chord enrichment / harmonic analysis), but it
+# must never blank one out nor drop the column from the sheet.
+EXTERNAL_SONG_COLUMNS = [
+    "Chord", "Tonality", "Progression", "Complex", "Style", "LastScanned", "Lyrics"
+]
+
+SONG_HEADER = MANAGED_SONG_COLUMNS + EXTERNAL_SONG_COLUMNS
+
+
 class SheetsService:
     def __init__(self):
         # Authenticate using newer gspread.service_account approach (uses google-auth)
@@ -15,6 +31,9 @@ class SheetsService:
         self._songs_vid_cache = None
         self._active_records_cache = None
         self._archived_records_cache = None
+        # Video ID -> values of the columns Vibemus does not own. Survives the
+        # record caches being invalidated, so no write can drop them.
+        self._external_cache = None
 
     def _get_or_create_spreadsheet(self):
         def _open():
@@ -84,19 +103,145 @@ class SheetsService:
             try:
                 return self.spreadsheet.worksheet(title)
             except gspread.WorksheetNotFound:
-                ws = self.spreadsheet.add_worksheet(title=title, rows=1000, cols=17)
+                ws = self.spreadsheet.add_worksheet(title=title, rows=1000, cols=max(20, len(SONG_HEADER)))
                 if title == "Artists":
                     ws.append_row(["Artist Name", "Artist ID", "Song Count", "Last Checked", "Status", "Genre", "Playlist", "Multiple"])
                 elif title == "Genre":
                     ws.append_row(["Genre", "Count"])
                 elif title in ["Songs", "Archived"]:
-                    ws.append_row(["Playlist", "Artist", "Title", "Album", "Liked", "Year", "Genre", "Scrobble", "LastfmScrobble", "Video ID", "Chord", "Tonality", "Progression", "Complex", "Style", "LastScanned", "Lyrics"])
+                    ws.append_row(list(SONG_HEADER))
                 else:
                     # Default header for playlist exports
                     ws.append_row(["Playlist", "Artist", "Album", "Title", "Views"])
                 return ws
-        
+
         return self._execute_with_retry(_fetch)
+
+    def _song_header(self, ws):
+        """Returns the header to write, based on the sheet's CURRENT one.
+
+        Never drops a column: whatever the companion app put in row 1 is kept in
+        place, and only genuinely missing Vibemus columns are appended.
+        """
+        try:
+            header = list(self._execute_with_retry(ws.row_values, 1) or [])
+        except Exception as e:
+            print(f"  \033[93m⚠ Could not read '{ws.title}' header ({e}); falling back to the default one.\033[0m")
+            header = []
+
+        # Trailing blanks are grid padding, not columns
+        while header and not str(header[-1]).strip():
+            header.pop()
+
+        if not header:
+            return list(SONG_HEADER)
+
+        known = {str(h).strip() for h in header}
+        header.extend(col for col in SONG_HEADER if col not in known)
+
+        self._ensure_columns(ws, len(header))
+        return header
+
+    def _ensure_columns(self, ws, needed):
+        """Grows the grid if the header no longer fits (never shrinks it)."""
+        try:
+            if needed > ws.col_count:
+                self._execute_with_retry(ws.add_cols, needed - ws.col_count)
+        except Exception as e:
+            print(f"  \033[93m⚠ Could not widen '{ws.title}' to {needed} columns: {e}\033[0m")
+
+    def _external_values(self):
+        """Video ID -> values of every column Vibemus does not own.
+
+        Read once per run from Songs *and* Archived: songs move between the two
+        sheets, so archiving a track must not lose the analysis the companion
+        app wrote while it was still active. Always built before the first
+        destructive write, since the getters below read the live sheet.
+        """
+        if self._external_cache is not None:
+            return self._external_cache
+
+        self._external_cache = {}
+        for label, getter in (("Songs", self.get_songs_records), ("Archived", self.get_archived_records)):
+            try:
+                records = getter()
+            except Exception as e:
+                print(f"  \033[93m⚠ Could not read '{label}' to preserve external columns: {e}\033[0m")
+                continue
+            for record in records:
+                self._remember_external(record)
+
+        return self._external_cache
+
+    def _remember_external(self, record):
+        """Stores the non-empty external values of a record for later writes."""
+        vid = str(record.get('Video ID', '') or '').strip()
+        if not vid:
+            return
+        entry = self._external_cache.setdefault(vid, {})
+        for key, value in record.items():
+            name = str(key).strip()
+            if not name or name in MANAGED_SONG_COLUMNS:
+                continue
+            if str(value or '').strip():
+                entry[name] = value
+
+    def _build_song_rows(self, songs, header, year_as_str=True):
+        """Turns song dicts into rows aligned to `header`.
+
+        Any external column the caller left empty is refilled from what the
+        sheet already held, so callers that build partial dicts can no longer
+        wipe the companion app's data.
+        """
+        external = self._external_values()
+        rows = []
+        for song in songs:
+            merged = dict(song)
+            vid = str(merged.get('Video ID', '') or '').strip()
+            for key, value in (external.get(vid) or {}).items():
+                if not str(merged.get(key, '') or '').strip():
+                    merged[key] = value
+            # Values produced during this run (chord enrichment, analysis) must
+            # survive the writes that come after it.
+            self._remember_external(merged)
+
+            row = []
+            for col in header:
+                name = str(col).strip()
+                if name in ('Scrobble', 'LastfmScrobble'):
+                    row.append(self._to_int(merged.get(name)))
+                elif name == 'Year':
+                    year = merged.get('Year', '')
+                    row.append(str(year) if year_as_str else year)
+                else:
+                    value = merged.get(name, '')
+                    row.append('' if value is None else value)
+            rows.append(row)
+        return rows
+
+    def _replace_rows(self, ws, rows):
+        """Replaces a sheet's contents with `rows` (header included).
+
+        Writes first and only then clears the leftover tail, so a call that
+        fails midway leaves stale rows behind rather than an empty sheet —
+        the old clear()-then-write order could wipe everything.
+        """
+        if not rows:
+            return
+        self._execute_with_retry(ws.update, range_name='A1', values=rows)
+        leftover = len(rows) + 1
+        try:
+            if ws.row_count >= leftover:
+                self._execute_with_retry(ws.batch_clear, [f"{leftover}:{ws.row_count}"])
+        except Exception as e:
+            print(f"  \033[93m⚠ Could not clear leftover rows in '{ws.title}': {e}\033[0m")
+
+    def _refuses_empty_overwrite(self, songs, existing, label):
+        """Guards against replacing a populated sheet with nothing."""
+        if not songs and existing:
+            print(f"  \033[91m🛑 ERROR: Attempted to overwrite '{label}' ({len(existing)} rows) with an empty list. Aborting to save data.\033[0m")
+            return True
+        return False
 
     def export_playlist_to_sheet(self, songs, sheet_name="Songs"):
         """
@@ -120,56 +265,34 @@ class SheetsService:
 
         # Filter out existing rows for this playlist
         # Header is usually row 0
-        new_rows = []
+        header = self._song_header(ws)
+        new_rows = [header]
         if existing_rows:
-            header = existing_rows[0]
-            new_rows.append(header)
-            
+            # Remember what this sheet already held, so re-exported songs keep
+            # the columns the companion app owns even when `songs` omits them.
+            self._external_values()
+            old_header = [str(h).strip() for h in existing_rows[0]]
+            for row in existing_rows[1:]:
+                self._remember_external({h: (row[i] if i < len(row) else '') for i, h in enumerate(old_header)})
+
             # Find the index of 'Playlist' column just in case, usually 0
             try:
-                playlist_col_idx = header.index("Playlist")
+                playlist_col_idx = old_header.index("Playlist")
             except ValueError:
                 playlist_col_idx = 0
-            
-            # Keep rows that belong to OTHER playlists
+
+            # Keep rows that belong to OTHER playlists, realigned to the header
             for row in existing_rows[1:]:
-                # safely get column
-                if len(row) > playlist_col_idx:
-                    row_pl_name = row[playlist_col_idx]
-                    if row_pl_name != current_playlist_name:
-                        new_rows.append(row)
-                else:
-                    # Row looks malformed, keep it or discard? Keep it to be safe.
-                    new_rows.append(row)
-        else:
-            # Sheet is empty, add header
-            new_rows.append(["Playlist", "Artist", "Title", "Album", "Liked", "Year", "Genre", "Scrobble", "LastfmScrobble", "Video ID", "Chord", "Tonality", "Progression", "Complex", "Style", "LastScanned", "Lyrics"])
+                record = {h: (row[i] if i < len(row) else '') for i, h in enumerate(old_header)}
+                if len(row) > playlist_col_idx and row[playlist_col_idx] == current_playlist_name:
+                    continue
+                new_rows.append([record.get(str(h).strip(), '') for h in header])
 
         # Add new songs
-        for s in songs:
-            new_rows.append([
-                s.get("Playlist", ""),
-                s.get("Artist", ""),
-                s.get("Title", ""),
-                s.get("Album", ""),
-                s.get("Liked", ""),
-                s.get("Year", ""),
-                s.get("Genre", ""),
-                self._to_int(s.get("Scrobble")),
-                self._to_int(s.get("LastfmScrobble")),
-                s.get("Video ID", ""),
-                s.get("Chord", ""),
-                s.get("Tonality", ""),
-                s.get("Progression", ""),
-                s.get("Complex", ""),
-                s.get("Style", ""),
-                s.get("LastScanned", ""),
-                s.get("Lyrics", "")
-            ])
-            
+        new_rows.extend(self._build_song_rows(songs, header, year_as_str=False))
+
         print(f"Updating sheet... (Total rows: {len(new_rows)})")
-        self._execute_with_retry(ws.clear)
-        self._execute_with_retry(ws.update, range_name='A1', values=new_rows)
+        self._replace_rows(ws, new_rows)
         
         # Move sheet to be after 'History' if possible
         
@@ -350,49 +473,35 @@ class SheetsService:
         if not data:
             self._active_records_cache = []
             return []
-        
-        headers = data[0]
-        records = []
-        for row in data[1:]:
-            record = {}
-            for i, h in enumerate(headers):
-                record[h] = row[i] if i < len(row) else ''
-            records.append(record)
-            
-        self._active_records_cache = records
-        return records
+
+        self._active_records_cache = self._rows_to_records(data[0], data[1:])
+        return self._active_records_cache
+
+    def _rows_to_records(self, header, rows):
+        """Zips sheet rows against their header into dicts."""
+        names = [str(h).strip() for h in header]
+        return [
+            {h: (row[i] if i < len(row) else '') for i, h in enumerate(names) if h}
+            for row in rows
+        ]
 
     def overwrite_songs(self, records):
         """Rewrites the entire Songs sheet using an atomic update for performance and reliability."""
+        ws = self._get_worksheet("Songs")
+        header = self._song_header(ws)
+        # Read (and cache) the live contents BEFORE clearing anything
+        if self._refuses_empty_overwrite(records, self.get_songs_records(), "Songs"):
+            return
+        rows = [header] + self._build_song_rows(records, header)
+
         self._active_records_cache = None
         self._songs_vid_cache = None
-        ws = self._get_worksheet("Songs")
-        header = ["Playlist", "Artist", "Title", "Album", "Liked", "Year", "Genre", "Scrobble", "LastfmScrobble", "Video ID", "Chord", "Tonality", "Progression", "Complex", "Style", "LastScanned", "Lyrics"]
-        rows = [header]
-        for r in records:
-            rows.append([
-                r.get('Playlist', ''),
-                r.get('Artist', ''),
-                r.get('Title', ''),
-                r.get('Album', ''),
-                r.get('Liked', ''),
-                str(r.get('Year', '')),
-                r.get('Genre', ''),
-                self._to_int(r.get('Scrobble')),
-                self._to_int(r.get('LastfmScrobble')),
-                r.get('Video ID', ''),
-                r.get('Chord', ''),
-                r.get('Tonality', ''),
-                r.get('Progression', ''),
-                r.get('Complex', ''),
-                r.get('Style', ''),
-                r.get('LastScanned', ''),
-                r.get('Lyrics', '')
-            ])
         try:
-            self._execute_with_retry(ws.clear)
-            # Use batch update for atomicity
-            self._execute_with_retry(ws.update, range_name='A1', values=rows)
+            self._replace_rows(ws, rows)
+            # Mirror what we just wrote instead of forcing a re-read: Songs now
+            # carries Lyrics, so re-fetching it on every write burns API quota.
+            self._active_records_cache = self._rows_to_records(header, rows[1:])
+            self._songs_vid_cache = {r['Video ID'] for r in self._active_records_cache if r.get('Video ID')}
         except Exception as e:
             print(f"Error overwriting Songs: {e}")
 
@@ -400,64 +509,29 @@ class SheetsService:
         """Adds a list of songs to the Songs sheet."""
         if not songs_data:
             return
+        ws = self._get_worksheet("Songs")
+        header = self._song_header(ws)
+        new_rows = self._build_song_rows(songs_data, header, year_as_str=False)
+
         self._active_records_cache = None
         self._songs_vid_cache = None
-        ws = self._get_worksheet("Songs")
-        new_rows = []
-        for s in songs_data:
-            new_rows.append([
-                s.get('Playlist', ''),
-                s.get('Artist', ''),
-                s.get('Title', ''),
-                s.get('Album', ''),
-                s.get('Liked', ''),
-                s.get('Year', ''),
-                s.get('Genre', ''),
-                self._to_int(s.get('Scrobble')),
-                self._to_int(s.get('LastfmScrobble')),
-                s.get('Video ID', ''),
-                s.get('Chord', ''),
-                s.get('Tonality', ''),
-                s.get('Progression', ''),
-                s.get('Complex', ''),
-                s.get('Style', ''),
-                s.get('LastScanned', ''),
-                s.get('Lyrics', '')
-            ])
         if new_rows:
             self._execute_with_retry(ws.append_rows, new_rows)
 
     def overwrite_archived(self, archived_data):
         """Overwrites the Archived sheet with the provided data, preserving headers."""
-        self._archived_records_cache = None
         try:
             ws = self._get_worksheet("Archived")
-            header = ["Playlist", "Artist", "Title", "Album", "Liked", "Year", "Genre", "Scrobble", "LastfmScrobble", "Video ID", "Chord", "Tonality", "Progression", "Complex", "Style", "LastScanned", "Lyrics"]
-            rows = []
-            for s in archived_data:
-                rows.append([
-                    s.get('Playlist', ''),
-                    s.get('Artist', ''),
-                    s.get('Title', ''),
-                    s.get('Album', ''),
-                    s.get('Liked', ''),
-                    str(s.get('Year', '')),
-                    s.get('Genre', ''),
-                    self._to_int(s.get('Scrobble')),
-                    self._to_int(s.get('LastfmScrobble')),
-                    s.get('Video ID', ''),
-                    s.get('Chord', ''),
-                    s.get('Tonality', ''),
-                    s.get('Progression', ''),
-                    s.get('Complex', ''),
-                    s.get('Style', ''),
-                    s.get('LastScanned', ''),
-                    s.get('Lyrics', '')
-                ])
-            self._execute_with_retry(ws.clear)
-            self._execute_with_retry(ws.append_row, header)
-            if rows:
-                self._execute_with_retry(ws.append_rows, rows)
+            header = self._song_header(ws)
+            # Read (and cache) the live contents BEFORE clearing anything
+            if self._refuses_empty_overwrite(archived_data, self.get_archived_records(), "Archived"):
+                return
+            rows = self._build_song_rows(archived_data, header)
+
+            self._archived_records_cache = None
+            self._replace_rows(ws, [header] + rows)
+            # Mirror what we just wrote (see overwrite_songs)
+            self._archived_records_cache = self._rows_to_records(header, rows)
         except Exception as e:
             print(f"Error overwriting Archived: {e}")
 
@@ -465,29 +539,11 @@ class SheetsService:
         """Adds a list of songs to the Archived sheet."""
         if not songs_data:
             return
-        self._archived_records_cache = None
         ws = self._get_worksheet("Archived")
-        new_rows = []
-        for s in songs_data:
-            new_rows.append([
-                s.get('Playlist', ''),
-                s.get('Artist', ''),
-                s.get('Title', ''),
-                s.get('Album', ''),
-                s.get('Liked', ''),
-                s.get('Year', ''),
-                s.get('Genre', ''),
-                self._to_int(s.get('Scrobble')),
-                self._to_int(s.get('LastfmScrobble')),
-                s.get('Video ID', ''),
-                s.get('Chord', ''),
-                s.get('Tonality', ''),
-                s.get('Progression', ''),
-                s.get('Complex', ''),
-                s.get('Style', ''),
-                s.get('LastScanned', ''),
-                s.get('Lyrics', '')
-            ])
+        header = self._song_header(ws)
+        new_rows = self._build_song_rows(songs_data, header, year_as_str=False)
+
+        self._archived_records_cache = None
         if new_rows:
             self._execute_with_retry(ws.append_rows, new_rows)
 
@@ -506,45 +562,13 @@ class SheetsService:
         if not data:
             self._archived_records_cache = []
             return []
-        
-        headers = data[0]
-        records = []
-        for row in data[1:]:
-            record = {}
-            for i, h in enumerate(headers):
-                record[h] = row[i] if i < len(row) else ''
-            records.append(record)
-            
-        self._archived_records_cache = records
-        return records
+
+        self._archived_records_cache = self._rows_to_records(data[0], data[1:])
+        return self._archived_records_cache
 
     def overwrite_songs_sheet(self, songs_data):
         """Overwrites the Songs sheet with provided list of song dicts."""
-        ws = self._get_worksheet("Songs")
-        header = ["Playlist", "Artist", "Title", "Album", "Liked", "Year", "Genre", "Scrobble", "LastfmScrobble", "Video ID", "Chord", "Tonality", "Progression", "Complex", "Style", "LastScanned", "Lyrics"]
-        rows = [header]
-        for s in songs_data:
-            rows.append([
-                s.get('Playlist', ''),
-                s.get('Artist', ''),
-                s.get('Title', ''),
-                s.get('Album', ''),
-                s.get('Liked', ''),
-                str(s.get('Year', '')),
-                s.get('Genre', ''),
-                self._to_int(s.get('Scrobble')),
-                self._to_int(s.get('LastfmScrobble')),
-                s.get('Video ID', ''),
-                s.get('Chord', ''),
-                s.get('Tonality', ''),
-                s.get('Progression', ''),
-                s.get('Complex', ''),
-                s.get('Style', ''),
-                s.get('LastScanned', ''),
-                s.get('Lyrics', '')
-            ])
-        self._execute_with_retry(ws.clear)
-        self._execute_with_retry(ws.update, range_name='A1', values=rows)
+        self.overwrite_songs(songs_data)
 
     def overwrite_genre_sheet(self, genre_counts):
         """Overwrites the Genre sheet with provided list of tuples (genre, count)."""
