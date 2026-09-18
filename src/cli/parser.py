@@ -195,24 +195,6 @@ def _register_playlist(subparsers: argparse._SubParsersAction) -> None:
         "--no-covers", action="store_true",
         help="Skip playlist cover generation (reordering)",
     )
-    sp_p.add_argument(
-        "--chord", nargs="?", const="both", choices=["chordonomicon", "ultimate-guitar", "both"],
-        help="Enrich songs with harmonic progression (chords) from Chordonomicon, Ultimate Guitar, or both (defaults to both)",
-    )
-
-    # playlist chord
-    ch_p = pl_sub.add_parser(
-        "chord",
-        aliases=["ch"],
-        help="Lookup a song's chords from the Chordonomicon dataset or Ultimate Guitar without saving to Sheets.",
-    )
-    ch_p.add_argument("artist", type=str, help="Artist name")
-    ch_p.add_argument("title", type=str, help="Song title")
-    ch_p.add_argument(
-        "--chord", nargs="?", const="both", choices=["chordonomicon", "ultimate-guitar", "both"], default="both",
-        help="Harmonic progression (chords) provider to use (defaults to both)",
-    )
-
     # playlist cleanup-inbox (was --cleanup-inbox)
     pl_sub.add_parser(
         "cleanup-inbox",
@@ -327,17 +309,6 @@ def _register_playlist(subparsers: argparse._SubParsersAction) -> None:
         "list",
         aliases=["ls"],
         help="List all playlists with their song counts in YouTube Music and Google Sheet",
-    )
-
-    # playlist analyze-chords
-    ac_p = pl_sub.add_parser(
-        "analyze-chords",
-        aliases=["ac"],
-        help="Analyze populated chords in Sheets to detect Tonality, Roman Numeral Progression, Complexity, and Style.",
-    )
-    ac_p.add_argument(
-        "--reanalyze", action="store_true",
-        help="Reanalyze chords even if Tonality/Progression/Complex/Style columns are already populated",
     )
 
 

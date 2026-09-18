@@ -33,7 +33,7 @@ Para ahorrar escritura, puedes usar los siguientes alias para grupos de comandos
 |:---|:---|:---|
 | **Artist** | `art` | `ls` (list), `sh` (search), `ad` (add), `rm` (remove), `cc` (cleanup-collabs), `sy` (sync), `im` (import), `re` (reset-empty), `ai` (archive-inactive) |
 | **Releases** | `rel` | `sy` (sync) |
-| **Playlist** | `pl` | `ls` (list), `sy` (sync), `ci` (cleanup-inbox), `cl` (clean), `ex` (export), `cul` (cleanup-likes), `am` (apply-moves), `sp` (split), `rp` (review-pending), `ac` (analyze-chords), `ch` (chord) |
+| **Playlist** | `pl` | `ls` (list), `sy` (sync), `ci` (cleanup-inbox), `cl` (clean), `ex` (export), `cul` (cleanup-likes), `am` (apply-moves), `sp` (split), `rp` (review-pending) |
 | **Library** | `lib` | `sy` (sync) |
 | **Recom** | `rec` | `sy` (sync), `ny` (new-releases), `fw` (following) |
 | **Genre** | `gen` | `sy` (sync) |
@@ -528,7 +528,7 @@ vibemus pl ls
 
 ---
 
-#### `vibemus playlist sync [--name PL] [--skip-lastfm] [--no-covers] [--chord [chordonomicon|ultimate-guitar|both]]`
+#### `vibemus playlist sync [--name PL] [--skip-lastfm] [--no-covers]`
 **Alias:** `vibemus pl sy ...`
 
 Concilia una o todas las playlists de origen con tu hoja 'Songs'.
@@ -537,23 +537,11 @@ Concilia una o todas las playlists de origen con tu hoja 'Songs'.
 - `--name PL`: Limita la sincronización a una sola playlist específica (ej. `vibemus pl sy --name "#"`).
 - `--skip-lastfm`: Omite el enriquecimiento de Last.fm para una ejecución mucho más rápida.
 - `--no-covers`: Omite la fase de generación/reordenación de portadas de playlists.
-- `--chord [provider]`: Busca y rellena la progresión armónica (columna `Chord`) a partir del proveedor seleccionado:
-  - `chordonomicon`: Solo realiza búsquedas en la base de datos local indexada de Chordonomicon.
-  - `ultimate-guitar`: Solo realiza búsquedas mediante scraping estructurado en Ultimate Guitar.
-  - `both`: Intenta obtener la progresión primero de Chordonomicon y, en caso de no encontrarla, realiza la búsqueda en Ultimate Guitar. Es el valor por defecto si se incluye `--chord` sin especificar un valor.
+
+> Las columnas `Chord`, `Tonality`, `Progression`, `Complex`, `Style`, `LastScanned` y `Lyrics` las rellena una app externa que comparte esta hoja de cálculo. Vibemus nunca las escribe ni las borra.
 
 **Ejemplos:**
 ```bash
-# Sincronizar todas las playlists de origen buscando acordes en ambos proveedores
-vibemus playlist sync --chord
-vibemus pl sy --chord both
-
-# Sincronizar solo usando Chordonomicon
-vibemus pl sy --chord chordonomicon
-
-# Sincronizar solo usando Ultimate Guitar
-vibemus pl sy --chord ultimate-guitar
-
 # Sincronizar una playlist específica omitiendo enriquecimiento
 vibemus playlist sync --name "Indie" --skip-lastfm
 vibemus pl sy --name "Indie" --skip-lastfm
@@ -693,48 +681,8 @@ vibemus pl am --playlist "Pop" --api musicbrainz
 
 ---
 
-#### `vibemus playlist chord "Artist" "Title" [--chord [chordonomicon|ultimate-guitar|both]]`
-**Alias:** `vibemus pl ch ...`
-
-Busca la progresión armónica de una canción específica. Permite elegir la fuente de acordes. Si se encuentran múltiples hojas en Ultimate Guitar en modo interactivo, te permitirá seleccionar visualmente cuál de ellas deseas utilizar.
-
-**Argumentos:**
-- `Artist`: Nombre del artista de la canción.
-- `Title`: Título de la canción.
-- `--chord [provider]`: El proveedor a utilizar: `chordonomicon`, `ultimate-guitar` o `both` (por defecto: `both`).
-
-**Ejemplos:**
-```bash
-# Buscar usando ambos proveedores
-vibemus playlist chord "Pink Floyd" "Wish You Were Here"
-vibemus pl ch "Pink Floyd" "Wish You Were Here" --chord both
-
-# Buscar solo en Chordonomicon
-vibemus pl ch "Pink Floyd" "Wish You Were Here" --chord chordonomicon
-
-# Buscar solo en Ultimate Guitar
-vibemus pl ch "Pink Floyd" "Wish You Were Here" --chord ultimate-guitar
-```
-
----
-
-#### `vibemus playlist analyze-chords [--reanalyze]`
-**Alias:** `vibemus pl ac [--reanalyze]`
-
-Realiza un análisis armónico automático por lotes a partir de las canciones que tienen informada la columna `Chord` en Google Sheets, y calcula y rellena 4 columnas nuevas:
-- `Tonality`: La tonalidad/escala musical de la canción (ej. `G Major`, `C Minor`).
-- `Progression`: La progresión armónica simplificada en números romanos (ej. `I - V - vi - IV`).
-- `Complex`: El nivel de complejidad armónica (`Baja`, `Media`, `Media-Alta`, `Alta`) según la variedad, acordes con tensiones/extensiones (`maj7`, `min7`, `7`, `sus4`, `add9`), acordes híbridos (`/Bass`) e intercambios modales no diatónicos.
-- `Style`: La vibra o estilo estético de la canción (`Oscura`, `moderna`, `Alegre`, `simple`).
-
-**Argumentos:**
-- `--reanalyze`: Fuerza la re-evaluación y sobreescritura de las canciones aunque ya tengan pobladas sus columnas de análisis.
-
-**Ejemplos:**
-```bash
-vibemus playlist analyze-chords
-vibemus pl ac --reanalyze
-```
+> [!NOTE]
+> Los comandos `playlist chord` y `playlist analyze-chords` se han retirado: las columnas `Chord`, `Tonality`, `Progression`, `Complex` y `Style` las gestiona ahora exclusivamente la app externa que comparte esta hoja de cálculo.
 
 ---
 
