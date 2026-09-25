@@ -1096,108 +1096,6 @@ class Manager:
         print("\n✅ ASISTENTE COMPLETADO\n" if not errors else f"\n⚠ COMPLETADO CON {errors} ERRORES\n")
 
 
-    def sync_likes(self, skip_lastfm=False):
-        """Iterates through the 'Likes' playlist (LM) from YouTube Music,
-        and sets 'Liked' = 'True' in the Songs sheet for those songs.
-        Also clears 'Liked' = 'True' for songs that are no longer in the LM playlist.
-        """
-        print("\n\033[96m" + "━"*50 + "\033[0m")
-        print("\033[1;96m❤️ SYNCING LIKES (LM PLAYLIST)\033[0m")
-        print("\033[96m" + "━"*50 + "\033[0m")
-        
-        print("  \033[90mFetching Liked songs from YouTube Music...\033[0m")
-        try:
-            liked_data = self.yt.get_liked_songs(limit=None)
-            liked_tracks = liked_data.get('tracks', []) if isinstance(liked_data, dict) else liked_data
-            
-            liked_vids = set()
-            for track in liked_tracks:
-                vid = track.get('videoId')
-                if vid:
-                    liked_vids.add(vid)
-            
-            print(f"    \033[92m✓\033[0m Found {len(liked_vids)} liked songs.")
-        except Exception as e:
-            print(f"    \033[91m✗ Error fetching liked songs: {e}\033[0m")
-            return
-            
-        print("  \033[90mUpdating 'Songs' sheet...\033[0m")
-        songs_records = self.sheets.get_songs_records()
-        
-        updated_count = 0
-        cleared_count = 0
-        scrobbles_updated = 0
-        update_scrobbles = not skip_lastfm
-        
-        if update_scrobbles:
-            print("  \033[90mProcessing songs and fetching Last.fm scrobbles for liked songs...\033[0m")
-        
-        total_songs = len(songs_records)
-        for i, record in enumerate(songs_records):
-            if update_scrobbles and i > 0 and i % 50 == 0:
-                print(f"    \033[90mProcessed {i}/{total_songs} songs...\033[0m")
-            vid = record.get('Video ID')
-            if not vid:
-                continue
-                
-            pl_name = record.get('Playlist', '')
-            was_liked = str(record.get('Liked', '')).strip().lower() == 'true'
-            is_liked = vid in liked_vids
-            
-            if is_liked:
-                if pl_name == '#':
-                    # Inbox playlist: Keep on YT, but clear from sheet
-                    if was_liked:
-                        record['Liked'] = ''
-                        cleared_count += 1
-                elif pl_name in Config.SOURCE_PLAYLISTS:
-                    # Genre playlist (Pop, Rock, etc): Keep on YT, mark as True in sheet
-                    if not was_liked:
-                        record['Liked'] = 'True'
-                        updated_count += 1
-                else:
-                    # Historical/Archive playlist: Remove Like from YT and clear from sheet
-                    print(f"    \033[93m⚡ Quitando Like de canción archivada en YT: {record.get('Artist')} - {record.get('Title')} [{pl_name}]\033[0m")
-                    try:
-                        self.yt.rate_song(vid, 'INDIFFERENT')
-                        liked_vids.remove(vid) # Remove from local set so we don't fetch scrobbles below
-                        is_liked = False
-                        if was_liked:
-                            record['Liked'] = ''
-                            cleared_count += 1
-                    except Exception as e:
-                        print(f"      ✗ Error quitando Like en YouTube: {e}")
-            else:
-                if was_liked:
-                    record['Liked'] = ''
-                    cleared_count += 1
-                    
-            if update_scrobbles and is_liked:
-                artist = record.get('Artist', '')
-                title = record.get('Title', '')
-                if artist and title:
-                    info = self.lastfm.get_track_info(artist, title)
-                    if info:
-                        new_scrobble = str(info.get('playcount', ''))
-                        old_scrobble = str(record.get('Scrobble', ''))
-                        if new_scrobble and new_scrobble != old_scrobble:
-                            record['Scrobble'] = new_scrobble
-                            record['LastfmScrobble'] = new_scrobble
-                            scrobbles_updated += 1
-                    
-        if updated_count > 0 or cleared_count > 0 or scrobbles_updated > 0:
-            self.sheets.overwrite_songs(songs_records)
-            if updated_count > 0 or cleared_count > 0:
-                print(f"    \033[92m✓\033[0m Marked {updated_count} new songs as Liked.")
-                print(f"    \033[93m✓\033[0m Cleared Liked status from {cleared_count} songs.")
-            if scrobbles_updated > 0:
-                print(f"    \033[92m✓\033[0m Updated scrobbles for {scrobbles_updated} songs.")
-        else:
-            print("    \033[92m✓\033[0m All Liked statuses and scrobbles are up to date. No changes made.")
-            
-        print("\033[96m" + "━"*50 + "\033[0m\n")
-
-
     def sync_playlist(self, playlist_name=None, skip_lastfm=False):
         print("\n\033[96m" + "━"*50 + "\033[0m")
         print(f"\033[1;96m🔄 SYNCING PLAYLIST: {playlist_name or 'ALL'}\033[0m")
@@ -1431,8 +1329,7 @@ class Manager:
                                         self.yt.remove_playlist_items(pid, [item])
                                         if moving_to_archive:
                                             self.yt.rate_song(vid, 'INDIFFERENT')
-                                            if existing_vids.get(vid): existing_vids[vid]['Liked'] = ''
-                                        
+
                                         base_row = existing_vids.get(vid) or {}
                                         new_rec = dict(base_row)
                                         new_rec.update({
@@ -1441,7 +1338,6 @@ class Manager:
                                             'Title': base_row.get('Title') or song_title,
                                             'Album': base_row.get('Album') or (item.get('album') or {}).get('name', ''),
                                             'Year': base_row.get('Year') or str(y_str),
-                                            'Liked': '' if moving_to_archive else base_row.get('Liked', ''),
                                             'Genre': base_row.get('Genre') or item.get('Genre', ''),
                                             'Scrobble': base_row.get('Scrobble', 0),
                                             'LastfmScrobble': base_row.get('LastfmScrobble', 0),
@@ -1466,9 +1362,8 @@ class Manager:
                         self.yt.remove_playlist_items(pid, [item])
                         print(f"      🗑 Eliminado de la playlist '{pl_name}'")
                         
-                        if status == 'DISLIKE': 
+                        if status == 'DISLIKE':
                             self.yt.rate_song(vid, 'INDIFFERENT')
-                            if existing_vids.get(vid): existing_vids[vid]['Liked'] = ''
                             # Eliminar también de la biblioteca
                             try:
                                 remove_token = (item.get('feedbackTokens') or {}).get('remove')
@@ -1587,7 +1482,6 @@ class Manager:
                                     print(f"    \033[93m⚠ Archivo catalogado → Quitando Like tras mover:\033[0m \033[92m{main_artist} - {song_title}\033[0m")
                                     try:
                                         self.yt.rate_song(vid, 'INDIFFERENT')
-                                        if existing_vids.get(vid): existing_vids[vid]['Liked'] = ''
                                     except Exception as e:
                                         print(f"      \033[91m✗ Error quitando Like:\033[0m {e}")
                                 
@@ -1625,10 +1519,6 @@ class Manager:
                                 new_record['Scrobble'] = sc_val
                                 new_record['LastfmScrobble'] = lsc_val
                                 if gen_val: new_record['Genre'] = gen_val
-                                if not should_unlike and final_target_pl != '#':
-                                    new_record['Liked'] = 'True'
-                                else:
-                                    new_record['Liked'] = ''
                                 moved_for_sheet.append(new_record)
 
                                 if vid in yt_vid_map: del yt_vid_map[vid]
@@ -3395,26 +3285,19 @@ class Manager:
 
 
     def get_lastfm_recommendations(self):
-        """Fetches personalized artist recommendations from Last.fm using Chrome cookies."""
-        import browser_cookie3
-        import requests
-        import re
+        """Suggests new artists similar to your top Last.fm artists.
+
+        Used to scrape last.fm's '+recommended/artists' web page, but Last.fm
+        now serves a JS bot-challenge there that plain HTTP requests can't
+        pass. Instead this seeds from the official user.getTopArtists API and
+        fans out through the official artist.getSimilar API, which needs no
+        cookies and isn't scraping at all.
+        """
         import os
         import json
         from src.config import Config
 
-        print("   Loading cookies from Chrome...")
-        try:
-            cj = browser_cookie3.chrome()
-        except Exception as e:
-            raise Exception(f"Error reading Chrome cookies: {e}")
-            
-        url_template = "https://www.last.fm/es/music/+recommended/artists?page={}"
-        headers = {
-            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36'
-        }
-        
-        # Load local cache
+        # Load local cache of artists already shown/dismissed
         cache_file = os.path.join(Config.DATA_DIR, 'lastfm_recommended_cache.json')
         seen_artists = set()
         if os.path.exists(cache_file):
@@ -3422,7 +3305,8 @@ class Manager:
                 with open(cache_file, 'r') as f:
                     seen_artists = set(json.load(f))
             except: pass
-            
+        seen_names = {self._normalize(a) for a in seen_artists}
+
         # Get tracked artists + songs to filter out
         all_artists = self.sheets.get_artists()
         tracked_names = {self._normalize(a.get("Artist Name", "")) for a in all_artists if a.get("Status") != "Archived"}
@@ -3431,69 +3315,32 @@ class Manager:
         songs_artist_names = {self._normalize(song.get("Artist", "")) for song in all_songs if song.get("Artist")}
         tracked_names.update(songs_artist_names)
 
-        filtered_new_artists = []
-        page = 1
-        max_pages = 20  # hard safety limit
-        target_new = 20
-        consecutive_empty = 0
-        max_consecutive_empty = 2  # stop after 2 pages with no new artists
+        print("   Fetching your top artists from Last.fm...")
+        seeds = self.lastfm.get_top_artists(limit=30)
+        if not seeds:
+            print("   ✗ Could not fetch top artists from Last.fm.")
+            return []
 
-        while len(filtered_new_artists) < target_new and page <= max_pages:
-            print(f"   Fetching recommendations from Last.fm (Page {page})...")
-            url = url_template.format(page)
-            try:
-                r = requests.get(url, cookies=cj, headers=headers)
-                if "Entrar" in r.text or "Log in" in r.text:
-                    if page == 1:
-                        raise Exception("Not logged into Last.fm in Chrome. Please log in first.")
-                    break
-                    
-                matches = re.findall(r'<a[^>]+class="[^"]*link-block-target[^"]*"[^>]*>([^<]+)</a>', r.text)
-                if not matches:
-                    break
-                
-                # Process this page
-                page_artists = list(set([m.strip() for m in matches if m.strip() and m.strip().lower() != 'más información']))
-                if not page_artists:
-                    break
-                
-                new_this_page = 0
-                for a in page_artists:
-                    if a in seen_artists:
-                        continue
-                        
-                    norm_a = self._normalize(a)
-                    if norm_a in archived_names:
-                        # Archived = user never wants to see it again
-                        self.mark_lastfm_recommendation_seen(a)
-                        seen_artists.add(a)
-                        continue
+        candidates = {}  # normalized name -> (display name, best match score)
+        for i, seed in enumerate(seeds, 1):
+            print(f"   Finding artists similar to '{seed}' ({i}/{len(seeds)})...")
+            for name, match in self.lastfm.get_similar_artists(seed, limit=15):
+                norm_a = self._normalize(name)
+                if not norm_a or norm_a in seen_names:
+                    continue
+                if norm_a in archived_names:
+                    # Archived = user never wants to see it again
+                    self.mark_lastfm_recommendation_seen(name)
+                    seen_names.add(norm_a)
+                    continue
+                if norm_a in tracked_names:
+                    continue
+                best = candidates.get(norm_a)
+                if best is None or match > best[1]:
+                    candidates[norm_a] = (name, match)
 
-                    if norm_a in tracked_names:
-                        # Already tracked, mark as seen so we don't process again
-                        self.mark_lastfm_recommendation_seen(a)
-                        seen_artists.add(a)
-                    else:
-                        if a not in filtered_new_artists:
-                            filtered_new_artists.append(a)
-                            seen_artists.add(a)
-                            new_this_page += 1
-                
-                # Stop early if this page (and the previous one) had nothing new
-                if new_this_page == 0:
-                    consecutive_empty += 1
-                    if consecutive_empty >= max_consecutive_empty:
-                        break
-                else:
-                    consecutive_empty = 0
-                            
-            except Exception as e:
-                print(f"   ✗ Error fetching page {page}: {e}")
-                break
-                
-            page += 1
-            
-        return filtered_new_artists
+        ranked = sorted(candidates.values(), key=lambda pair: pair[1], reverse=True)
+        return [name for name, _ in ranked[:20]]
 
     def mark_lastfm_recommendation_seen(self, art_name):
         import os
@@ -4076,7 +3923,6 @@ class Manager:
                     # Update Sheet records in memory
                     for s in songs:
                         s['Playlist'] = target_name
-                        s['Liked'] = ''
 
             # 6. Limpieza final: Eliminar playlists de archivo que ya no están en config y están vacías
             print(f"  🧹 Revisando limpieza de archivos obsoletos...")
@@ -4376,7 +4222,6 @@ class Manager:
                 for s in all_songs:
                     if s.get('Playlist', '').lower() == pl_lower and s.get('Video ID') in vids_set:
                         s['Playlist'] = archive_name
-                        s['Liked'] = ''
                 total_moved += len(vids)
 
             # --- EJECUCIÓN B: RESTAURAR ---
@@ -4402,7 +4247,6 @@ class Manager:
                 for s in all_songs:
                     if s.get('Playlist', '').lower() == archive_lower and s.get('Video ID') in vids_set:
                         s['Playlist'] = pl_name
-                        s['Liked'] = 'True'
                 total_restored += len(vids)
 
         if total_moved > 0 or total_restored > 0:
@@ -4662,7 +4506,6 @@ class Manager:
                     try:
                         self.yt.rate_song(vid, 'INDIFFERENT')
                         unliked_count += 1
-                        sheet_songs[idx]['Liked'] = ''
                         print("   ✅ Unmarked as Liked.")
                     except Exception as e:
                         print(f"   ❌ Error updating rating: {e}")

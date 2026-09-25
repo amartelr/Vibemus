@@ -306,6 +306,27 @@ class LastFMService:
 
         return result
 
+    def get_top_artists(self, limit=30, period="overall"):
+        """Returns the user's top artists on Last.fm, most-played first."""
+        try:
+            user = self.network.get_user(self.username)
+            top = user.get_top_artists(period=period, limit=limit)
+            self._throttle()
+            return [t.item.name for t in top]
+        except Exception as e:
+            print(f"  [LastFM Error] Top artists: {e}")
+            return []
+
+    def get_similar_artists(self, artist, limit=15):
+        """Returns [(name, match_score), ...] similar to `artist`, via the official API."""
+        try:
+            obj = self.network.get_artist(artist)
+            similar = obj.get_similar(limit=limit)
+            self._throttle()
+            return [(s.item.name, float(s.match)) for s in similar]
+        except Exception:
+            return []
+
     def enrich_songs(self, songs, force_scrobbles=True, cache_ttl_days=7, force_threshold=None):
         """
         Enriches a list of song dicts in-place with Last.fm data.
