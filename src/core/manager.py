@@ -135,14 +135,12 @@ class Manager:
 
     def _print_artist_catalog_summary(self, artist_name):
         """Prints a summary of already tracked songs for the given artist."""
-        # Clear/bypass sheet cache to ensure we get the latest directly from the spreadsheet!
-        self.sheets._active_records_cache = None
-        self.sheets._archived_records_cache = None
-        self.sheets._songs_vid_cache = None
-
+        # Display-only: just the shown columns are downloaded (cached for the run),
+        # with the values already in the sheet. No Last.fm calls, no writes.
         norm_name = self._normalize(artist_name)
-        active_songs = self.sheets.get_songs_records()
-        archived_songs = self.sheets.get_archived_records()
+        summary_cols = ["Video ID", "Artist", "Title", "Year", "Playlist", "Scrobble", "LastfmScrobble"]
+        active_songs = self.sheets.get_light_records("Songs", summary_cols)
+        archived_songs = self.sheets.get_light_records("Archived", summary_cols)
         
         all_tracked_songs = []
         seen_vids = set()
@@ -190,77 +188,6 @@ class Manager:
         artist_songs = [s for s in all_tracked_songs if song_has_artist(s, norm_name)]
         
         if artist_songs:
-            # Enrich from Last.fm cache (fast: uses cached data, only hits API if stale/missing)
-            print(f"\n  \033[90m🔍 Consultando Last.fm para {len(artist_songs)} canciones...\033[0m", end="\r")
-            songs_changed = False
-            for s in artist_songs:
-                try:
-                    info = self.lastfm.get_track_info(
-                        s.get("Artist", artist_name),
-                        s.get("Title", ""),
-                        force_scrobbles=False,   # use cache, only API if stale
-                        cache_ttl_days=7,
-                    )
-                    if info:
-                        listeners = int(info.get("lastfm_listeners", 0) or info.get("lastfm_scrobble", 0))
-                        user_plays = int(info.get("scrobble", 0))
-                        # Only upgrade (never downgrade)
-                        if listeners > int(s.get("LastfmScrobble") or 0):
-                            s["LastfmScrobble"] = listeners
-                            songs_changed = True
-                        if user_plays > int(s.get("Scrobble") or 0):
-                            s["Scrobble"] = user_plays
-                            songs_changed = True
-                except Exception:
-                    pass
-            print(" " * 60, end="\r")  # clear the "consultando" line
-
-            # Persist updates back to the spreadsheet if any values changed
-            if songs_changed:
-                # Build a lookup from the enriched artist_songs by Video ID → updated values
-                enriched_by_vid = {s.get("Video ID"): s for s in artist_songs if s.get("Video ID")}
-                enriched_by_key = {
-                    f"{self._normalize(s.get('Artist',''))}||{self._normalize(s.get('Title',''))}": s
-                    for s in artist_songs
-                }
-
-                songs_sheet_changed = False
-                for orig in active_songs:
-                    vid = orig.get("Video ID")
-                    enriched = enriched_by_vid.get(vid) if vid else enriched_by_key.get(
-                        f"{self._normalize(orig.get('Artist',''))}||{self._normalize(orig.get('Title',''))}"
-                    )
-                    if enriched:
-                        new_l = enriched.get("LastfmScrobble", 0)
-                        new_s = enriched.get("Scrobble", 0)
-                        if new_l > int(orig.get("LastfmScrobble") or 0):
-                            orig["LastfmScrobble"] = new_l
-                            songs_sheet_changed = True
-                        if new_s > int(orig.get("Scrobble") or 0):
-                            orig["Scrobble"] = new_s
-                            songs_sheet_changed = True
-
-                archived_sheet_changed = False
-                for orig in archived_songs:
-                    vid = orig.get("Video ID")
-                    enriched = enriched_by_vid.get(vid) if vid else enriched_by_key.get(
-                        f"{self._normalize(orig.get('Artist',''))}||{self._normalize(orig.get('Title',''))}"
-                    )
-                    if enriched:
-                        new_l = enriched.get("LastfmScrobble", 0)
-                        new_s = enriched.get("Scrobble", 0)
-                        if new_l > int(orig.get("LastfmScrobble") or 0):
-                            orig["LastfmScrobble"] = new_l
-                            archived_sheet_changed = True
-                        if new_s > int(orig.get("Scrobble") or 0):
-                            orig["Scrobble"] = new_s
-                            archived_sheet_changed = True
-
-                if songs_sheet_changed:
-                    self.sheets.overwrite_songs(active_songs)
-                if archived_sheet_changed:
-                    self.sheets.overwrite_archived(archived_songs)
-
             active_count = sum(1 for s in artist_songs if not s.get("is_archived", False))
             archived_count = sum(1 for s in artist_songs if s.get("is_archived", False))
             

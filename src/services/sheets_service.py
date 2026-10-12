@@ -1,9 +1,15 @@
 import gspread
+from gspread.utils import rowcol_to_a1
 import time
 from datetime import datetime
 from ..config import Config
 
-# Columns Vibemus owns: it is free to rewrite them on every run.
+# Columns Vibemus owns: it is free to rewrite them on every run. 'Liked' is
+# listed here (not in EXTERNAL_SONG_COLUMNS) on purpose: the companion-app
+# refill mechanism below caches values across Songs *and* Archived by Video
+# ID, which would resurrect stale 'Liked' values Vibemus wrote in the past.
+# Since no Vibemus code path sets 'Liked' anymore, keeping it here makes
+# every write a pure pass-through of whatever is already in that exact row.
 MANAGED_SONG_COLUMNS = [
     "Playlist", "Artist", "Title", "Album", "Liked",
     "Year", "Genre", "Scrobble", "LastfmScrobble", "Video ID"
@@ -31,6 +37,8 @@ class SheetsService:
         self._songs_vid_cache = None
         self._active_records_cache = None
         self._archived_records_cache = None
+        # Narrow (few-column) reads of Songs/Archived, keyed by (sheet, columns)
+        self._light_cache = {}
         # Video ID -> values of the columns Vibemus does not own. Survives the
         # record caches being invalidated, so no write can drop them.
         self._external_cache = None
@@ -462,6 +470,45 @@ class SheetsService:
         self._songs_vid_cache = {r.get('Video ID') for r in records if r.get('Video ID')}
         return self._songs_vid_cache
 
+    def get_light_records(self, sheet_name, columns):
+        """Records of Songs/Archived holding only `columns`.
+
+        Downloads just those columns instead of the whole sheet (Lyrics and the
+        companion app's columns make a full read slow). If the full records are
+        already cached they are projected instead, so nothing is fetched twice.
+        """
+        full = {"Songs": self._active_records_cache, "Archived": self._archived_records_cache}.get(sheet_name)
+        if full is not None:
+            return [{c: r.get(c, '') for c in columns} for r in full]
+
+        key = (sheet_name, tuple(columns))
+        if key in self._light_cache:
+            return self._light_cache[key]
+
+        ws = self._get_worksheet(sheet_name)
+        header = [str(h).strip() for h in (self._execute_with_retry(ws.row_values, 1) or [])]
+        present = [c for c in columns if c in header]
+        records = []
+        if present:
+            ranges = []
+            for c in present:
+                letter = rowcol_to_a1(1, header.index(c) + 1).rstrip('1')
+                ranges.append(f"{letter}2:{letter}")
+            blocks = self._execute_with_retry(
+                ws.batch_get, ranges, value_render_option='UNFORMATTED_VALUE'
+            )
+            cols = [[row[0] if row else '' for row in block] for block in blocks]
+            size = max((len(c) for c in cols), default=0)
+            for i in range(size):
+                rec = {c: '' for c in columns}
+                for c, values in zip(present, cols):
+                    if i < len(values):
+                        rec[c] = values[i]
+                records.append(rec)
+
+        self._light_cache[key] = records
+        return records
+
     def get_songs_records(self):
         """Returns all records from the Songs sheet as a list of dictionaries."""
         if self._active_records_cache is not None:
@@ -496,6 +543,7 @@ class SheetsService:
 
         self._active_records_cache = None
         self._songs_vid_cache = None
+        self._light_cache = {}
         try:
             self._replace_rows(ws, rows)
             # Mirror what we just wrote instead of forcing a re-read: Songs now
@@ -515,6 +563,7 @@ class SheetsService:
 
         self._active_records_cache = None
         self._songs_vid_cache = None
+        self._light_cache = {}
         if new_rows:
             self._execute_with_retry(ws.append_rows, new_rows)
 
@@ -529,6 +578,7 @@ class SheetsService:
             rows = self._build_song_rows(archived_data, header)
 
             self._archived_records_cache = None
+            self._light_cache = {}
             self._replace_rows(ws, [header] + rows)
             # Mirror what we just wrote (see overwrite_songs)
             self._archived_records_cache = self._rows_to_records(header, rows)
@@ -544,6 +594,7 @@ class SheetsService:
         new_rows = self._build_song_rows(songs_data, header, year_as_str=False)
 
         self._archived_records_cache = None
+        self._light_cache = {}
         if new_rows:
             self._execute_with_retry(ws.append_rows, new_rows)
 
