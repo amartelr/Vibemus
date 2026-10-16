@@ -31,7 +31,7 @@ Pruebas: `.venv/bin/python -m pytest scratch/test_sheets_live_overlay.py scratch
 ## ARCHIVOS CLAVE
 - `src/core/` - Lógica pura (manager)
 - `src/services/` - Sheets (`sheets_service.py`), YouTube Music, Last.fm, MusicBrainz
-- `src/web/server.py` - API Flask: Google Sheets (OAuth), scraper de Ultimate Guitar, Gemini, BPM (Deezer), YouTube, PDF
+- `src/web/server.py` - rutas Flask (solo HTTP); la lógica vive en módulos hermanos: `harmony.py` (teoría: tonalidad, romanos, estilo, dificultad), `tabs.py`, `ultimate_guitar.py`, `songsterr.py`, `pdf_import.py`, `gemini.py` (guías), `bpm.py` (Deezer), `youtube.py` (OAuth + playlists), `paths.py` (rutas y .env)
 - `web/app.js` - estado global, renderizado, llamadas a la API (hotspots: `applyFiltersAndRender`, `selectSong`, `handleAutodetect`, `showToast`)
 - `web/fretboard.js` - teoría musical, mástil SVG, audio (Web Audio)
 - `src/services/sheet_gateway.py` - única puerta de la web a la hoja (cuenta de servicio, escrituras solo de las celdas que cambian, localiza por Video ID / artista+título)

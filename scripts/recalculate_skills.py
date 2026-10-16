@@ -31,11 +31,8 @@ import time
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src.services.sheet_gateway import SongSheet, get_column_mapping, col_idx_to_letter
-from src.web.server import (
-    infer_complexity,
-    map_native_difficulty,
-    fetch_ug_chords
-)
+from src.web.harmony import infer_complexity
+from src.web.ultimate_guitar import map_native_difficulty, fetch_ug_chords
 
 def run_recalculation(mode="harmonic", dry_run=False, artist_filter=None, force=False, limit=None):
     print("=" * 60)
