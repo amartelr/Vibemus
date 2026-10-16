@@ -3,6 +3,7 @@ from gspread.utils import rowcol_to_a1
 import time
 from datetime import datetime
 from ..config import Config
+from .sheet_lock import write_lock
 
 # Columns Vibemus owns: it is free to rewrite them on every run. 'Liked' is
 # listed here (not in EXTERNAL_SONG_COLUMNS) on purpose: the companion-app
@@ -42,6 +43,10 @@ class SheetsService:
         # Video ID -> values of the columns Vibemus does not own. Survives the
         # record caches being invalidated, so no write can drop them.
         self._external_cache = None
+        # Same idea but read straight from the sheet right before a rewrite
+        # (see _live_external_values): the in-memory copy can be many minutes old.
+        self._live_external = None
+        self._live_external_at = 0.0
 
     def _get_or_create_spreadsheet(self):
         def _open():
@@ -194,14 +199,67 @@ class SheetsService:
             if str(value or '').strip():
                 entry[name] = value
 
-    def _build_song_rows(self, songs, header, year_as_str=True):
+    # Columns the companion app may edit while Vibemus is busy: for these the
+    # sheet's current value beats whatever copy Vibemus loaded earlier.
+    _LIVE_WINS = ("Liked",)
+    _LIVE_MAX_AGE_SECONDS = 3
+
+    def _live_external_values(self):
+        """Video ID -> CURRENT non-empty values of every column Vibemus does not own.
+
+        A sync loads the sheet at the start and rewrites it at the end, with
+        Last.fm / YouTube lookups in between that can take many minutes. Anything
+        the companion app saved in that gap (scan dates, chords, lyrics, likes...)
+        lives only in the sheet, so a rewrite built from the early copy would
+        silently revert it. Reading the sheet again right before each rewrite
+        shrinks that gap from minutes to a couple of seconds.
+
+        If a sheet cannot be read the warning is printed and that sheet simply
+        contributes nothing (the previous behaviour).
+        """
+        if self._live_external is not None and time.time() - self._live_external_at < self._LIVE_MAX_AGE_SECONDS:
+            return self._live_external
+
+        live = {}
+        for title in ("Songs", "Archived"):  # Songs first: it wins if a video is in both
+            try:
+                ws = self._get_worksheet(title)
+                data = self._execute_with_retry(ws.get_all_values, value_render_option='UNFORMATTED_VALUE')
+            except Exception as e:
+                print(f"  \033[93m⚠ Could not re-read '{title}' before writing ({e}); changes made in the meantime may be overwritten.\033[0m")
+                continue
+            if not data:
+                continue
+            names = [str(h).strip() for h in data[0]]
+            for row in data[1:]:
+                record = {h: (row[i] if i < len(row) else '') for i, h in enumerate(names) if h}
+                vid = str(record.get('Video ID', '') or '').strip()
+                if not vid:
+                    continue
+                entry = live.setdefault(vid, {})
+                for name, value in record.items():
+                    if name in MANAGED_SONG_COLUMNS and name not in self._LIVE_WINS:
+                        continue
+                    if str(value if value is not None else '').strip():
+                        entry.setdefault(name, value)
+
+        self._live_external = live
+        self._live_external_at = time.time()
+        return live
+
+    def _build_song_rows(self, songs, header, year_as_str=True, use_live=False):
         """Turns song dicts into rows aligned to `header`.
 
         Any external column the caller left empty is refilled from what the
         sheet already held, so callers that build partial dicts can no longer
         wipe the companion app's data.
+
+        With `use_live=True` (every call that REWRITES a sheet) the companion
+        app's columns are additionally taken from the sheet as it is right now,
+        so edits made while this run was busy are not rolled back.
         """
         external = self._external_values()
+        live = self._live_external_values() if use_live else {}
         rows = []
         for song in songs:
             merged = dict(song)
@@ -209,6 +267,8 @@ class SheetsService:
             for key, value in (external.get(vid) or {}).items():
                 if not str(merged.get(key, '') or '').strip():
                     merged[key] = value
+            for key, value in (live.get(vid) or {}).items():
+                merged[key] = value
             # Values produced during this run (chord enrichment, analysis) must
             # survive the writes that come after it.
             self._remember_external(merged)
@@ -227,22 +287,56 @@ class SheetsService:
             rows.append(row)
         return rows
 
-    def _replace_rows(self, ws, rows):
-        """Replaces a sheet's contents with `rows` (header included).
+    @staticmethod
+    def _same_cell(new, current):
+        """True when writing `new` over the displayed `current` would change nothing."""
+        if isinstance(new, bool):
+            return str(new).upper() == str(current).strip().upper()
+        return ('' if new is None else str(new)) == str(current)
 
-        Writes first and only then clears the leftover tail, so a call that
-        fails midway leaves stale rows behind rather than an empty sheet —
-        the old clear()-then-write order could wipe everything.
+    def _changed_ranges(self, current, rows):
+        """A1 ranges (one per run of changed cells in a row) turning `current` into `rows`."""
+        data = []
+        for r, new_row in enumerate(rows):
+            old_row = current[r] if r < len(current) else []
+            c, width = 0, len(new_row)
+            while c < width:
+                old = old_row[c] if c < len(old_row) else ''
+                if self._same_cell(new_row[c], old):
+                    c += 1
+                    continue
+                start = c
+                while c < width and not self._same_cell(new_row[c], old_row[c] if c < len(old_row) else ''):
+                    c += 1
+                data.append({"range": f"{rowcol_to_a1(r + 1, start + 1)}:{rowcol_to_a1(r + 1, c)}",
+                             "values": [new_row[start:c]]})
+        return data
+
+    def _replace_rows(self, ws, rows):
+        """Makes a sheet's contents equal to `rows` (header included).
+
+        Reads the sheet and writes only the cells that differ, so whatever the
+        companion app saved in the meantime (and was not touched here) stays,
+        and the write is a handful of cells instead of the whole sheet. The
+        leftover tail is cleared only after the writes, so a call that fails
+        midway leaves stale rows behind rather than an empty sheet.
         """
         if not rows:
             return
-        self._execute_with_retry(ws.update, range_name='A1', values=rows)
-        leftover = len(rows) + 1
-        try:
-            if ws.row_count >= leftover:
-                self._execute_with_retry(ws.batch_clear, [f"{leftover}:{ws.row_count}"])
-        except Exception as e:
-            print(f"  \033[93m⚠ Could not clear leftover rows in '{ws.title}': {e}\033[0m")
+        with write_lock():
+            current = self._execute_with_retry(ws.get_all_values)
+            need_rows, need_cols = len(rows), max(len(r) for r in rows)
+            if ws.row_count < need_rows or ws.col_count < need_cols:
+                self._execute_with_retry(ws.resize, rows=max(ws.row_count, need_rows), cols=max(ws.col_count, need_cols))
+            data = self._changed_ranges(current, rows)
+            for i in range(0, len(data), 500):
+                self._execute_with_retry(ws.batch_update, data[i:i + 500])
+            leftover = len(rows) + 1
+            try:
+                if len(current) >= leftover:
+                    self._execute_with_retry(ws.batch_clear, [f"{leftover}:{len(current)}"])
+            except Exception as e:
+                print(f"  \033[93m⚠ Could not clear leftover rows in '{ws.title}': {e}\033[0m")
 
     def _refuses_empty_overwrite(self, songs, existing, label):
         """Guards against replacing a populated sheet with nothing."""
@@ -297,7 +391,7 @@ class SheetsService:
                 new_rows.append([record.get(str(h).strip(), '') for h in header])
 
         # Add new songs
-        new_rows.extend(self._build_song_rows(songs, header, year_as_str=False))
+        new_rows.extend(self._build_song_rows(songs, header, year_as_str=False, use_live=True))
 
         print(f"Updating sheet... (Total rows: {len(new_rows)})")
         self._replace_rows(ws, new_rows)
@@ -539,7 +633,7 @@ class SheetsService:
         # Read (and cache) the live contents BEFORE clearing anything
         if self._refuses_empty_overwrite(records, self.get_songs_records(), "Songs"):
             return
-        rows = [header] + self._build_song_rows(records, header)
+        rows = [header] + self._build_song_rows(records, header, use_live=True)
 
         self._active_records_cache = None
         self._songs_vid_cache = None
@@ -565,7 +659,8 @@ class SheetsService:
         self._songs_vid_cache = None
         self._light_cache = {}
         if new_rows:
-            self._execute_with_retry(ws.append_rows, new_rows)
+            with write_lock():
+                self._execute_with_retry(ws.append_rows, new_rows)
 
     def overwrite_archived(self, archived_data):
         """Overwrites the Archived sheet with the provided data, preserving headers."""
@@ -575,7 +670,7 @@ class SheetsService:
             # Read (and cache) the live contents BEFORE clearing anything
             if self._refuses_empty_overwrite(archived_data, self.get_archived_records(), "Archived"):
                 return
-            rows = self._build_song_rows(archived_data, header)
+            rows = self._build_song_rows(archived_data, header, use_live=True)
 
             self._archived_records_cache = None
             self._light_cache = {}
@@ -596,7 +691,8 @@ class SheetsService:
         self._archived_records_cache = None
         self._light_cache = {}
         if new_rows:
-            self._execute_with_retry(ws.append_rows, new_rows)
+            with write_lock():
+                self._execute_with_retry(ws.append_rows, new_rows)
 
     def get_archived_vids(self):
         """Returns a set of Video IDs from the Archived sheet."""

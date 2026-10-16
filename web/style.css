@@ -1,0 +1,2523 @@
+/* VIBEMUS SYSTEM-WIDE PREMIUM CSS DESIGN SYSTEM */
+
+:root {
+    /* Color Tokens - Deep OLED Tech Profile */
+    --bg-oled: #030303;
+    --bg-surface: #0a0a0a;
+    --bg-surface-elevated: #111111;
+    --border-hairline: rgba(255, 255, 255, 0.08);
+    --border-hairline-light: rgba(255, 255, 255, 0.04);
+    
+    --text-primary: #f5f5f7;
+    --text-secondary: #86868b;
+    --text-tertiary: #424245;
+    
+    /* Dynamic Accent System (Driven via JS variables - Default to Electric Blue) */
+    --accent-rgb: 59, 130, 246; /* rgb(59, 130, 246) */
+    --accent-color: rgb(var(--accent-rgb));
+    --accent-glow: rgba(var(--accent-rgb), 0.15);
+    
+    /* Typography */
+    --font-sans: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    --font-mono: 'Geist Mono', 'SF Mono', 'JetBrains Mono', monospace;
+    --font-serif: 'Instrument Serif', Georgia, serif;
+    
+    /* Motion - Spring Physical Simulation */
+    --spring-ease: cubic-bezier(0.32, 0.72, 0, 1);
+    --spring-duration: 700ms;
+}
+
+/* Reset & Baseline */
+*, *::before, *::after {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
+
+body {
+    background-color: var(--bg-oled);
+    color: var(--text-primary);
+    font-family: var(--font-sans);
+    min-height: 100dvh;
+    overflow-x: hidden;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+}
+
+/* 1. AMBIENT GLOW & TEXTURES (Fixed Background Layer) */
+.ambient-glow {
+    position: fixed;
+    inset: 0;
+    z-index: 0;
+    overflow: hidden;
+    pointer-events: none;
+}
+
+.orb {
+    position: absolute;
+    border-radius: 50%;
+    filter: blur(140px);
+    opacity: 0.15;
+    mix-blend-mode: screen;
+    will-change: transform;
+}
+
+.orb-1 {
+    top: -10%;
+    left: 20%;
+    width: 600px;
+    height: 600px;
+    background: radial-gradient(circle, rgba(var(--accent-rgb), 0.6) 0%, rgba(0,0,0,0) 70%);
+    animation: orb-float 25s infinite alternate var(--spring-ease);
+}
+
+.orb-2 {
+    bottom: -10%;
+    right: 10%;
+    width: 700px;
+    height: 700px;
+    background: radial-gradient(circle, rgba(16, 185, 129, 0.4) 0%, rgba(0,0,0,0) 70%);
+    animation: orb-float 30s infinite alternate-reverse var(--spring-ease);
+}
+
+.orb-3 {
+    top: 40%;
+    left: -10%;
+    width: 500px;
+    height: 500px;
+    background: radial-gradient(circle, rgba(236, 72, 153, 0.3) 0%, rgba(0,0,0,0) 70%);
+    animation: orb-float 20s infinite alternate var(--spring-ease);
+}
+
+@keyframes orb-float {
+    0% { transform: translate(0, 0) scale(1); }
+    100% { transform: translate(80px, 40px) scale(1.1); }
+}
+
+/* Film Grain Overlay */
+.grain-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 100;
+    pointer-events: none;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3e%3cfilter id='noiseFilter'%3e%3cfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='3' stitchTiles='stitch'/%3e%3c/filter%3e%3crect width='100%25' height='100%25' filter='url(%23noiseFilter)' opacity='0.02'/%3e%3c/svg%3e");
+}
+
+/* App Container */
+.app-container {
+    position: relative;
+    z-index: 10;
+    max-width: 1440px;
+    margin: 0 auto;
+    padding: 0 40px 80px 40px;
+}
+
+/* 2. DOUBLE-BEZEL NESTED ARCHITECTURE (Vanguard component spec) */
+.double-bezel {
+    background: rgba(255, 255, 255, 0.02);
+    border: 1px solid var(--border-hairline);
+    padding: 8px;
+    border-radius: 2rem; /* 32px squircle outer */
+    box-shadow: 0 10px 30px -10px rgba(0, 0, 0, 0.5);
+    transition: transform var(--spring-duration) var(--spring-ease), border-color var(--spring-duration) var(--spring-ease);
+}
+
+.inner-core {
+    background-color: var(--bg-surface);
+    border-radius: calc(2rem - 8px); /* Mathematically concentric radius */
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+    padding: 32px;
+    height: 100%;
+    width: 100%;
+}
+
+/* 3. FLOATING GLASS HEADER */
+.main-header {
+    padding: 24px 0;
+    margin-bottom: 24px;
+}
+
+.header-inner {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: rgba(10, 10, 10, 0.6);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid var(--border-hairline);
+    border-radius: 9999px;
+    padding: 12px 32px;
+}
+
+.brand {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.brand-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background-color: var(--accent-color);
+    box-shadow: 0 0 12px var(--accent-color);
+    transition: background-color 0.4s var(--spring-ease);
+}
+
+.brand-text {
+    font-size: 14px;
+    font-weight: 800;
+    letter-spacing: 0.25em;
+    color: var(--text-primary);
+}
+
+.header-actions {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+}
+
+.status-indicator {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid var(--border-hairline-light);
+    border-radius: 9999px;
+    padding: 6px 14px;
+}
+
+.status-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+}
+
+.status-dot.online {
+    background-color: #10b981;
+    box-shadow: 0 0 8px rgba(16, 185, 129, 0.6);
+}
+
+.status-dot.syncing {
+    background-color: #f59e0b;
+    box-shadow: 0 0 8px rgba(245, 158, 11, 0.6);
+    animation: breathing 1.5s infinite var(--spring-ease);
+}
+
+.status-label {
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--text-secondary);
+}
+
+/* Buttons */
+.btn {
+    font-family: var(--font-sans);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    font-size: 13px;
+    font-weight: 600;
+    border-radius: 9999px;
+    padding: 10px 24px;
+    cursor: pointer;
+    border: none;
+    outline: none;
+    transition: all var(--spring-duration) var(--spring-ease);
+}
+
+.btn:active {
+    transform: scale(0.97);
+}
+
+.btn-primary {
+    background-color: var(--text-primary);
+    color: var(--bg-oled);
+}
+
+.btn-primary:hover {
+    box-shadow: 0 0 20px rgba(255, 255, 255, 0.1);
+    background-color: #ffffff;
+}
+
+.btn-secondary {
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid var(--border-hairline);
+    color: var(--text-primary);
+}
+
+.btn-secondary:hover {
+    background: rgba(255, 255, 255, 0.08);
+    border-color: rgba(255, 255, 255, 0.2);
+}
+
+.btn-tiny {
+    padding: 6px 14px;
+    font-size: 11px;
+}
+
+.btn-tiny.active {
+    background-color: var(--accent-color);
+    color: #ffffff;
+    border-color: var(--accent-color);
+}
+
+.btn-close {
+    background: transparent;
+    border: none;
+    color: var(--text-secondary);
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 500;
+    transition: color 0.3s;
+}
+
+.btn-close:hover {
+    color: var(--text-primary);
+}
+
+/* 4. ASYMMETRIC HERO SECTION */
+.hero-section {
+    display: grid;
+    grid-template-columns: 7fr 5fr;
+    gap: 40px;
+    align-items: center;
+    margin-bottom: 32px;
+}
+
+.eyebrow {
+    font-size: 9px;
+    text-transform: uppercase;
+    letter-spacing: 0.3em;
+    font-weight: 700;
+    color: var(--accent-color);
+    margin-bottom: 8px;
+    transition: color 0.4s var(--spring-ease);
+}
+
+.hero-title {
+    font-size: 38px;
+    font-weight: 800;
+    line-height: 1.1;
+    letter-spacing: -0.02em;
+    margin-bottom: 12px;
+    max-width: 18ch;
+}
+
+.serif-title {
+    font-family: var(--font-serif);
+    font-style: italic;
+    font-weight: 400;
+    letter-spacing: -0.01em;
+}
+
+.hero-description {
+    font-size: 14px;
+    font-weight: 400;
+    color: var(--text-secondary);
+    line-height: 1.5;
+    margin-bottom: 18px;
+    max-width: 50ch;
+}
+
+/* Search Bar (SaaS 2.0 technical input) */
+.search-bar-container {
+    position: relative;
+    max-width: 480px;
+}
+
+.search-icon {
+    position: absolute;
+    left: 18px;
+    top: 50%;
+    transform: translateY(-50%);
+    color: var(--text-secondary);
+    font-size: 16px;
+}
+
+#global-search {
+    width: 100%;
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid var(--border-hairline);
+    border-radius: 9999px;
+    padding: 12px 48px;
+    color: var(--text-primary);
+    font-family: var(--font-sans);
+    font-size: 13px;
+    font-weight: 500;
+    outline: none;
+    transition: all 0.4s var(--spring-ease);
+}
+
+#global-search:focus {
+    background: rgba(255, 255, 255, 0.06);
+    border-color: var(--accent-color);
+    box-shadow: 0 0 20px var(--accent-glow);
+}
+
+.kbd-shortcut {
+    position: absolute;
+    right: 18px;
+    top: 50%;
+    transform: translateY(-50%);
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid var(--border-hairline);
+    border-radius: 4px;
+    color: var(--text-secondary);
+    font-family: var(--font-mono);
+    font-size: 10px;
+    padding: 1px 5px;
+}
+
+/* Hero Filters Panel */
+.hero-filters-panel {
+    background: rgba(18, 18, 22, 0.65);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid var(--border-hairline);
+    border-radius: 1.5rem;
+    padding: 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    box-shadow: 0 16px 40px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+.hero-filter-group {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.hero-filter-label {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    font-weight: 700;
+    color: var(--text-secondary);
+}
+
+/* 5. METRICS ROW */
+.metrics-section {
+    margin-bottom: 48px;
+}
+
+.bento-grid-metrics {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 24px;
+}
+
+.metric-bezel {
+    border-radius: 1.5rem;
+    padding: 4px;
+}
+
+.metric-bezel.active {
+    border-color: var(--accent-color);
+    box-shadow: 0 0 20px var(--accent-glow);
+}
+
+.metric-core {
+    border-radius: calc(1.5rem - 4px);
+    padding: 20px 24px;
+    display: flex;
+    align-items: center;
+    gap: 20px;
+}
+
+.metric-icon {
+    font-size: 24px;
+    color: var(--accent-color);
+    background: var(--accent-glow);
+    width: 52px;
+    height: 52px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.4s var(--spring-ease);
+}
+
+.metric-bezel:hover .metric-icon {
+    transform: scale(1.08) rotate(5deg);
+}
+
+.metric-data {
+    display: flex;
+    flex-col: column;
+}
+
+.metric-value {
+    font-size: 28px;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    line-height: 1.1;
+}
+
+.metric-label {
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--text-secondary);
+}
+
+/* 6. WORKSPACE GRID - Asymmetric Layout */
+.workspace-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 4fr) minmax(0, 8fr);
+    gap: 32px;
+    align-items: start;
+    min-width: 0;
+    max-width: 100%;
+}
+
+.panel-header {
+    margin-bottom: 24px;
+}
+
+.panel-title {
+    font-size: 18px;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+}
+
+.panel-subtitle {
+    font-size: 12px;
+    color: var(--text-secondary);
+    margin-top: 4px;
+}
+
+/* Explorer filter counter */
+.explorer-count-row {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 5px;
+    margin-top: 5px;
+    flex-wrap: wrap;
+}
+
+.explorer-count-filtered {
+    font-family: var(--font-mono);
+    font-size: 22px;
+    font-weight: 700;
+    letter-spacing: -0.03em;
+    color: var(--text-primary);
+    line-height: 1;
+    transition: color 0.3s var(--spring-ease), transform 0.2s var(--spring-ease);
+}
+
+.explorer-count-row.is-filtered .explorer-count-filtered {
+    color: var(--accent-color);
+    text-shadow: 0 0 18px rgba(var(--accent-rgb), 0.5);
+}
+
+.explorer-count-sep {
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--text-tertiary);
+}
+
+.explorer-count-total {
+    font-family: var(--font-mono);
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-tertiary);
+    letter-spacing: -0.01em;
+}
+
+.explorer-count-label {
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--text-tertiary);
+}
+
+.explorer-filter-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--accent-color);
+    background: rgba(var(--accent-rgb), 0.1);
+    border: 1px solid rgba(var(--accent-rgb), 0.25);
+    border-radius: 99px;
+    padding: 2px 8px;
+    margin-left: 4px;
+    animation: badge-pop 0.3s var(--spring-ease);
+    transition: color 0.3s, background 0.3s;
+}
+
+@keyframes badge-pop {
+    from { opacity: 0; transform: scale(0.7) translateY(4px); }
+    to   { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+/* LEFT PANEL */
+/* Circle of Fifths Bento Box */
+.circle-fifths-container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 16px;
+    position: relative;
+}
+
+#clear-tonality-filter {
+    position: absolute;
+    bottom: -10px;
+}
+
+.circle-key-sector {
+    cursor: pointer;
+    transition: fill 0.3s, opacity 0.3s;
+}
+
+.circle-key-sector:hover {
+    fill-opacity: 0.8;
+}
+
+.circle-key-text {
+    pointer-events: none;
+    font-family: var(--font-sans);
+    font-weight: 700;
+    font-size: 12px;
+    fill: var(--text-primary);
+}
+
+.circle-inner-ring {
+    fill: #060606;
+    stroke: var(--border-hairline);
+    stroke-width: 1;
+}
+
+.circle-outer-ring {
+    fill: none;
+    stroke: var(--border-hairline);
+    stroke-width: 1.5;
+}
+
+/* Filters Panel */
+.filter-group {
+    margin-bottom: 24px;
+}
+
+.filter-group:last-child {
+    margin-bottom: 0;
+}
+
+.filter-label {
+    display: block;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    font-weight: 700;
+    color: var(--text-secondary);
+    margin-bottom: 12px;
+}
+
+.tag-filters {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.tag-btn {
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid var(--border-hairline);
+    color: var(--text-secondary);
+    font-family: var(--font-sans);
+    font-size: 11px;
+    font-weight: 600;
+    border-radius: 6px;
+    padding: 6px 12px;
+    cursor: pointer;
+    transition: all 0.3s;
+}
+
+.tag-btn:hover {
+    border-color: rgba(255, 255, 255, 0.15);
+    color: var(--text-primary);
+}
+
+.tag-btn.active {
+    background-color: var(--accent-glow);
+    color: var(--accent-color);
+    border-color: rgba(var(--accent-rgb), 0.3);
+    box-shadow: 0 0 10px rgba(var(--accent-rgb), 0.12);
+}
+
+/* Style filter multi-select: active non-"all" buttons get a checkmark feel */
+#filter-style .tag-btn.active:not([data-style="all"]) {
+    background: rgba(var(--accent-rgb), 0.15);
+    border-color: rgba(var(--accent-rgb), 0.45);
+    font-weight: 700;
+    animation: tag-select-pop 0.25s var(--spring-ease);
+}
+
+@keyframes tag-select-pop {
+    0%   { transform: scale(0.92); }
+    60%  { transform: scale(1.07); }
+    100% { transform: scale(1); }
+}
+
+.select-field {
+    width: 100%;
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid var(--border-hairline);
+    border-radius: 8px;
+    padding: 12px 16px;
+    color: var(--text-primary);
+    font-family: var(--font-sans);
+    font-size: 13px;
+    outline: none;
+    cursor: pointer;
+    appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2386868b' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 16px center;
+    background-size: 16px;
+    transition: all 0.3s;
+}
+
+.select-field:focus {
+    border-color: var(--accent-color);
+}
+
+.select-field optgroup {
+    background-color: #141418;
+    color: var(--accent-color, #70a0ff);
+    font-weight: 700;
+    font-size: 11px;
+    padding: 6px 0;
+}
+
+.select-field option {
+    background-color: #1a1a20;
+    color: var(--text-primary);
+    font-size: 13px;
+    padding: 8px 12px;
+}
+
+.btn-transpose {
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid var(--border-hairline);
+    border-radius: 4px;
+    color: var(--text-secondary);
+    font-size: 10px;
+    font-weight: 700;
+    padding: 2px 7px;
+    cursor: pointer;
+    transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    line-height: 1.2;
+}
+
+.btn-transpose:hover {
+    background: rgba(var(--accent-rgb), 0.18);
+    border-color: rgba(var(--accent-rgb), 0.45);
+    color: var(--accent-color);
+    transform: translateY(-1px);
+}
+
+.btn-transpose:active {
+    transform: translateY(0);
+    background: rgba(var(--accent-rgb), 0.3);
+}
+
+/* MIDDLE PANEL - Songs Explorer */
+.explorer-core {
+    padding: 32px 0 0 0; /* Remove padding left/right to allow full-width scroll lists */
+}
+
+.explorer-core .panel-header {
+    padding: 0 32px;
+}
+
+.songs-list-container {
+    max-height: 700px;
+    overflow-y: auto;
+    padding: 0 16px;
+}
+
+/* Custom Minimalist Scrollbar */
+.songs-list-container::-webkit-scrollbar {
+    width: 4px;
+}
+.songs-list-container::-webkit-scrollbar-track {
+    background: transparent;
+}
+.songs-list-container::-webkit-scrollbar-thumb {
+    background: var(--border-hairline);
+    border-radius: 99px;
+}
+.songs-list-container::-webkit-scrollbar-thumb:hover {
+    background: var(--text-tertiary);
+}
+
+.songs-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding-bottom: 32px;
+}
+
+/* Song Row Card styling (Utilitarian Minimalist) */
+.song-row {
+    display: grid;
+    grid-template-columns: 50px 1.5fr 1fr 100px 100px 40px;
+    gap: 16px;
+    align-items: center;
+    background: rgba(255, 255, 255, 0.01);
+    border: 1px solid var(--border-hairline-light);
+    border-radius: 12px;
+    padding: 14px 20px;
+    cursor: pointer;
+    transition: all var(--spring-duration) var(--spring-ease);
+}
+
+.song-row:hover {
+    background: rgba(255, 255, 255, 0.03);
+    border-color: var(--border-hairline);
+    transform: translateY(-2px);
+}
+
+.song-row.selected {
+    background: rgba(var(--accent-rgb), 0.03);
+    border-color: rgba(var(--accent-rgb), 0.25);
+    box-shadow: inset 0 0 10px rgba(var(--accent-rgb), 0.05);
+}
+
+.song-row-index {
+    color: var(--text-tertiary);
+    font-size: 13px;
+}
+
+.song-row-info {
+    overflow: hidden;
+}
+
+.song-row-title {
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--text-primary);
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    overflow: hidden;
+}
+
+.song-row-artist {
+    font-size: 12px;
+    color: var(--text-secondary);
+    margin-top: 2px;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    overflow: hidden;
+}
+
+.song-row-album {
+    font-size: 13px;
+    color: var(--text-secondary);
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    overflow: hidden;
+}
+
+.song-row-tonality {
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--accent-color);
+    letter-spacing: -0.01em;
+}
+
+.song-row-badge {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    font-weight: 700;
+    padding: 4px 8px;
+    border-radius: 4px;
+    width: max-content;
+    text-align: center;
+}
+
+.badge-low { background: #edf3ec; color: #346538; }
+.badge-mid { background: #fbf3db; color: #956400; }
+.badge-high { background: #fdebec; color: #9f2f2d; }
+.badge-none { background: rgba(255, 255, 255, 0.03); color: var(--text-secondary); border: 1px solid var(--border-hairline-light); }
+
+.song-row-like {
+    color: var(--text-tertiary);
+    font-size: 18px;
+    justify-self: end;
+    cursor: pointer;
+    padding: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1), color 0.2s ease;
+}
+
+.song-row-like:hover {
+    color: #ef4444;
+    transform: scale(1.25);
+}
+
+.song-row-like.liked {
+    color: #ef4444;
+}
+
+.song-row-like.liked:hover {
+    transform: scale(1.25);
+}
+
+/* Empty State / Skeleton loader styles */
+.songs-empty-state {
+    padding: 60px 20px;
+    text-align: center;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
+
+.songs-empty-state i {
+    font-size: 40px;
+    color: var(--text-tertiary);
+    margin-bottom: 16px;
+}
+
+.skeleton-row {
+    height: 70px;
+    background: linear-gradient(90deg, rgba(255,255,255,0.01) 25%, rgba(255,255,255,0.03) 50%, rgba(255,255,255,0.01) 75%);
+    background-size: 200% 100%;
+    animation: shimmer 1.5s infinite;
+    border-radius: 12px;
+}
+
+@keyframes shimmer {
+    0% { background-position: 200% 0; }
+    100% { background-position: -200% 0; }
+}
+
+/* 7. RIGHT PANEL - HARMONY FOCUS PANEL (col-span-12 full-width overlay on workspace) */
+.workspace-grid {
+    position: relative;
+}
+
+/* Grid shifts to 3 panels if focus is active, but actually we will override the grid template */
+.workspace-grid.focus-active {
+    grid-template-columns: minmax(0, 4fr) minmax(0, 5fr) minmax(0, 5fr);
+}
+
+.workspace-grid > *,
+.left-panel,
+.middle-panel,
+.right-panel {
+    min-width: 0;
+    max-width: 100%;
+}
+
+.right-panel {
+    transition: opacity 0.3s var(--spring-ease);
+}
+
+.right-panel.hide {
+    display: none !important;
+}
+
+.focus-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.badge {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    font-weight: 700;
+    padding: 6px 12px;
+    border-radius: 9999px;
+}
+
+.badge-complexity {
+    background: rgba(var(--accent-rgb), 0.1);
+    color: var(--accent-color);
+    border: 1px solid rgba(var(--accent-rgb), 0.2);
+}
+
+.badge-style {
+    background: rgba(255, 255, 255, 0.05);
+    color: var(--text-primary);
+    border: 1px solid var(--border-hairline);
+}
+
+.song-identity {
+    margin-top: 10px;
+}
+
+.song-title {
+    font-size: 16px;
+    font-weight: 800;
+    letter-spacing: -0.02em;
+    line-height: 1.15;
+}
+
+.song-artist {
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    margin-top: 4px;
+}
+
+.song-album-year {
+    font-size: 12px;
+    color: var(--text-tertiary);
+    margin-top: 8px;
+}
+
+/* YouTube Island using Double Bezel */
+.video-bezel {
+    border-radius: 1rem;
+    padding: 4px;
+    margin: 16px 0;
+}
+
+.video-core {
+    border-radius: calc(1rem - 4px);
+    padding: 0;
+    aspect-ratio: 16 / 9;
+    overflow: hidden;
+    position: relative;
+    background: #000;
+}
+
+.video-placeholder {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    color: var(--text-tertiary);
+    gap: 12px;
+}
+
+.video-placeholder i {
+    font-size: 48px;
+}
+
+.video-wrapper {
+    width: 100%;
+    height: 100%;
+}
+
+.video-wrapper iframe {
+    width: 100%;
+    height: 100%;
+}
+
+/* Interactive Chords Sheet */
+.chord-player-section {
+    margin-bottom: 24px;
+}
+
+.section-title-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 12px;
+}
+
+.section-subtitle {
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    font-weight: 700;
+    color: var(--text-secondary);
+}
+
+.audio-tooltip {
+    font-size: 10px;
+    color: var(--accent-color);
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.chord-bezel {
+    border-radius: 1rem;
+    padding: 4px;
+}
+
+.chord-core {
+    border-radius: calc(1rem - 4px);
+    padding: 24px;
+    background: #050505;
+    max-height: 400px;
+    overflow-y: auto;
+    font-family: var(--font-mono);
+}
+
+/* Structured Chords CSS parsing layout */
+.chord-section-block {
+    margin-bottom: 20px;
+}
+
+.chord-section-block:last-child {
+    margin-bottom: 0;
+}
+
+.chord-section-title {
+    display: inline-block;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    font-weight: 700;
+    color: var(--text-secondary);
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid var(--border-hairline);
+    padding: 4px 10px;
+    border-radius: 4px;
+    margin-bottom: 12px;
+}
+
+.chord-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+}
+
+/* Interactive Guitar Chord Box */
+.chord-box {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: flex-start;
+    width: 90px;
+    height: 130px;
+    padding: 10px 4px 6px 4px;
+    background: rgba(255, 255, 255, 0.02);
+    border: 1px solid var(--border-hairline);
+    border-radius: 8px;
+    color: var(--text-primary);
+    cursor: pointer;
+    user-select: none;
+    transition: all 0.2s var(--spring-ease);
+    gap: 4px;
+    position: relative;
+    overflow: hidden;
+}
+
+/* ── Degree-based chord box coloring (I–VII) ────────────────────── */
+.chord-box.chord-degree-1 { background: rgba(239, 68, 68, 0.10); border-color: rgba(239, 68, 68, 0.50); box-shadow: 0 4px 12px rgba(239, 68, 68, 0.15); }
+.chord-box.chord-degree-2 { background: rgba(96, 165, 250, 0.06); border-color: rgba(96, 165, 250, 0.40); }
+.chord-box.chord-degree-3 { background: rgba(52, 211, 153, 0.06); border-color: rgba(52, 211, 153, 0.40); }
+.chord-box.chord-degree-4 { background: rgba(251, 191, 36, 0.06); border-color: rgba(251, 191, 36, 0.40); }
+.chord-box.chord-degree-5 { background: rgba(168, 85, 247, 0.06); border-color: rgba(168, 85, 247, 0.40); }
+.chord-box.chord-degree-6 { background: rgba(34, 211, 238, 0.06); border-color: rgba(34, 211, 238, 0.40); }
+.chord-box.chord-degree-7 { background: rgba(251, 146, 60, 0.06); border-color: rgba(251, 146, 60, 0.40); }
+
+.chord-box-roman {
+    position: absolute;
+    top: 6px;
+    right: 8px;
+    font-size: 10px;
+    font-weight: 700;
+    color: rgba(255, 255, 255, 0.6);
+}
+
+.chord-box .chord-name {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--text-primary);
+    margin-bottom: 2px;
+    line-height: 1.2;
+}
+
+.chord-box svg {
+    width: 76px;
+    height: 84px;
+    display: block;
+}
+
+.chord-box svg line, .chord-box svg rect {
+    stroke: rgba(255, 255, 255, 0.2);
+    stroke-linecap: round;
+}
+
+.chord-box svg .chord-nut {
+    stroke: rgba(255, 255, 255, 0.6);
+    stroke-width: 3px;
+}
+
+.chord-box svg .chord-fret-line, .chord-box svg .chord-string-line {
+    stroke-width: 1px;
+}
+
+.chord-box svg text {
+    fill: var(--text-secondary);
+    font-family: var(--font-sans);
+    font-size: 8px;
+    font-weight: bold;
+    text-anchor: middle;
+    dominant-baseline: central;
+}
+
+.chord-box svg .fret-label {
+    fill: var(--text-primary);
+    font-size: 9px;
+    font-weight: 700;
+}
+
+.chord-box svg .chord-dot {
+    fill: var(--accent-color);
+    stroke: var(--accent-color);
+    stroke-width: 1px;
+}
+
+.chord-box svg .chord-dot-text {
+    fill: #ffffff;
+    font-size: 7px;
+    font-weight: 800;
+}
+
+.chord-box svg .chord-barre {
+    stroke: var(--accent-color);
+    stroke-width: 4px;
+    stroke-linecap: round;
+    opacity: 0.9;
+}
+
+/* ── Degree-based overrides for SVG dots & barres ──────────────── */
+.chord-box.chord-degree-1 svg .chord-dot { fill: #ef4444; stroke: #ef4444; }
+.chord-box.chord-degree-1 svg .chord-barre { stroke: #ef4444; }
+
+.chord-box.chord-degree-2 svg .chord-dot { fill: #60a5fa; stroke: #60a5fa; }
+.chord-box.chord-degree-2 svg .chord-barre { stroke: #60a5fa; }
+
+.chord-box.chord-degree-3 svg .chord-dot { fill: #34d399; stroke: #34d399; }
+.chord-box.chord-degree-3 svg .chord-barre { stroke: #34d399; }
+
+.chord-box.chord-degree-4 svg .chord-dot { fill: #fbbf24; stroke: #fbbf24; }
+.chord-box.chord-degree-4 svg .chord-barre { stroke: #fbbf24; }
+
+.chord-box.chord-degree-5 svg .chord-dot { fill: #a855f7; stroke: #a855f7; }
+.chord-box.chord-degree-5 svg .chord-barre { stroke: #a855f7; }
+
+.chord-box.chord-degree-6 svg .chord-dot { fill: #22d3ee; stroke: #22d3ee; }
+.chord-box.chord-degree-6 svg .chord-barre { stroke: #22d3ee; }
+
+.chord-box.chord-degree-7 svg .chord-dot { fill: #fb923c; stroke: #fb923c; }
+.chord-box.chord-degree-7 svg .chord-barre { stroke: #fb923c; }
+
+.chord-box svg .string-marker {
+    font-size: 9px;
+    font-weight: 600;
+}
+
+.chord-box svg .string-marker.muted {
+    fill: #ef4444; /* red for muted string */
+}
+
+.chord-box svg .string-marker.open {
+    fill: var(--text-secondary);
+}
+
+.chord-box:hover {
+    background: rgba(var(--accent-rgb), 0.08);
+    border-color: rgba(var(--accent-rgb), 0.35);
+    transform: translateY(-1px);
+}
+
+.chord-box:hover .chord-name {
+    color: var(--accent-color);
+}
+
+.chord-box:active {
+    transform: scale(0.95);
+}
+
+.chord-box.playing {
+    background: var(--accent-color) !important;
+    border-color: var(--accent-color) !important;
+    box-shadow: 0 0 15px rgba(var(--accent-rgb), 0.6);
+    transform: scale(1.03);
+}
+
+.chord-box.playing .chord-name {
+    color: #ffffff !important;
+}
+
+.chord-box.playing svg line, .chord-box.playing svg rect {
+    stroke: rgba(255, 255, 255, 0.4);
+}
+
+.chord-box.playing svg .chord-nut {
+    stroke: #ffffff;
+}
+
+.chord-box.playing svg text {
+    fill: rgba(255, 255, 255, 0.8);
+}
+
+.chord-box.playing svg .chord-dot {
+    fill: #ffffff;
+    stroke: #ffffff;
+}
+
+.chord-box.playing svg .chord-dot-text {
+    fill: var(--accent-color);
+}
+
+.chord-box.playing svg .chord-barre {
+    stroke: #ffffff;
+}
+
+/* ─── Lyrics + Chords Sheet ─────────────────────────────────────────────────── */
+
+.lyrics-chord-sheet {
+    display: flex;
+    flex-direction: column;
+    gap: 24px;
+    padding: 4px 2px;
+    width: 100%;
+    max-width: 100%;
+    overflow-x: hidden;
+}
+
+.lyrics-section-block {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    max-width: 100%;
+}
+
+.lyrics-section-title {
+    font-size: 9px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--accent-color);
+    margin-bottom: 6px;
+    padding-bottom: 5px;
+    border-bottom: 1px solid rgba(var(--accent-rgb), 0.2);
+}
+
+.lyrics-line {
+    margin-bottom: 2px;
+    max-width: 100%;
+}
+
+/* Row of words with chords floating above each */
+.lyrics-words {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: 0 6px;
+    line-height: 1;
+    max-width: 100%;
+}
+
+.lyrics-word {
+    display: inline-flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 1px;
+}
+
+/* Chord label above the word */
+.lyrics-chord-above {
+    font-family: var(--font-mono, 'JetBrains Mono', monospace);
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--accent-color);
+    letter-spacing: 0.02em;
+    line-height: 1.2;
+    cursor: pointer;
+    padding: 0 2px;
+    border-radius: 3px;
+    transition: background 0.15s ease, color 0.15s ease;
+    white-space: nowrap;
+}
+
+.lyrics-chord-above:hover {
+    background: rgba(var(--accent-rgb), 0.15);
+    color: var(--accent-color);
+}
+
+.lyrics-chord-above.playing {
+    background: var(--accent-color);
+    color: #fff;
+    box-shadow: 0 0 8px rgba(var(--accent-rgb), 0.5);
+}
+
+/* Invisible spacer to keep words with no chord aligned at the same baseline */
+.lyrics-chord-spacer {
+    display: block;
+    height: 35px; /* matches chord chip wrap height + roman numeral */
+    visibility: hidden;
+}
+
+/* Word text */
+.lyrics-word-text {
+    font-size: 13px;
+    color: var(--text-primary);
+    line-height: 1.5;
+    word-break: break-word;
+    overflow-wrap: break-word;
+}
+
+/* Chord-only row (no lyric text below) */
+.chord-only-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    padding: 4px 0;
+}
+
+.lyrics-chord-chip {
+    font-family: var(--font-mono, 'JetBrains Mono', monospace);
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--accent-color);
+    background: rgba(var(--accent-rgb), 0.08);
+    border: 1px solid rgba(var(--accent-rgb), 0.25);
+    border-radius: 4px;
+    padding: 2px 7px;
+    cursor: pointer;
+    transition: background 0.15s ease, box-shadow 0.15s ease;
+    white-space: nowrap;
+}
+
+.lyrics-chord-chip:hover {
+    background: rgba(var(--accent-rgb), 0.18);
+    box-shadow: 0 0 6px rgba(var(--accent-rgb), 0.3);
+}
+
+/* ── Degree-based lyrics chip coloring (I–VII) ────────────────────── */
+.lyrics-chord-chip.chord-degree-1 { color: #ef4444; background: rgba(239, 68, 68, 0.08); border-color: rgba(239, 68, 68, 0.35); }
+.lyrics-chord-chip.chord-degree-1:hover { background: rgba(239, 68, 68, 0.18); box-shadow: 0 0 6px rgba(239, 68, 68, 0.3); }
+.lyrics-chord-chip.chord-degree-1.playing { background: #ef4444; color: #fff; box-shadow: 0 0 10px rgba(239, 68, 68, 0.6); border-color: #ef4444; }
+
+.lyrics-chord-chip.chord-degree-2 { color: #60a5fa; background: rgba(96, 165, 250, 0.08); border-color: rgba(96, 165, 250, 0.35); }
+.lyrics-chord-chip.chord-degree-2:hover { background: rgba(96, 165, 250, 0.18); box-shadow: 0 0 6px rgba(96, 165, 250, 0.3); }
+.lyrics-chord-chip.chord-degree-2.playing { background: #60a5fa; color: #fff; box-shadow: 0 0 10px rgba(96, 165, 250, 0.6); border-color: #60a5fa; }
+
+.lyrics-chord-chip.chord-degree-3 { color: #34d399; background: rgba(52, 211, 153, 0.08); border-color: rgba(52, 211, 153, 0.35); }
+.lyrics-chord-chip.chord-degree-3:hover { background: rgba(52, 211, 153, 0.18); box-shadow: 0 0 6px rgba(52, 211, 153, 0.3); }
+.lyrics-chord-chip.chord-degree-3.playing { background: #34d399; color: #fff; box-shadow: 0 0 10px rgba(52, 211, 153, 0.6); border-color: #34d399; }
+
+.lyrics-chord-chip.chord-degree-4 { color: #fbbf24; background: rgba(251, 191, 36, 0.08); border-color: rgba(251, 191, 36, 0.35); }
+.lyrics-chord-chip.chord-degree-4:hover { background: rgba(251, 191, 36, 0.18); box-shadow: 0 0 6px rgba(251, 191, 36, 0.3); }
+.lyrics-chord-chip.chord-degree-4.playing { background: #fbbf24; color: #fff; box-shadow: 0 0 10px rgba(251, 191, 36, 0.6); border-color: #fbbf24; }
+
+.lyrics-chord-chip.chord-degree-5 { color: #a855f7; background: rgba(168, 85, 247, 0.08); border-color: rgba(168, 85, 247, 0.35); }
+.lyrics-chord-chip.chord-degree-5:hover { background: rgba(168, 85, 247, 0.18); box-shadow: 0 0 6px rgba(168, 85, 247, 0.3); }
+.lyrics-chord-chip.chord-degree-5.playing { background: #a855f7; color: #fff; box-shadow: 0 0 10px rgba(168, 85, 247, 0.6); border-color: #a855f7; }
+
+.lyrics-chord-chip.chord-degree-6 { color: #22d3ee; background: rgba(34, 211, 238, 0.08); border-color: rgba(34, 211, 238, 0.35); }
+.lyrics-chord-chip.chord-degree-6:hover { background: rgba(34, 211, 238, 0.18); box-shadow: 0 0 6px rgba(34, 211, 238, 0.3); }
+.lyrics-chord-chip.chord-degree-6.playing { background: #22d3ee; color: #fff; box-shadow: 0 0 10px rgba(34, 211, 238, 0.6); border-color: #22d3ee; }
+
+.lyrics-chord-chip.chord-degree-7 { color: #fb923c; background: rgba(251, 146, 60, 0.08); border-color: rgba(251, 146, 60, 0.35); }
+.lyrics-chord-chip.chord-degree-7:hover { background: rgba(251, 146, 60, 0.18); box-shadow: 0 0 6px rgba(251, 146, 60, 0.3); }
+.lyrics-chord-chip.chord-degree-7.playing { background: #fb923c; color: #fff; box-shadow: 0 0 10px rgba(251, 146, 60, 0.6); border-color: #fb923c; }
+
+.lyrics-chord-chip.playing {
+    background: var(--accent-color);
+    color: #fff;
+    box-shadow: 0 0 10px rgba(var(--accent-rgb), 0.6);
+    border-color: var(--accent-color);
+}
+
+.lyrics-chord-roman {
+    font-size: 9px;
+    font-weight: 700;
+    color: rgba(255, 255, 255, 0.6);
+    text-align: center;
+    display: block;
+    margin-bottom: 2px;
+    line-height: 1;
+}
+
+/* Chord chip with diagram tooltip wrapper */
+.lyrics-chord-chip-wrap {
+    position: relative;
+    display: inline-flex;
+    flex-direction: column;
+    align-items: center;
+}
+
+.lyrics-chord-chip-wrap.above {
+    /* when placed above a lyric word */
+}
+
+/* Floating diagram tooltip — appears on hover */
+.chord-diagram-tooltip {
+    display: none;
+    position: absolute;
+    bottom: calc(100% + 6px);
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 200;
+    background: var(--surface-elevated, #1c1c2a);
+    border: 1px solid rgba(var(--accent-rgb), 0.35);
+    border-radius: 8px;
+    padding: 6px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+    pointer-events: none;
+    white-space: nowrap;
+}
+
+/* Arrow pointing down */
+.chord-diagram-tooltip::after {
+    content: '';
+    position: absolute;
+    top: 100%;
+    left: 50%;
+    transform: translateX(-50%);
+    border: 6px solid transparent;
+    border-top-color: rgba(var(--accent-rgb), 0.35);
+}
+
+.lyrics-chord-chip-wrap:hover .chord-diagram-tooltip {
+    display: block;
+    animation: tooltipFadeIn 0.15s ease;
+}
+
+@keyframes tooltipFadeIn {
+    from { opacity: 0; transform: translateX(-50%) translateY(4px); }
+    to   { opacity: 1; transform: translateX(-50%) translateY(0); }
+}
+
+/* SVG lines inside tooltip inherit sheet colors */
+.chord-diagram-tooltip .chord-fret-line,
+.chord-diagram-tooltip .chord-string-line {
+    stroke: rgba(255,255,255,0.35);
+}
+.chord-diagram-tooltip .chord-nut { stroke: rgba(255,255,255,0.7); }
+.chord-diagram-tooltip .chord-dot { fill: var(--accent-color); }
+.chord-diagram-tooltip .chord-dot-text { fill: #fff; }
+.chord-diagram-tooltip .string-marker { fill: rgba(255,255,255,0.6); }
+.chord-diagram-tooltip .chord-barre { stroke: var(--accent-color); }
+.chord-diagram-tooltip .fret-label { fill: #fff; font-size: 9px; font-weight: 700; }
+
+/* ── Mini Progression Diagram Cards ────────────────────────────── */
+.progression-diagram-card {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 3px;
+    padding: 6px 8px 4px;
+    background: rgba(255,255,255,0.03);
+    border: 1px solid rgba(255,255,255,0.06);
+    border-radius: 8px;
+    cursor: pointer;
+    transition: background 0.2s, border-color 0.2s, transform 0.15s;
+}
+.progression-diagram-card:hover {
+    background: rgba(255,255,255,0.07);
+    border-color: rgba(255,255,255,0.12);
+    transform: translateY(-1px);
+}
+.progression-diagram-card .prog-card-roman {
+    font-size: 9px;
+    color: var(--text-tertiary);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    font-weight: 600;
+}
+.progression-diagram-card .prog-card-name {
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--text-primary);
+    letter-spacing: 0.01em;
+}
+/* SVG overrides for mini diagram */
+.progression-diagram-card svg .chord-fret-line,
+.progression-diagram-card svg .chord-string-line {
+    stroke: rgba(255,255,255,0.25);
+}
+.progression-diagram-card svg .chord-nut {
+    stroke: rgba(255,255,255,0.5);
+    stroke-width: 3px;
+}
+.progression-diagram-card svg .chord-dot {
+    fill: var(--accent-color);
+    stroke: var(--accent-color);
+}
+.progression-diagram-card svg .chord-dot-text {
+    fill: #fff;
+    font-size: 7px;
+}
+.progression-diagram-card svg .chord-barre {
+    stroke: var(--accent-color);
+}
+.progression-diagram-card svg .string-marker {
+    fill: rgba(255,255,255,0.45);
+}
+.progression-diagram-card svg .string-marker.muted {
+    fill: rgba(239, 68, 68, 0.7);
+}
+.progression-diagram-card svg .fret-label {
+    fill: #ffffff;
+    font-size: 9px;
+    font-weight: 700;
+}
+
+/* ── Degree-based progression cards (I–VII) ─────────────────────── */
+.progression-diagram-card.chord-degree-1 { border-color: rgba(239, 68, 68, 0.25); background: rgba(239, 68, 68, 0.06); }
+.progression-diagram-card.chord-degree-1:hover { border-color: rgba(239, 68, 68, 0.4); background: rgba(239, 68, 68, 0.1); }
+.progression-diagram-card.chord-degree-1 .prog-card-name { color: #ef4444; }
+.progression-diagram-card.chord-degree-1 svg .chord-dot { fill: #ef4444; stroke: #ef4444; }
+.progression-diagram-card.chord-degree-1 svg .chord-barre { stroke: #ef4444; }
+.progression-diagram-card.chord-degree-1 svg .chord-nut { stroke: rgba(239, 68, 68, 0.6); }
+
+.progression-diagram-card.chord-degree-2 { border-color: rgba(96, 165, 250, 0.25); background: rgba(96, 165, 250, 0.06); }
+.progression-diagram-card.chord-degree-2:hover { border-color: rgba(96, 165, 250, 0.4); background: rgba(96, 165, 250, 0.1); }
+.progression-diagram-card.chord-degree-2 .prog-card-name { color: #60a5fa; }
+.progression-diagram-card.chord-degree-2 svg .chord-dot { fill: #60a5fa; stroke: #60a5fa; }
+.progression-diagram-card.chord-degree-2 svg .chord-barre { stroke: #60a5fa; }
+.progression-diagram-card.chord-degree-2 svg .chord-nut { stroke: rgba(96, 165, 250, 0.6); }
+
+.progression-diagram-card.chord-degree-3 { border-color: rgba(52, 211, 153, 0.25); background: rgba(52, 211, 153, 0.06); }
+.progression-diagram-card.chord-degree-3:hover { border-color: rgba(52, 211, 153, 0.4); background: rgba(52, 211, 153, 0.1); }
+.progression-diagram-card.chord-degree-3 .prog-card-name { color: #34d399; }
+.progression-diagram-card.chord-degree-3 svg .chord-dot { fill: #34d399; stroke: #34d399; }
+.progression-diagram-card.chord-degree-3 svg .chord-barre { stroke: #34d399; }
+.progression-diagram-card.chord-degree-3 svg .chord-nut { stroke: rgba(52, 211, 153, 0.6); }
+
+.progression-diagram-card.chord-degree-4 { border-color: rgba(251, 191, 36, 0.25); background: rgba(251, 191, 36, 0.06); }
+.progression-diagram-card.chord-degree-4:hover { border-color: rgba(251, 191, 36, 0.4); background: rgba(251, 191, 36, 0.1); }
+.progression-diagram-card.chord-degree-4 .prog-card-name { color: #fbbf24; }
+.progression-diagram-card.chord-degree-4 svg .chord-dot { fill: #fbbf24; stroke: #fbbf24; }
+.progression-diagram-card.chord-degree-4 svg .chord-barre { stroke: #fbbf24; }
+.progression-diagram-card.chord-degree-4 svg .chord-nut { stroke: rgba(251, 191, 36, 0.6); }
+
+.progression-diagram-card.chord-degree-5 { border-color: rgba(168, 85, 247, 0.25); background: rgba(168, 85, 247, 0.06); }
+.progression-diagram-card.chord-degree-5:hover { border-color: rgba(168, 85, 247, 0.4); background: rgba(168, 85, 247, 0.1); }
+.progression-diagram-card.chord-degree-5 .prog-card-name { color: #a855f7; }
+.progression-diagram-card.chord-degree-5 svg .chord-dot { fill: #a855f7; stroke: #a855f7; }
+.progression-diagram-card.chord-degree-5 svg .chord-barre { stroke: #a855f7; }
+.progression-diagram-card.chord-degree-5 svg .chord-nut { stroke: rgba(168, 85, 247, 0.6); }
+
+.progression-diagram-card.chord-degree-6 { border-color: rgba(34, 211, 238, 0.25); background: rgba(34, 211, 238, 0.06); }
+.progression-diagram-card.chord-degree-6:hover { border-color: rgba(34, 211, 238, 0.4); background: rgba(34, 211, 238, 0.1); }
+.progression-diagram-card.chord-degree-6 .prog-card-name { color: #22d3ee; }
+.progression-diagram-card.chord-degree-6 svg .chord-dot { fill: #22d3ee; stroke: #22d3ee; }
+.progression-diagram-card.chord-degree-6 svg .chord-barre { stroke: #22d3ee; }
+.progression-diagram-card.chord-degree-6 svg .chord-nut { stroke: rgba(34, 211, 238, 0.6); }
+
+.progression-diagram-card.chord-degree-7 { border-color: rgba(251, 146, 60, 0.25); background: rgba(251, 146, 60, 0.06); }
+.progression-diagram-card.chord-degree-7:hover { border-color: rgba(251, 146, 60, 0.4); background: rgba(251, 146, 60, 0.1); }
+.progression-diagram-card.chord-degree-7 .prog-card-name { color: #fb923c; }
+.progression-diagram-card.chord-degree-7 svg .chord-dot { fill: #fb923c; stroke: #fb923c; }
+.progression-diagram-card.chord-degree-7 svg .chord-barre { stroke: #fb923c; }
+.progression-diagram-card.chord-degree-7 svg .chord-nut { stroke: rgba(251, 146, 60, 0.6); }
+
+/* Group of chord chips that sit above a word */
+.lyrics-chord-above-group {
+    display: flex;
+    gap: 3px;
+    min-height: 22px;
+    align-items: flex-end;
+    margin-bottom: 2px;
+}
+
+
+
+.progression-text {
+    background: rgba(255, 255, 255, 0.02);
+    border: 1px solid var(--border-hairline);
+    border-radius: 8px;
+    padding: 14px 20px;
+    font-size: 13px;
+    color: var(--text-primary);
+}
+
+/* Forms and Inputs */
+.panel-divider {
+    border: none;
+    border-top: 1px solid var(--border-hairline);
+    margin: 12px 0;
+}
+
+.form-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+}
+
+.form-group {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-bottom: 16px;
+}
+
+.form-label {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    font-weight: 700;
+    color: var(--text-secondary);
+}
+
+.input-field {
+    background: rgba(255, 255, 255, 0.02);
+    border: 1px solid var(--border-hairline);
+    border-radius: 8px;
+    padding: 12px 16px;
+    color: var(--text-primary);
+    font-family: var(--font-sans);
+    font-size: 13px;
+    outline: none;
+    transition: all 0.3s;
+}
+
+.input-field.font-mono {
+    font-family: var(--font-mono);
+}
+
+.input-field:focus {
+    background: rgba(255, 255, 255, 0.04);
+    border-color: var(--accent-color);
+}
+
+.textarea-field {
+    resize: vertical;
+}
+
+/* Empty Panel state */
+.bento-harmony-empty {
+    height: 500px;
+}
+
+.bento-harmony-empty .panel-core {
+    text-align: center;
+}
+
+.empty-icon {
+    font-size: 48px;
+    color: var(--text-tertiary);
+    margin-bottom: 24px;
+    animation: breathing 3s infinite var(--spring-ease);
+}
+
+@keyframes breathing {
+    0% { opacity: 0.3; transform: scale(0.98); }
+    50% { opacity: 0.8; transform: scale(1.02); }
+    100% { opacity: 0.3; transform: scale(0.98); }
+}
+
+@keyframes spin {
+    from { transform: rotate(0deg); }
+    to   { transform: rotate(360deg); }
+}
+
+.empty-title {
+    font-size: 20px;
+    font-weight: 700;
+    margin-bottom: 12px;
+}
+
+.empty-description {
+    font-size: 14px;
+    color: var(--text-secondary);
+    max-width: 32ch;
+    line-height: 1.6;
+}
+
+/* 8. GENERAL UTILITIES & LAYOUT */
+.flex { display: flex; }
+.flex-col { flex-direction: column; }
+.flex-wrap { flex-wrap: wrap !important; }
+.flex-nowrap { flex-wrap: nowrap !important; }
+.justify-between { justify-content: space-between; }
+.items-center { align-items: center; }
+.items-start { align-items: flex-start; }
+.justify-center { justify-content: center; }
+.gap-1 { gap: 4px; }
+.gap-2 { gap: 8px; }
+.gap-3 { gap: 12px; }
+.gap-4 { gap: 16px; }
+.gap-6 { gap: 24px; }
+.mt-2 { margin-top: 8px; }
+.mt-3 { margin-top: 12px; }
+.inline-flex { display: inline-flex; }
+.hide { display: none !important; }
+
+/* 9. HUD SYSTEM (Audio State & Save Toast) */
+.audio-hud {
+    position: fixed;
+    bottom: 24px;
+    left: 24px;
+    background: rgba(10, 10, 10, 0.85);
+    backdrop-filter: blur(12px);
+    border: 1px solid var(--border-hairline);
+    border-radius: 9999px;
+    padding: 10px 20px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    font-size: 12px;
+    font-weight: 600;
+    z-index: 1000;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+    transition: opacity 0.4s var(--spring-ease), transform 0.4s var(--spring-ease);
+}
+
+.audio-hud.hide {
+    opacity: 0;
+    transform: translateY(20px);
+    pointer-events: none;
+}
+
+.audio-hud-icon {
+    color: var(--accent-color);
+}
+
+/* Toast */
+.toast {
+    position: fixed;
+    bottom: 24px;
+    right: 24px;
+    background: #10b981;
+    color: #ffffff;
+    border-radius: 8px;
+    padding: 14px 28px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    font-size: 13px;
+    font-weight: 600;
+    z-index: 1000;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+    transition: all 0.4s var(--spring-ease);
+    will-change: transform, opacity;
+}
+
+.toast.hide {
+    opacity: 0;
+    transform: translateY(20px);
+    pointer-events: none;
+}
+
+.toast-icon {
+    font-size: 18px;
+}
+
+/* Utility Animations */
+.animate-pulse {
+    animation: breathing 2s infinite ease-in-out;
+}
+
+/* Responsive Collapse below 1024px for core grid */
+@media (max-width: 1024px) {
+    .workspace-grid {
+        grid-template-columns: 1fr;
+    }
+    
+    .workspace-grid.focus-active {
+        grid-template-columns: 1fr;
+    }
+    
+    .hero-section {
+        grid-template-columns: 1fr;
+        gap: 32px;
+    }
+    
+    .bento-grid-metrics {
+        grid-template-columns: repeat(2, 1fr);
+    }
+    
+    .app-container {
+        padding: 0 20px 40px 20px;
+    }
+}
+
+@media (max-width: 600px) {
+    .bento-grid-metrics {
+        grid-template-columns: 1fr;
+    }
+    
+    .song-row {
+        grid-template-columns: 1fr 60px 40px;
+    }
+    
+    .song-row-album {
+        display: none;
+    }
+    
+    .song-row-index {
+        display: none;
+    }
+}
+
+/* Autodetect & Modal Styling */
+.autodetect-row {
+    margin: 16px 0;
+    padding: 8px 16px;
+    background: rgba(255, 255, 255, 0.02);
+    border: 1px solid var(--border-hairline-light);
+    border-radius: 12px;
+}
+
+.source-segmented-control {
+    background: rgba(255, 255, 255, 0.02);
+    border: 1px solid var(--border-hairline);
+    border-radius: 8px;
+    padding: 2px;
+    display: inline-flex;
+    gap: 2px;
+}
+
+.source-tab {
+    background: transparent;
+    border: none;
+    outline: none;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-secondary);
+    padding: 6px 12px;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.3s var(--spring-ease);
+}
+
+.source-tab:hover {
+    color: var(--text-primary);
+}
+
+.source-tab.active {
+    background: var(--accent-glow);
+    color: var(--accent-color);
+}
+
+/* Modal Overlay & Structure */
+.modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(3, 3, 3, 0.7);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 2000;
+    opacity: 1;
+    transition: opacity 0.4s var(--spring-ease);
+}
+
+.modal-overlay.hide {
+    display: none !important;
+    opacity: 0;
+}
+
+.modal-bezel {
+    max-width: 540px;
+    width: calc(100% - 32px);
+    animation: modal-enter 0.5s var(--spring-ease);
+}
+
+@keyframes modal-enter {
+    from { transform: scale(0.95) translateY(20px); opacity: 0; }
+    to { transform: scale(1) translateY(0); opacity: 1; }
+}
+
+.modal-header {
+    border-bottom: 1px solid var(--border-hairline);
+    padding-bottom: 16px;
+}
+
+.suggestion-diff-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    margin: 16px 0;
+}
+
+.diff-col {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.diff-title {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    font-weight: 700;
+    color: var(--text-secondary);
+}
+
+.diff-box {
+    background: #050505;
+    border: 1px solid var(--border-hairline);
+    border-radius: 8px;
+    padding: 16px;
+    font-size: 12px;
+    line-height: 1.5;
+    height: 160px;
+    overflow-y: auto;
+    color: var(--text-secondary);
+    white-space: pre-wrap;
+    word-break: break-all;
+}
+
+.diff-box::-webkit-scrollbar {
+    width: 4px;
+}
+.diff-box::-webkit-scrollbar-thumb {
+    background: var(--border-hairline);
+    border-radius: 4px;
+}
+
+/* Compact layout for split screen view to prevent squishing and text clipping */
+.workspace-grid.focus-active .song-row {
+    grid-template-columns: 30px 1fr 85px 30px;
+}
+.workspace-grid.focus-active .song-row-album,
+.workspace-grid.focus-active .song-row-tonality {
+    display: none !important;
+}
+
+.animate-spin {
+    animation: spin 1.2s linear infinite;
+    display: inline-block;
+}
+
+@keyframes spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
+
+/* Playlist Cache Info */
+.playlist-cache-info {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: rgba(255, 255, 255, 0.02);
+    border: 1px solid var(--border-hairline-light);
+    border-radius: 8px;
+    padding: 8px 12px;
+    margin-top: 12px;
+    animation: fadeIn 0.4s var(--spring-ease);
+}
+
+.playlist-cache-info.hide {
+    display: none !important;
+}
+
+.cache-time {
+    font-size: 11px;
+    color: var(--text-secondary);
+    font-family: var(--font-sans);
+}
+
+.btn-reset-cache {
+    background: transparent;
+    border: none;
+    color: var(--text-secondary);
+    font-family: var(--font-sans);
+    font-size: 11px;
+    font-weight: 600;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    transition: color 0.3s var(--spring-ease);
+}
+
+.btn-reset-cache:hover {
+    color: var(--accent-color);
+}
+
+.btn-reset-cache i {
+    font-size: 12px;
+    transition: transform 0.4s var(--spring-ease);
+}
+
+.btn-reset-cache:hover i {
+    transform: rotate(180deg);
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(4px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+.btn-destructive {
+    background: rgba(244, 63, 94, 0.05) !important;
+    border: 1px solid rgba(244, 63, 94, 0.2) !important;
+    color: #f43f5e !important;
+}
+
+.btn-destructive:hover {
+    background: rgba(244, 63, 94, 0.12) !important;
+    border-color: rgba(244, 63, 94, 0.5) !important;
+    box-shadow: 0 0 20px rgba(244, 63, 94, 0.2);
+}
+
+/* Just Found Banner for Bulk Autocomplete Filtering */
+.just-found-banner {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: rgba(var(--accent-rgb), 0.08);
+    border: 1px solid rgba(var(--accent-rgb), 0.2);
+    border-radius: 8px;
+    padding: 10px 16px;
+    margin: 12px 24px 0 24px;
+    font-size: 13px;
+    color: var(--text-primary);
+    animation: fadeIn 0.3s ease;
+    gap: 12px;
+}
+
+.just-found-banner.hide {
+    display: none !important;
+}
+
+.just-found-banner-content {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.just-found-banner .banner-icon {
+    color: var(--accent-color);
+    font-size: 16px;
+}
+
+.just-found-banner strong {
+    color: var(--accent-color);
+}
+
+
+
+
+/* PANEL MAXIMIZE FEATURE */
+.inner-core {
+    position: relative;
+}
+
+
+
+.panel-toggle-btn {
+    position: absolute;
+    top: 12px;
+    left: 12px;
+    background: transparent;
+    border: none;
+    color: var(--text-tertiary);
+    cursor: pointer;
+    border-radius: 50%;
+    width: 28px;
+    height: 28px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s ease;
+    z-index: 100;
+}
+
+.panel-toggle-btn:hover {
+    color: var(--text-primary);
+    background: rgba(255, 255, 255, 0.05);
+}
+
+.double-bezel.panel-collapsed .inner-core {
+    padding-bottom: 24px;
+}
+
+.double-bezel.panel-collapsed .panel-header {
+    margin-bottom: 0;
+}
+
+/* Hide everything except header and toggle button */
+.double-bezel.panel-collapsed .inner-core > *:not(.panel-header):not(.panel-toggle-btn) {
+    display: none !important;
+}
+
+/* When collapsed, adjust the height smoothly or just let it shrink */
+.double-bezel.panel-collapsed {
+    height: auto !important;
+}
+
+/* YOUTUBE COLLAPSIBLE PANEL */
+.youtube-island.collapsible-panel {
+    position: relative;
+    padding-top: 32px; /* space for the toggle button */
+    margin-top: 16px;
+}
+.youtube-island.collapsible-panel .panel-toggle-btn {
+    top: 0px;
+    left: 0px;
+}
+.youtube-island.collapsible-panel.panel-collapsed > *:not(.panel-toggle-btn) {
+    display: none !important;
+}
+.youtube-island.collapsible-panel.panel-collapsed {
+    padding-bottom: 0;
+    margin-bottom: -16px; /* pull things up */
+}
+.youtube-island.collapsible-panel.panel-collapsed {
+    height: 32px;
+    margin-bottom: 0;
+    padding-bottom: 0;
+}
+.youtube-island.collapsible-panel.panel-collapsed::after {
+    content: "Reproductor oculto";
+    font-size: 11px;
+    color: var(--text-tertiary);
+    position: absolute;
+    left: 36px;
+    top: -2px;
+    pointer-events: none;
+}
+
+/* ── Source Provider Tabs ── */
+.source-tabs-row {
+    display: flex;
+    gap: 6px;
+    margin-bottom: 8px;
+}
+.source-tab,
+.source-action {
+    flex: 1;
+    padding: 7px 12px;
+    font-size: 12px;
+    font-weight: 500;
+    border-radius: 8px;
+    border: 1px solid var(--border-hairline-light);
+    background: transparent;
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: all 0.2s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    font-family: inherit;
+    letter-spacing: 0.01em;
+}
+.source-tab:hover,
+.source-action:hover {
+    background: rgba(255, 255, 255, 0.04);
+    color: var(--text-primary);
+}
+.source-tab.active {
+    background: rgba(var(--accent-rgb), 0.12);
+    color: var(--accent);
+    border-color: var(--accent);
+    font-weight: 600;
+}
+.source-tab i,
+.source-action i {
+    font-size: 14px;
+}
+.source-action {
+    flex: 0 0 auto;
+    padding-left: 14px;
+    padding-right: 14px;
+    border-style: dashed;
+}
+.source-action:disabled {
+    opacity: 0.6;
+    cursor: wait;
+}
+
+/* Markdown Guide Styles */
+.markdown-body {
+    font-family: 'Plus Jakarta Sans', sans-serif;
+    color: var(--text-secondary);
+}
+.markdown-body h1, .markdown-body h2, .markdown-body h3, .markdown-body h4 {
+    color: var(--text-primary);
+    margin-top: 24px;
+    margin-bottom: 12px;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+}
+.markdown-body h2 {
+    font-size: 1.25rem;
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--border-hairline-light);
+}
+.markdown-body h3 {
+    font-size: 1.1rem;
+    color: var(--theme-accent, #6366f1);
+}
+.markdown-body p {
+    margin-bottom: 14px;
+    font-size: 14px;
+    line-height: 1.65;
+}
+.markdown-body ul, .markdown-body ol {
+    padding-left: 24px;
+    margin-bottom: 16px;
+}
+.markdown-body li {
+    margin-bottom: 6px;
+    font-size: 14px;
+    line-height: 1.6;
+}
+.markdown-body strong {
+    color: var(--text-primary);
+    font-weight: 600;
+}
+.markdown-body table {
+    width: 100%;
+    border-collapse: separate;
+    border-spacing: 0;
+    margin: 20px 0 24px 0;
+    font-size: 13.5px;
+    background: rgba(255, 255, 255, 0.015);
+    border: 1px solid var(--border-hairline-light);
+    border-radius: 10px;
+    overflow: hidden;
+}
+.markdown-body th {
+    background: rgba(255, 255, 255, 0.05);
+    color: var(--text-primary);
+    font-weight: 700;
+    padding: 12px 14px;
+    border-bottom: 1px solid var(--border-hairline-light);
+    border-right: 1px solid var(--border-hairline-light);
+    text-align: left;
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+.markdown-body th:last-child {
+    border-right: none;
+}
+.markdown-body td {
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--border-hairline-light);
+    border-right: 1px solid var(--border-hairline-light);
+    color: var(--text-secondary);
+    vertical-align: top;
+    line-height: 1.5;
+}
+.markdown-body td:last-child {
+    border-right: none;
+}
+.markdown-body tr:last-child td {
+    border-bottom: none;
+}
+.markdown-body tr:hover td {
+    background: rgba(255, 255, 255, 0.025);
+}
+.markdown-body code {
+    font-family: 'Geist Mono', monospace;
+    background: rgba(255, 255, 255, 0.06);
+    color: var(--accent-color, #e0e0e0);
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 12.5px;
+}
+.markdown-body blockquote {
+    margin: 16px 0;
+    padding: 10px 16px;
+    border-left: 3px solid var(--theme-accent, #6366f1);
+    background: rgba(99, 102, 241, 0.05);
+    border-radius: 0 8px 8px 0;
+    color: var(--text-secondary);
+}
+
+/* Interactive Guitar Fretboard Styles */
+.fretboard-box {
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+    position: relative;
+    overflow: hidden;
+}
+.guitar-fretboard-svg {
+    background: #0f1013;
+    box-shadow: inset 0 0 20px rgba(0,0,0,0.8);
+}
+.fret-note-group {
+    transition: transform 0.15s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+.fret-note-group.playing-note {
+    transform-box: fill-box;
+    transform-origin: center;
+    transform: scale(1.35);
+}
+.fret-note-group.playing-note circle:not([fill="none"]) {
+    stroke: #ffffff;
+    stroke-width: 3px;
+    filter: drop-shadow(0 0 6px #ffffff) brightness(1.3);
+}
+.fret-note-group:hover circle:first-of-type {
+    filter: brightness(1.25);
+    stroke-width: 3px;
+}
+.btn-quick-scale {
+    transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+    padding: 5px 12px;
+    font-size: 11.5px;
+    border-radius: 16px;
+    border: 1px solid var(--border-hairline-light);
+    background: rgba(255, 255, 255, 0.05);
+    color: var(--text-secondary);
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    white-space: nowrap;
+    margin: 2px 0;
+    line-height: 1.3;
+}
+.btn-quick-scale:hover {
+    filter: brightness(1.2);
+    transform: translateY(-1px);
+    background: rgba(255, 255, 255, 0.08);
+    color: var(--text-primary);
+}
+.btn-quick-scale.active-base {
+    background: var(--theme-accent, #6366f1) !important;
+    border-color: var(--theme-accent, #6366f1) !important;
+    color: #ffffff !important;
+    box-shadow: 0 0 12px rgba(99, 102, 241, 0.45);
+    font-weight: 600;
+}
+.btn-quick-scale.active-target {
+    background: rgba(245, 158, 11, 0.16) !important;
+    border-color: #f59e0b !important;
+    color: #f59e0b !important;
+    box-shadow: 0 0 12px rgba(245, 158, 11, 0.45);
+    font-weight: 700;
+}
+
+/* Chord Tag inside Quick Scale Chips */
+.chip-chord-tag {
+    padding: 1.5px 6px;
+    border-radius: 4px;
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    color: #e2e8f0;
+    font-size: 11px;
+    font-weight: 700;
+    font-family: 'Geist Mono', monospace;
+    letter-spacing: -0.2px;
+    display: inline-block;
+    transition: all 0.15s ease;
+}
+
+/* ── Degree-based chord tags (I–VII) ─────────────────────────── */
+.chip-chord-tag.chord-degree-1 { background: rgba(239, 68, 68, 0.15); border-color: rgba(239, 68, 68, 0.35); color: #ef4444; }
+.chip-chord-tag.chord-degree-2 { background: rgba(96, 165, 250, 0.15); border-color: rgba(96, 165, 250, 0.35); color: #60a5fa; }
+.chip-chord-tag.chord-degree-3 { background: rgba(52, 211, 153, 0.15); border-color: rgba(52, 211, 153, 0.35); color: #34d399; }
+.chip-chord-tag.chord-degree-4 { background: rgba(251, 191, 36, 0.15); border-color: rgba(251, 191, 36, 0.35); color: #fbbf24; }
+.chip-chord-tag.chord-degree-5 { background: rgba(168, 85, 247, 0.15); border-color: rgba(168, 85, 247, 0.35); color: #a855f7; }
+.chip-chord-tag.chord-degree-6 { background: rgba(34, 211, 238, 0.15); border-color: rgba(34, 211, 238, 0.35); color: #22d3ee; }
+.chip-chord-tag.chord-degree-7 { background: rgba(251, 146, 60, 0.15); border-color: rgba(251, 146, 60, 0.35); color: #fb923c; }
+/* Active state degree-based chord tags */
+.btn-quick-scale.active-target .chip-chord-tag.chord-degree-1 { background: #ef4444; border-color: #ef4444; color: #000; }
+.btn-quick-scale.active-target .chip-chord-tag.chord-degree-2 { background: #60a5fa; border-color: #60a5fa; color: #000; }
+.btn-quick-scale.active-target .chip-chord-tag.chord-degree-3 { background: #34d399; border-color: #34d399; color: #000; }
+.btn-quick-scale.active-target .chip-chord-tag.chord-degree-4 { background: #fbbf24; border-color: #fbbf24; color: #000; }
+.btn-quick-scale.active-target .chip-chord-tag.chord-degree-5 { background: #a855f7; border-color: #a855f7; color: #000; }
+.btn-quick-scale.active-target .chip-chord-tag.chord-degree-6 { background: #22d3ee; border-color: #22d3ee; color: #000; }
+.btn-quick-scale.active-target .chip-chord-tag.chord-degree-7 { background: #fb923c; border-color: #fb923c; color: #000; }
+.btn-quick-scale.active-target .chip-chord-tag { background: #f59e0b; border-color: #f59e0b; color: #000; } /* Fallback */
+.btn-fb-step {
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid var(--border-hairline-light);
+    color: var(--text-secondary);
+    padding: 3px 9px;
+    border-radius: 6px;
+    font-size: 11.5px;
+    font-weight: 600;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    transition: all 0.15s ease;
+}
+.btn-fb-step:hover:not(:disabled) {
+    background: rgba(245, 158, 11, 0.18);
+    color: #fbbf24;
+    border-color: rgba(245, 158, 11, 0.4);
+}
+.btn-fb-step:active:not(:disabled) {
+    transform: scale(0.96);
+}
+
+
+
+/* Edit / delete a chord from the lyrics view */
+.chord-edit-actions {
+    display: none;
+    position: absolute;
+    top: 8px;
+    right: -9px;
+    gap: 2px;
+    z-index: 210;
+}
+.lyrics-chord-chip-wrap:hover .chord-edit-actions { display: inline-flex; }
+.chord-edit-btn {
+    width: 15px;
+    height: 15px;
+    padding: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 9px;
+    line-height: 1;
+    color: var(--text-primary);
+    background: var(--surface-elevated, #1c1c2a);
+    border: 1px solid var(--border-hairline-light, rgba(255,255,255,0.2));
+    border-radius: 50%;
+    cursor: pointer;
+}
+.chord-edit-btn:hover { background: rgba(255,255,255,0.18); }
+.chord-edit-btn.del:hover { background: #ef4444; border-color: #ef4444; color: #fff; }
+.lyrics-chord-input {
+    font-family: var(--font-mono, 'JetBrains Mono', monospace);
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--text-primary);
+    background: var(--surface-elevated, #1c1c2a);
+    border: 1px solid var(--accent-color, #6366f1);
+    border-radius: 4px;
+    padding: 2px 5px;
+    outline: none;
+}
+
+/* Add a chord from the lyrics view */
+.lyrics-word { position: relative; }
+.chord-add-btn {
+    display: none;
+    position: absolute;
+    top: 8px;
+    left: 0;
+    width: 18px;
+    height: 18px;
+    padding: 0;
+    align-items: center;
+    justify-content: center;
+    font-size: 10px;
+    color: var(--text-secondary);
+    background: transparent;
+    border: 1px dashed var(--border-hairline-light, rgba(255,255,255,0.25));
+    border-radius: 5px;
+    cursor: pointer;
+}
+.chord-add-btn:hover { color: var(--text-primary); border-color: var(--accent-color, #6366f1); background: rgba(255,255,255,0.06); }
+.lyrics-word:hover > .chord-add-btn { display: inline-flex; }
+.chord-add-end { position: static; }
+.chord-only-row:hover .chord-add-end { display: inline-flex; }
+.chord-edit-btn.add:hover { background: #34d399; border-color: #34d399; color: #04130c; }

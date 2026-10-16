@@ -1,0 +1,767 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Vibemus — Dashboard de Armonía Musical</title>
+    
+    <!-- Google Fonts: Plus Jakarta Sans for UI, Geist Mono for codes/chords, Playfair Display for editorial headers -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Geist+Mono:wght@400;500;700&family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet">
+    
+    <!-- Phosphor Icons Light -->
+    <script src="https://unpkg.com/@phosphor-icons/web@2.1.1"></script>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    
+    <!-- Premium Stylesheet -->
+    <link rel="stylesheet" href="style.css?v=36">
+</head>
+<body>
+
+    <!-- Ambient Glowing Orbs (Fixed background mesh gradient effect) -->
+    <div class="ambient-glow">
+        <div class="orb orb-1"></div>
+        <div class="orb orb-2"></div>
+        <div class="orb orb-3"></div>
+    </div>
+    
+    <!-- Subtle Film Grain Overlay -->
+    <div class="grain-overlay"></div>
+
+    <div class="app-container">
+        
+        <!-- Floating Glass Header -->
+        <header class="main-header">
+            <div class="header-inner">
+                <div class="brand">
+                    <span class="brand-dot"></span>
+                    <span class="brand-text">VIBEMUS</span>
+                </div>
+                <div class="header-actions">
+                    <label class="flex items-center gap-2" title="Sonido de acordes y escalas (mapa de acordes y guía de improvisación)" style="font-size: 12px; color: var(--text-secondary);">
+                        <i class="ph ph-speaker-high"></i>
+                        <select id="instrument-select" class="select-field" style="width: auto; min-width: 170px; padding: 7px 34px 7px 12px; font-size: 12.5px;"></select>
+                    </label>
+                    <button id="bulk-restyle-btn" class="btn btn-secondary" title="Recalcular estilos emocionales de todas las canciones con armonía">
+                        <i class="ph ph-sparkle"></i>
+                        <span>Recalcular Estilos</span>
+                    </button>
+                    <button id="sync-btn" class="btn btn-secondary">
+                        <i class="ph ph-arrows-clockwise"></i>
+                        <span>Sincronizar Cloud</span>
+                    </button>
+                    <button id="clear-cache-btn" class="btn btn-secondary" title="Limpiar caché local y recargar datos desde el servidor" onclick="clearAllCacheAndReload()" style="color: var(--text-secondary);">
+                        <i class="ph ph-trash-simple"></i>
+                        <span>Limpiar Caché</span>
+                    </button>
+                    <div class="status-indicator">
+                        <span class="status-dot online"></span>
+                        <span class="status-label">Online</span>
+                    </div>
+                </div>
+            </div>
+        </header>
+
+        <!-- Asymmetric Hero Section -->
+        <section class="hero-section">
+            <div class="hero-content">
+                <div class="eyebrow">Dashboard de Grado Armónico</div>
+                <h1 class="hero-title">
+                    Cartografía <span class="serif-title">de la Armonía</span> & Acordes
+                </h1>
+                <p class="hero-description">
+                    Explora y enriquece la estructura armónica de tu biblioteca musical. Analiza progresiones complejas, descubre tonalidades en el Círculo de Quintas y reproduce acordes en tiempo real.
+                </p>
+                <div class="search-bar-container">
+                    <i class="ph ph-magnifying-glass search-icon"></i>
+                    <input type="text" id="global-search" placeholder="Buscar artista, canción, género o progresión...">
+                    <kbd class="kbd-shortcut">/</kbd>
+                </div>
+            </div>
+            <div class="hero-filters-panel">
+                <div class="hero-filter-group">
+                    <label class="hero-filter-label">Longitud de Progresión</label>
+                    <select id="filter-progression-length" class="select-field">
+                        <option value="all">Cualquier Longitud</option>
+                        <!-- Lengths populated dynamically -->
+                    </select>
+                </div>
+                <div class="hero-filter-group">
+                    <label class="hero-filter-label">Progresión Numérica</label>
+                    <select id="filter-progression" class="select-field">
+                        <option value="all">Todas las Progresiones</option>
+                        <!-- Progressions populated dynamically -->
+                    </select>
+                </div>
+                <div class="hero-filter-group">
+                    <label class="hero-filter-label">Lista de Reproducción</label>
+                    <select id="filter-playlist" class="select-field">
+                        <option value="all">Todas las Playlists</option>
+                        <!-- Playlists populated dynamically -->
+                    </select>
+                    <button id="autocomplete-playlist-btn" class="btn btn-secondary mt-3 hide" style="width: 100%; justify-content: center; gap: 8px;">
+                        <i class="ph ph-list-sparkles"></i>
+                        <span>Autocompletar Playlist</span>
+                    </button>
+                    <div id="playlist-cache-info" class="playlist-cache-info hide">
+                        <span class="cache-time" id="cache-time-label">Último escaneo: Nunca</span>
+                        <button type="button" id="reset-playlist-cache-btn" class="btn-reset-cache" title="Limpiar caché de escaneo">
+                            <i class="ph ph-arrows-clockwise"></i> Reiniciar
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Metrics Grid (Bento style) -->
+        <section class="metrics-section">
+            <div class="bento-grid-metrics">
+                
+                <!-- Metric 1: Total Songs -->
+                <div class="double-bezel metric-bezel">
+                    <div class="inner-core metric-core">
+                        <div class="metric-icon"><i class="ph ph-music-notes"></i></div>
+                        <div class="metric-data">
+                            <span class="metric-value font-mono" id="stat-total-songs">0</span>
+                            <span class="metric-label">Canciones Registradas</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Metric 2: Total Artists -->
+                <div class="double-bezel metric-bezel">
+                    <div class="inner-core metric-core">
+                        <div class="metric-icon"><i class="ph ph-users"></i></div>
+                        <div class="metric-data">
+                            <span class="metric-value font-mono" id="stat-total-artists">0</span>
+                            <span class="metric-label">Artistas Únicos</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Metric 3: Harmony Coverage -->
+                <div class="double-bezel metric-bezel">
+                    <div class="inner-core metric-core">
+                        <div class="metric-icon"><i class="ph ph-chart-pie-slice"></i></div>
+                        <div class="metric-data">
+                            <span class="metric-value font-mono" id="stat-harmony-pct">0%</span>
+                            <span class="metric-label">Densidad de Armonía</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Metric 4: Liked Songs -->
+                <div class="double-bezel metric-bezel" id="filter-liked-card" style="cursor: pointer;">
+                    <div class="inner-core metric-core">
+                        <div class="metric-icon"><i class="ph ph-heart"></i></div>
+                        <div class="metric-data">
+                            <span class="metric-value font-mono" id="stat-liked-songs">0</span>
+                            <span class="metric-label">Canciones Favoritas</span>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+        </section>
+
+        <!-- Main Workspace (Asymmetrical Grid) -->
+        <main class="workspace-grid">
+            
+            <!-- LEFT PANEL: Circle of Fifths & Advanced Filters (col-span-4) -->
+            <div class="left-panel flex flex-col gap-6">
+                
+                <!-- Bento Box: Circle of Fifths -->
+                <div class="double-bezel panel-bezel bento-circle-fifths">
+                    <div class="inner-core panel-core">
+                        <button class="panel-toggle-btn" aria-label="Ocultar Panel" title="Ocultar Panel">
+                            <i class="ph ph-caret-up"></i>
+                        </button>
+                        <div class="panel-header">
+                            <h3 class="panel-title">Círculo de Quintas</h3>
+                            <p class="panel-subtitle">Haz clic para filtrar por tonalidad armónica</p>
+                        </div>
+                        <div class="circle-fifths-container">
+                            <svg id="circle-fifths-svg" viewBox="0 0 400 400" width="100%" height="100%">
+                                <!-- Circle of Fifths SVG content will be rendered dynamically by JS -->
+                            </svg>
+                            <button id="clear-tonality-filter" class="btn btn-tiny btn-secondary hide">
+                                <i class="ph ph-x"></i> Limpiar Filtro
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Bento Box: Advanced Filters -->
+                <div class="double-bezel panel-bezel bento-filters">
+                    <div class="inner-core panel-core">
+                        <button class="panel-toggle-btn" aria-label="Ocultar Panel" title="Ocultar Panel">
+                            <i class="ph ph-caret-up"></i>
+                        </button>
+                        <div class="panel-header">
+                            <h3 class="panel-title">Filtros Inteligentes</h3>
+                        </div>
+                        
+                        <div class="filter-group">
+                            <label class="filter-label">Complejidad Armónica</label>
+                            <div class="tag-filters" id="filter-complexity">
+                                <button class="tag-btn active" data-complexity="all">Todas</button>
+                                <button class="tag-btn" data-complexity="Baja">Baja</button>
+                                <button class="tag-btn" data-complexity="Media">Media</button>
+                                <button class="tag-btn" data-complexity="Media-Alta">Media-Alta</button>
+                                <button class="tag-btn" data-complexity="Alta">Alta</button>
+                            </div>
+                        </div>
+
+                        <div class="filter-group">
+                            <label class="filter-label">Estado de Armonía</label>
+                            <div class="tag-filters" id="filter-harmony-status">
+                                <button class="tag-btn active" data-harmony="all">Todas</button>
+                                <button class="tag-btn" data-harmony="with">Con Armonía</button>
+                                <button class="tag-btn" data-harmony="without">Sin Armonía</button>
+                            </div>
+                        </div>
+
+                        <div class="filter-group">
+                            <label class="filter-label">Estado de Escaneo</label>
+                            <div class="tag-filters" id="filter-scan-status">
+                                <button class="tag-btn active" data-scan="all">Todos</button>
+                                <button class="tag-btn" data-scan="scanned">Escaneadas</button>
+                                <button class="tag-btn" data-scan="never">Nunca Escaneadas</button>
+                            </div>
+                        </div>
+
+                        <div class="filter-group">
+                            <label class="filter-label">Estilo Emocional</label>
+                            <div class="tag-filters" id="filter-style">
+                                <!-- Styles populated dynamically -->
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- MIDDLE PANEL: Songs Explorer List (col-span-8) -->
+            <div class="middle-panel">
+                <div class="double-bezel panel-bezel bento-songs-explorer">
+                    <div class="inner-core panel-core explorer-core">
+                        <button class="panel-toggle-btn" aria-label="Ocultar Panel" title="Ocultar Panel">
+                            <i class="ph ph-caret-up"></i>
+                        </button>
+                        <div class="panel-header flex justify-between items-center">
+                            <div>
+                                <h3 class="panel-title">Explorador de Canciones</h3>
+                                <div class="explorer-count-row" id="explorer-count">
+                                    <span class="explorer-count-filtered" id="count-filtered">0</span>
+                                    <span class="explorer-count-sep">de</span>
+                                    <span class="explorer-count-total" id="count-total">0</span>
+                                    <span class="explorer-count-label">canciones</span>
+                                    <span class="explorer-filter-badge hide" id="filter-active-badge"><i class="ph ph-funnel-simple"></i> Filtrado</span>
+                                </div>
+                            </div>
+                            <div class="explorer-actions">
+                                <button id="sort-title" class="btn btn-tiny btn-secondary active">Título <i class="ph ph-sort-ascending"></i></button>
+                                <button id="sort-scrobble" class="btn btn-tiny btn-secondary">Scrobbles <i class="ph ph-caret-down"></i></button>
+                                <button id="sort-scan-date" class="btn btn-tiny btn-secondary">Escaneado <i class="ph ph-calendar"></i></button>
+                            </div>
+                        </div>
+
+                        <!-- Just Found Banner (hidden by default) -->
+                        <div id="just-found-banner" class="just-found-banner hide">
+                            <div class="just-found-banner-content">
+                                <i class="ph ph-sparkle banner-icon"></i>
+                                <span>Se han filtrado <strong id="just-found-count">0</strong> canciones recién encontradas para que compruebes su armonía.</span>
+                            </div>
+                            <button id="clear-just-found-btn" class="btn btn-tiny btn-secondary">
+                                <i class="ph ph-x"></i> Ver todas
+                            </button>
+                        </div>
+
+                        <!-- Scrollable Song List -->
+                        <div class="songs-list-container">
+                            <div id="songs-list" class="songs-list">
+                                <!-- Skeleton loaders or empty state will be placed here -->
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- RIGHT PANEL: Focus Harmony Detail & Chord Player (col-span-12 or floating sidebar overlay when mobile) -->
+            <div class="right-panel hide" id="harmony-focus-panel">
+                <div class="double-bezel panel-bezel bento-harmony-details">
+                    <div class="inner-core panel-core flex flex-col gap-4">
+                        
+                        <!-- Panel Close Header -->
+                        <div class="focus-header">
+                            <button id="close-focus-panel" class="btn-close">
+                                <i class="ph ph-arrow-left"></i>
+                                <span>Cerrar Detalles</span>
+                            </button>
+                            <div class="song-meta-badge inline-flex gap-2">
+                                <span class="badge badge-complexity" id="focus-badge-complexity">-</span>
+                                <span class="badge badge-style" id="focus-badge-style">-</span>
+                            </div>
+                        </div>
+
+                        <!-- Selected Song Identity -->
+                        <div class="song-identity flex justify-between" style="align-items: flex-end;">
+                            <div>
+                                <h2 class="song-title" id="focus-song-title">-</h2>
+                                <p class="song-artist" id="focus-song-artist">-</p>
+                                <p class="song-album-year" id="focus-song-album-year">-</p>
+                            </div>
+                            <div class="song-scrobbles" style="display: flex; flex-direction: column; align-items: flex-end; gap: 6px; padding-bottom: 2px;">
+                                <div class="scrobble-tag" style="display: flex; align-items: center; gap: 6px; color: var(--text-secondary); font-size: 13px;" title="Last.fm Scrobbles">
+                                    <span style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600; color: #d51007;">Last.fm</span>
+                                    <span id="focus-lastfm-scrobble" style="font-family: 'Geist Mono', monospace; font-weight: 500;">0</span>
+                                </div>
+                                <div class="scrobble-tag" style="display: flex; align-items: center; gap: 6px; color: var(--text-tertiary); font-size: 13px;" title="Local Scrobbles">
+                                    <span style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600;">Local</span>
+                                    <span id="focus-local-scrobble" style="font-family: 'Geist Mono', monospace; font-weight: 500;">0</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- YouTube Embed Island -->
+                        <div class="youtube-island collapsible-panel" style="position: relative;">
+                            <button class="panel-toggle-btn" aria-label="Ocultar Reproductor" title="Ocultar Reproductor" style="position: absolute; top: -4px; left: -8px; z-index: 10;">
+                                <i class="ph ph-caret-up"></i>
+                            </button>
+                            <div class="double-bezel video-bezel" style="margin-top: 8px;">
+                                <div class="inner-core video-core">
+                                    <div class="video-placeholder" id="video-placeholder">
+                                        <i class="ph ph-play-circle"></i>
+                                        <span>Cargando reproductor de video...</span>
+                                    </div>
+                                    <div id="video-wrapper" class="video-wrapper hide">
+                                        <iframe id="youtube-player" src="" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="youtube-actions mt-3 flex justify-between items-center hide" id="youtube-actions-container">
+                                <span class="youtube-embed-warning text-xs" style="color: var(--text-secondary); font-size: 11px;"><i class="ph ph-info"></i> ¿No se reproduce?</span>
+                                <div class="flex gap-2 items-center">
+                                    <button id="youtube-alt-btn" type="button" class="btn btn-tiny btn-secondary" style="gap: 6px;" title="Busca otra versión de la canción en YouTube y la guarda en la hoja">
+                                        <i class="ph ph-arrows-clockwise" style="font-size: 14px;"></i> <span>Probar otro vídeo</span>
+                                    </button>
+                                    <button id="youtube-sync-playlist-btn" type="button" class="btn btn-tiny btn-secondary" style="gap: 6px;" title="Pone en tu playlist de YouTube Music el vídeo que se usa aquí, en lugar del que tenga ahora">
+                                        <i class="ph ph-playlist" style="font-size: 14px;"></i> <span>Actualizar playlist</span>
+                                    </button>
+                                    <a id="youtube-direct-link" href="#" target="_blank" class="btn btn-tiny btn-secondary" style="gap: 6px;">
+                                        <i class="ph ph-play-circle" style="color: #ff0000; font-size: 14px;"></i> Abrir en YouTube Music
+                                    </a>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Source Provider Tabs -->
+                        <div class="source-tabs-row">
+                            <button class="source-tab" data-source="Songsterr" title="Songsterr (Tablatura multi-pista)">
+                                <i class="ph ph-guitar"></i> Songsterr
+                            </button>
+                            <button class="source-tab active" data-source="Ultimate Guitar" title="Ultimate Guitar (Acordes comunitarios)">
+                                <i class="ph ph-music-notes"></i> Ultimate Guitar
+                            </button>
+                            <button id="pdf-harmony-btn" type="button" class="source-action" title="Importar la armonía desde un PDF de acordes (acordes sobre la letra)">
+                                <i class="ph ph-file-pdf"></i> <span>PDF</span>
+                            </button>
+                            <input type="file" id="pdf-harmony-input" accept="application/pdf,.pdf" class="hide">
+                        </div>
+
+                        <!-- Autocomplete / Autodetect Dynamic Controls -->
+                        <div class="autodetect-row flex gap-4 items-center">
+                            <button id="autodetect-btn" class="btn btn-secondary flex-grow" style="width: 100%; justify-content: center;">
+                                <i class="ph ph-magic-wand"></i>
+                                <span>Autocompletar Armonía</span>
+                            </button>
+
+                            <button id="generate-improvisation-btn" class="btn btn-primary flex-grow" style="justify-content: center; background: var(--theme-accent, #6366f1); color: #fff; border-color: var(--theme-accent, #6366f1);">
+                                <i class="ph ph-sparkle"></i>
+                                <span>Guía de Improvisación</span>
+                            </button>
+
+                        </div>
+                        <div class="song-cache-row flex justify-between items-center text-xs mt-1 hide" id="song-cache-container" style="background: rgba(255, 255, 255, 0.02); border: 1px solid var(--border-hairline-light); border-radius: 8px; padding: 6px 12px;">
+                            <span class="cache-time" id="song-cache-label" style="font-size: 11px; color: var(--text-secondary);">Último escaneo: Nunca</span>
+                            <button type="button" id="reset-song-cache-btn" class="btn-reset-cache" title="Limpiar caché de esta canción" style="font-size: 11px;">
+                                <i class="ph ph-arrows-clockwise"></i> Reiniciar Caché
+                            </button>
+                        </div>
+
+
+
+                        <!-- Interactive Chord Sheet & Player -->
+                        <div class="chord-player-section">
+                            <div class="section-title-row" style="display: flex; align-items: center; justify-content: space-between;">
+                                <h4 class="section-subtitle">Mapa de Progresión de Acordes</h4>
+                                <div style="display: flex; gap: 8px;">
+                                    <button id="expand-chords-btn" class="btn btn-secondary hide" style="gap: 6px; padding: 5px 12px; font-size: 11px; height: 28px; border-radius: 20px; letter-spacing: 0.03em;" title="Ver Mapa Completo">
+                                        <i class="ph ph-caret-up"></i>
+                                        <span class="toggle-label">Expandir</span>
+                                    </button>
+                                    <button id="lyrics-view-toggle" class="btn btn-secondary hide" style="gap: 6px; padding: 5px 12px; font-size: 11px; height: 28px; border-radius: 20px; letter-spacing: 0.03em;">
+                                        <i class="ph ph-text-aa"></i>
+                                        <span class="toggle-label">Ver con Letra</span>
+                                    </button>
+                                </div>
+                            </div>
+                            
+                            <div class="double-bezel chord-bezel">
+                                <div class="inner-core chord-core" id="focus-chords-container">
+                                    <!-- Dynamic structured chords rendered here -->
+                                </div>
+                            </div>
+                            
+                            <div class="progression-box mt-3">
+                                <label class="focus-field-label">Progresión Armónica (Cifrado Romano)</label>
+                                <div class="progression-text font-mono" id="focus-progression-text">-</div>
+                                <div id="focus-progression-chords" style="font-family: 'Geist Mono', monospace; font-size: 12px; color: var(--accent-color, #e74c6f); font-weight: 600; margin-top: 2px; letter-spacing: 0.02em;">-</div>
+                                <div id="focus-progression-diagrams" class="flex gap-3 items-end" style="margin-top: 8px; flex-wrap: wrap;"></div>
+                            </div>
+                        </div>
+
+                        <hr class="panel-divider">
+
+                        <!-- Edit / Update Colds Interface -->
+                        <div class="edit-section">
+                            <h4 class="section-subtitle">Mejorar Información Armónica</h4>
+                            
+                            <form id="edit-harmony-form" class="flex flex-col gap-4">
+                                <input type="hidden" id="edit-row">
+                                
+                                <div class="form-group">
+                                    <label for="edit-chord" class="form-label" style="display: flex; justify-content: space-between; align-items: center;">
+                                        <span>Estructura Completa de Acordes (Secciones y Acordes)</span>
+                                        <span style="font-size: 11px; font-weight: normal; color: var(--accent-color);"><i class="ph ph-sparkle"></i> Auto-analiza todo</span>
+                                    </label>
+                                    <textarea id="edit-chord" rows="5" class="input-field font-mono textarea-field" placeholder="Ej: <intro> Am F C G <verse> Am F C G <chorus> F G C Em"></textarea>
+                                    <div style="font-size: 11px; color: var(--text-tertiary); margin-top: 4px;">
+                                        Solo necesitas introducir los acordes aquí; al guardar (o escribir), se generará automáticamente la Tonalidad, Progresión, Complejidad, Estilo y el Mapa visual.
+                                    </div>
+                                </div>
+
+                                <div class="form-grid">
+                                    <div class="form-group">
+                                        <div class="flex items-center justify-between mb-1">
+                                            <label for="edit-tonality" class="form-label" style="margin-bottom: 0;">Tonalidad</label>
+                                            <div class="transpose-quick-controls flex gap-1 items-center">
+                                                <span style="font-size: 10px; color: var(--text-tertiary); margin-right: 2px;">Transponer:</span>
+                                                <button type="button" id="btn-transpose-down" class="btn-transpose" title="Bajar 1 semitono (-1)">-1</button>
+                                                <button type="button" id="btn-transpose-up" class="btn-transpose" title="Subir 1 semitono (+1)">+1</button>
+                                            </div>
+                                        </div>
+                                        <select id="edit-tonality" class="select-field font-mono">
+                                            <option value="">— Seleccionar Tonalidad —</option>
+                                            <optgroup label="Tonalidades Mayores">
+                                                <option value="C Major">C Major</option>
+                                                <option value="C# Major">C# Major</option>
+                                                <option value="Db Major">Db Major</option>
+                                                <option value="D Major">D Major</option>
+                                                <option value="Eb Major">Eb Major</option>
+                                                <option value="E Major">E Major</option>
+                                                <option value="F Major">F Major</option>
+                                                <option value="F# Major">F# Major</option>
+                                                <option value="Gb Major">Gb Major</option>
+                                                <option value="G Major">G Major</option>
+                                                <option value="Ab Major">Ab Major</option>
+                                                <option value="A Major">A Major</option>
+                                                <option value="Bb Major">Bb Major</option>
+                                                <option value="B Major">B Major</option>
+                                            </optgroup>
+                                            <optgroup label="Tonalidades Menores">
+                                                <option value="A Minor">A Minor</option>
+                                                <option value="A# Minor">A# Minor</option>
+                                                <option value="Bb Minor">Bb Minor</option>
+                                                <option value="B Minor">B Minor</option>
+                                                <option value="C Minor">C Minor</option>
+                                                <option value="C# Minor">C# Minor</option>
+                                                <option value="D Minor">D Minor</option>
+                                                <option value="D# Minor">D# Minor</option>
+                                                <option value="Eb Minor">Eb Minor</option>
+                                                <option value="E Minor">E Minor</option>
+                                                <option value="F Minor">F Minor</option>
+                                                <option value="F# Minor">F# Minor</option>
+                                                <option value="G Minor">G Minor</option>
+                                                <option value="G# Minor">G# Minor</option>
+                                                <option value="Ab Minor">Ab Minor</option>
+                                            </optgroup>
+                                        </select>
+                                    </div>
+                                    
+                                    <div class="form-group">
+                                        <label for="edit-complex" class="form-label">Complejidad</label>
+                                        <select id="edit-complex" class="select-field">
+                                            <option value="Baja">Baja</option>
+                                            <option value="Media">Media</option>
+                                            <option value="Media-Alta">Media-Alta</option>
+                                            <option value="Alta">Alta</option>
+                                        </select>
+                                    </div>
+                                </div>
+
+                                <div class="form-group">
+                                    <label for="edit-progression" class="form-label">Progresión Numérica (Cifrado Romano)</label>
+                                    <input type="text" id="edit-progression" class="input-field font-mono" placeholder="Ej: i - VI - III - VII">
+                                </div>
+
+                                <div class="form-group">
+                                    <label for="edit-style" class="form-label">Estilo Emocional</label>
+                                    <input type="text" id="edit-style" class="input-field" placeholder="Ej: Oscura, Alegre, Moderna, Melancólica">
+                                </div>
+
+                                <div class="form-actions flex gap-4 mt-3" style="width: 100%;">
+                                    <button type="submit" id="save-harmony-btn" class="btn btn-primary flex-grow" style="justify-content: center;">
+                                        <i class="ph ph-floppy-disk"></i>
+                                        <span>Guardar Cambios en Google Sheets</span>
+                                    </button>
+                                    <button type="button" id="delete-harmony-btn" class="btn btn-secondary btn-destructive flex-grow" style="justify-content: center; border-color: rgba(244, 63, 94, 0.3); color: #f43f5e; gap: 8px;">
+                                        <i class="ph ph-trash"></i>
+                                        <span>Borrar Armonía</span>
+                                    </button>
+                                </div>
+                            </form>
+                        </div>
+
+                    </div>
+                </div>
+            </div>
+
+            <!-- Empty Detail Panel (Placeholder when no song is selected) -->
+            <div class="right-panel" id="harmony-empty-panel">
+                <div class="double-bezel panel-bezel bento-harmony-empty">
+                    <div class="inner-core panel-core flex flex-col justify-center items-center">
+                        <div class="empty-icon"><i class="ph ph-pulse"></i></div>
+                        <h3 class="empty-title">Sin Selección</h3>
+                        <p class="empty-description">
+                            Selecciona una canción en el Explorador para abrir su mapa armónico, oír sus acordes y afinar sus detalles armónicos.
+                        </p>
+                    </div>
+                </div>
+            </div>
+
+        </main>
+
+    </div>
+
+    <!-- Web Audio Player HUD -->
+    <div id="audio-hud" class="audio-hud hide">
+        <i class="ph ph-waveform-slash audio-hud-icon animate-pulse"></i>
+        <span id="audio-hud-text">Cargando Sintetizador de Web Audio...</span>
+    </div>
+
+    <!-- Success Toast Notification -->
+    <div id="toast" class="toast hide">
+        <i class="ph ph-check-circle toast-icon"></i>
+        <span id="toast-message">Guardado con éxito</span>
+    </div>
+
+    <!-- Confirmation Modal for Suggestion -->
+    <div id="confirm-modal" class="modal-overlay hide">
+        <div class="double-bezel modal-bezel">
+            <div class="inner-core modal-core flex flex-col gap-6">
+                <div class="modal-header flex justify-between items-center">
+                    <h3 class="panel-title flex items-center gap-2"><i class="ph ph-sparkle" style="color: var(--accent-color);"></i> Coincidencia Encontrada</h3>
+                    <span class="badge badge-complexity" id="suggest-confidence">95% Confianza</span>
+                </div>
+                
+                <p class="empty-description" style="max-width: 100%; text-align: left; margin-bottom: 0;">
+                    Se ha encontrado una coincidencia en <strong id="suggest-source">Ultimate Guitar</strong>. Compara tu registro original con la propuesta antes de guardar:
+                </p>
+                
+                <div class="song-comparison-box" style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; background: rgba(255,255,255,0.02); border: 1px solid var(--border-hairline); border-radius: 8px; padding: 12px 16px; width: 100%;">
+                    <div class="comparison-item" style="text-align: left;">
+                        <span style="font-size: 10px; text-transform: uppercase; color: var(--text-secondary); font-weight: 700; display: block; margin-bottom: 4px; letter-spacing: 0.05em;">Tu Registro</span>
+                        <strong id="modal-registered-song" style="font-size: 13px; color: var(--text-primary); font-weight: 600;">...</strong>
+                    </div>
+                    <div class="comparison-item" style="text-align: left;">
+                        <span style="font-size: 10px; text-transform: uppercase; color: var(--accent-color); font-weight: 700; display: block; margin-bottom: 4px; letter-spacing: 0.05em;">Propuesta Encontrada</span>
+                        <strong id="modal-suggested-song" style="font-size: 13px; color: var(--text-primary); font-weight: 600;">...</strong>
+                    </div>
+                </div>
+                
+                <div id="candidates-selector-container" class="hide" style="margin-bottom: 4px;">
+                    <label style="font-size: 10px; text-transform: uppercase; color: var(--text-secondary); font-weight: 700; margin-bottom: 6px; display: block; letter-spacing: 0.05em;">Otras versiones detectadas:</label>
+                    <select id="candidates-select" class="form-input" style="width: 100%; font-size: 13px; padding: 8px;"></select>
+                </div>
+                <div id="songsterr-track-selector-container" class="hide" style="margin-top: 8px;">
+                    <label style="font-size: 11px; color: var(--text-secondary); display: flex; align-items: center; gap: 4px; margin-bottom: 4px;">
+                        <i class="ph ph-guitar"></i> Pista de Guitarra:
+                    </label>
+                    <select id="songsterr-track-select" class="form-input" style="font-size: 12px;"></select>
+                </div>
+                
+                <div class="suggestion-diff-grid">
+                    <div class="diff-col">
+                        <span class="diff-title">Acordes Actuales</span>
+                        <div class="diff-box font-mono" id="current-chords-preview">— Sin acordes —</div>
+                    </div>
+                    <div class="diff-col">
+                        <span class="diff-title" style="color: var(--accent-color);">Acordes Sugeridos</span>
+                        <div class="diff-box font-mono" id="suggested-chords-preview">— Cargando... —</div>
+                    </div>
+                </div>
+                
+                <div class="modal-footer flex gap-4 mt-2">
+                    <button id="modal-reject-btn" class="btn btn-secondary flex-grow">Descartar</button>
+                    <button id="modal-accept-btn" class="btn btn-primary flex-grow">Aplicar & Guardar</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Expanded Chords Modal -->
+    <div id="expand-chords-modal" class="modal-overlay hide" style="z-index: 9999;">
+        <div class="double-bezel modal-bezel" style="width: 95vw; max-width: 1400px; height: 90vh; display: flex; flex-direction: column;">
+            <div class="inner-core modal-core flex flex-col gap-4" style="height: 100%; overflow: hidden; padding: 24px;">
+                <div class="modal-header flex justify-between items-center" style="flex-shrink: 0;">
+                    <div style="display: flex; flex-direction: column; gap: 4px;">
+                        <!-- Visible YouTube player (own controls), so the song can be played along while practising chords -->
+                        <div id="expanded-video-slot" style="width: 320px; max-width: 100%; aspect-ratio: 16 / 9; border-radius: 12px; overflow: hidden; background: #000; border: 1px solid rgba(255,255,255,0.08); margin-bottom: 8px; display: flex; align-items: center; justify-content: center; color: var(--text-tertiary); font-size: 12px;">
+                            <iframe id="expanded-youtube-player" src="" title="Vídeo de la canción" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen style="width: 100%; height: 100%; border: 0; display: none;"></iframe>
+                            <span id="expanded-video-empty"><i class="ph ph-video-camera-slash"></i> Sin vídeo</span>
+                        </div>
+                        <h3 class="panel-title flex items-center gap-2"><i class="ph ph-caret-up"></i> Mapa de Progresión de Acordes</h3>
+                        <span id="expanded-song-title-label" style="color: var(--text-secondary); font-size: 14px;">-</span>
+                    </div>
+                    
+                    <div class="flex items-center gap-6">
+                        <div id="expanded-song-meta" class="flex flex-col gap-3 items-center justify-center" style="font-family: 'Geist Mono', monospace; background: rgba(0,0,0,0.2); padding: 12px 16px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.05);">
+                            <div class="flex gap-4 items-center justify-center">
+                                <div class="flex flex-col gap-1">
+                                    <span style="font-size: 10px; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 0.5px;">Tonalidad</span>
+                                    <span id="expanded-tonality" style="color: var(--accent-color, #e0e0e0); font-size: 13px;">—</span>
+                                </div>
+                                <div style="width: 1px; height: 24px; background: rgba(255,255,255,0.1);"></div>
+                                <div class="flex flex-col gap-1">
+                                    <span style="font-size: 10px; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 0.5px;">Progresión</span>
+                                    <span id="expanded-progression" style="color: var(--text-primary); font-size: 13px;">—</span>
+                                    <span id="expanded-progression-chords" style="color: var(--accent-color, #e74c6f); font-size: 12px; font-weight: 600; letter-spacing: 0.02em;">—</span>
+                                </div>
+                                <div style="width: 1px; height: 24px; background: rgba(255,255,255,0.1);"></div>
+                                <div class="flex flex-col gap-1">
+                                    <span style="font-size: 10px; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 0.5px;">Estilo Emocional</span>
+                                    <span id="expanded-style" style="color: var(--text-primary); font-size: 13px;">—</span>
+                                </div>
+                            </div>
+                            <div id="expanded-progression-diagrams" class="flex gap-3 items-end justify-center" style="min-height: 0;"></div>
+                        </div>
+
+                    </div>
+
+                    <button id="close-expand-modal-btn" class="btn-close" style="align-self: flex-start;">
+                        <i class="ph ph-x"></i>
+                        <span>Cerrar</span>
+                    </button>
+                </div>
+                
+                <div class="double-bezel chord-bezel" style="flex-grow: 1; overflow-y: auto; background: var(--bg-surface);">
+                    <div class="inner-core chord-core" id="expanded-chords-content" style="min-height: 100%; padding: 24px;">
+                        <!-- Chords content will be cloned/rendered here -->
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Expanded Improvisation Guide Modal -->
+    <!-- Floating, draggable chord diagrams (opened from the song title in the improvisation guide) -->
+    <div id="chord-float-popup" class="hide" style="position: fixed; top: 90px; left: 40px; width: 680px; height: 460px; min-width: 320px; min-height: 200px; max-width: 98vw; max-height: 96vh; resize: both; overflow: hidden; display: flex; flex-direction: column; z-index: 10000; background: #0d0e12; border: 1px solid rgba(255,255,255,0.12); border-radius: 12px; box-shadow: 0 18px 50px rgba(0,0,0,0.65);">
+        <div id="chord-float-handle" style="flex-shrink: 0; display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 8px 12px; cursor: move; user-select: none; border-bottom: 1px solid rgba(255,255,255,0.08); touch-action: none;">
+            <span id="chord-float-title" style="font-size: 12px; font-weight: 700; color: var(--text-secondary);"><i class="ph ph-arrows-out-cardinal"></i> Acordes</span>
+            <button id="chord-float-close" type="button" class="btn-close" style="padding: 2px 8px;"><i class="ph ph-x"></i></button>
+        </div>
+        <div style="flex: 1; min-height: 0; overflow: auto;">
+            <div id="chord-float-diagrams" class="flex gap-3 items-end" style="padding: 12px 14px;"></div>
+            <div id="chord-float-content" style="padding: 12px 14px 18px;"></div>
+        </div>
+    </div>
+
+    <div id="expand-improvisation-modal" class="modal-overlay hide" style="z-index: 9999;">
+        <div class="double-bezel modal-bezel" style="width: 98vw; max-width: 1800px; height: 97vh; display: flex; flex-direction: column;">
+            <div class="inner-core modal-core flex flex-col gap-4" style="height: 100%; overflow: hidden; padding: 24px;">
+                <div class="modal-header flex justify-between items-center" style="flex-shrink: 0;">
+                    <div style="display: flex; flex-direction: column; gap: 4px;">
+                        <h3 class="panel-title flex items-center gap-2" style="font-size: 18px; font-weight: 700;"><i class="ph ph-sparkle" style="color: var(--theme-accent, #6366f1);"></i> Guía de Improvisación & Escalas</h3>
+                        <span id="expanded-improv-song-title" style="color: var(--text-secondary); font-size: 14px;">-</span>
+                        <div id="improv-practice-panel" style="display: flex; flex-direction: column; gap: 10px; width: 440px; max-width: 100%; margin-top: 8px; padding: 12px 14px; background: rgba(0,0,0,0.25); border: 1px solid rgba(255,255,255,0.06); border-radius: 8px;"></div>
+                    </div>
+                    
+                    <!-- Hidden-video transport: drives the YouTube player without showing it -->
+                    <div style="display: flex; flex-direction: column; align-items: center; gap: 10px; flex-shrink: 0;">
+                    <div id="improv-yt-controls" class="flex gap-3 items-center justify-center">
+                        <button id="improv-yt-play" class="btn btn-primary" style="border-radius: 50%; width: 48px; height: 48px; padding: 0; display: flex; align-items: center; justify-content: center;" title="Reproducir canción">
+                            <i class="ph-fill ph-play" style="font-size: 20px;"></i>
+                        </button>
+                        <button id="improv-yt-pause" class="btn btn-secondary" style="border-radius: 50%; width: 48px; height: 48px; padding: 0; display: flex; align-items: center; justify-content: center;" title="Pausar canción">
+                            <i class="ph-fill ph-pause" style="font-size: 20px;"></i>
+                        </button>
+                        <button id="improv-yt-stop" class="btn btn-secondary" style="border-radius: 50%; width: 48px; height: 48px; padding: 0; display: flex; align-items: center; justify-content: center;" title="Parar y volver al principio">
+                            <i class="ph-fill ph-stop" style="font-size: 20px;"></i>
+                        </button>
+                    </div>
+                    <!-- Mixer: vertical sliders for song (YouTube) and scale-playback volume -->
+                    <div id="improv-mixer" style="display: flex; gap: 22px; justify-content: center;">
+                            <label title="Volumen canción" style="display: flex; flex-direction: column; align-items: center; gap: 4px; font-size: 10px; color: var(--text-tertiary);">
+                                <input type="range" id="improv-vol-song" min="0" max="100" step="1" style="writing-mode: vertical-lr; direction: rtl; width: 18px; height: 56px; margin: 0; accent-color: var(--theme-accent, #6366f1);">
+                                <i class="ph ph-music-notes" style="font-size: 15px; color: var(--text-secondary);"></i>Canción
+                            </label>
+                            <label title="Volumen escalas" style="display: flex; flex-direction: column; align-items: center; gap: 4px; font-size: 10px; color: var(--text-tertiary);">
+                                <input type="range" id="improv-vol-scale" min="0" max="100" step="1" style="writing-mode: vertical-lr; direction: rtl; width: 18px; height: 56px; margin: 0; accent-color: var(--theme-accent, #6366f1);">
+                                <i class="ph ph-guitar" style="font-size: 15px; color: var(--text-secondary);"></i>Escalas
+                            </label>
+                    </div>
+                    </div>
+
+                    <div class="flex items-center gap-6">
+                        <div class="flex flex-col gap-3 items-center justify-center" style="font-family: 'Geist Mono', monospace; background: rgba(0,0,0,0.25); padding: 12px 16px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.06);">
+                            <div class="flex gap-4 items-center justify-center">
+                                <div class="flex flex-col gap-1">
+                                    <span style="font-size: 10px; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 0.5px;">Tonalidad</span>
+                                    <span id="expanded-improv-tonality" style="color: var(--accent-color, #e0e0e0); font-size: 13px; font-weight: 600;">—</span>
+                                </div>
+                                <div style="width: 1px; height: 24px; background: rgba(255,255,255,0.1);"></div>
+                                <div class="flex flex-col gap-1">
+                                    <span style="font-size: 10px; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 0.5px;">Progresión</span>
+                                    <span id="expanded-improv-progression" style="color: var(--text-primary); font-size: 13px; font-weight: 600;">—</span>
+                                    <span id="expanded-improv-progression-chords" style="color: var(--accent-color, #e74c6f); font-size: 12px; font-weight: 600; letter-spacing: 0.02em;">—</span>
+                                </div>
+                                <div style="width: 1px; height: 24px; background: rgba(255,255,255,0.1);"></div>
+                                <div class="flex flex-col gap-1">
+                                    <span style="font-size: 10px; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 0.5px;">Estilo</span>
+                                    <span id="expanded-improv-style" style="color: var(--text-primary); font-size: 13px; font-weight: 600;">—</span>
+                                </div>
+                            </div>
+                            <div id="expanded-improv-progression-diagrams" class="flex gap-3 items-end justify-center" style="min-height: 0;"></div>
+                        </div>
+
+                        <button id="close-expand-improv-btn" class="btn-close" style="align-self: flex-start;">
+                            <i class="ph ph-x"></i>
+                            <span>Cerrar</span>
+                        </button>
+                    </div>
+                </div>
+                
+                <div class="double-bezel" style="flex-grow: 1; overflow-y: auto; background: var(--bg-surface); border-radius: 12px;">
+                    <div style="padding: 24px 32px; max-width: 1250px; margin: 0 auto; display: flex; flex-direction: column; gap: 20px;">
+                        
+                        <!-- Guitar Fretboard Interactive Visualizer -->
+                        <div id="improvisation-fretboard-container"></div>
+
+                        <hr style="border: 0; border-top: 1px solid var(--border-hairline-light); margin: 4px 0;">
+
+                        <!-- Markdown Text Guide & Modes Table -->
+                        <div class="inner-core markdown-body" id="expanded-improv-content" style="padding: 0; line-height: 1.7; font-size: 15px; color: var(--text-secondary);">
+                            <!-- Markdown content will be rendered here -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Premium Javascript Application Logic -->
+    <script src="fretboard.js?v=18"></script>
+    <script src="app.js?v=43"></script>
+</body>
+</html>

@@ -16,3 +16,5 @@ config/*
 .DS_Store
 *.log
 .env
+data/*.lock
+data/web.log

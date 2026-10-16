@@ -30,7 +30,6 @@ _ACTION_MAP = {
     "uo": "undo-old",
     "ex": "export",
     "cul": "cleanup-likes",
-    "sl": "sync-likes",
     "am": "apply-moves",
     "sp": "split",
     "rp": "review-pending",
@@ -360,8 +359,6 @@ def handle_playlist(args, manager) -> int:
         return _playlist_cleanup_inbox(manager)
     elif action == "cleanup-likes":
         return _playlist_cleanup_likes(args, manager)
-    elif action == "sync-likes":
-        return _playlist_sync_likes(args, manager)
     elif action == "apply-moves":
         return _playlist_apply_moves(args, manager)
     elif action == "split":
@@ -381,7 +378,7 @@ def handle_playlist(args, manager) -> int:
     else:
         print(
             "Usage: vibemus playlist "
-            "<list|sync|sync-likes|cleanup-inbox|cleanup-likes|apply-moves|split|review-pending>"
+            "<list|sync|cleanup-inbox|cleanup-likes|apply-moves|split|review-pending>"
         )
         print("Run 'vibemus playlist --help' for details.")
         return 1
@@ -396,10 +393,6 @@ def _playlist_cleanup_inbox(manager) -> int:
 
 def _playlist_cleanup_likes(args, manager) -> int:
     manager.cleanup_likes()
-    return 0
-def _playlist_sync_likes(args, manager) -> int:
-    skip_lastfm = getattr(args, "skip_lastfm", False)
-    manager.sync_likes(skip_lastfm=skip_lastfm)
     return 0
 def _playlist_apply_moves(args, manager) -> int:
     manager.apply_manual_moves(
@@ -1103,6 +1096,14 @@ def handle_genre(args, manager) -> int:
 
 
 # ── System ────────────────────────────────────────────────────────────────────
+
+
+def handle_web(args, manager) -> int:
+    """Start the web dashboard. It needs none of the CLI services, only the web app's own credentials."""
+    from ..web.server import run
+
+    run(port=args.port, debug=not args.no_reload)
+    return 0
 
 
 def handle_system(args, manager) -> int:

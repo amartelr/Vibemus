@@ -36,6 +36,7 @@ def build_parser() -> argparse.ArgumentParser:
     _register_genre(subparsers)
     _register_system(subparsers)
     _register_youtube(subparsers)
+    _register_web(subparsers)
 
     return parser
 
@@ -232,17 +233,6 @@ def _register_playlist(subparsers: argparse._SubParsersAction) -> None:
         "cleanup-likes",
         aliases=["cul"],
         help="Interactively unlike songs from 'LM' (or Liked Songs) if plays > threshold",
-    )
-
-    # playlist sync-likes
-    sl_p = pl_sub.add_parser(
-        "sync-likes",
-        aliases=["sl"],
-        help="Update the 'Liked' column in Songs sheet based on YouTube Music Likes (LM playlist)",
-    )
-    sl_p.add_argument(
-        "--skip-lastfm", action="store_true",
-        help="Skip updating Last.fm scrobble metadata for liked songs",
     )
 
     # playlist cleanup-library (DEPRECATED → vibemus library sync)
@@ -508,6 +498,23 @@ def _register_system(subparsers: argparse._SubParsersAction) -> None:
     )
 
 
+# ── Web app ───────────────────────────────────────────────────────────────────
+
+
+def _register_web(subparsers: argparse._SubParsersAction) -> None:
+    web_parser = subparsers.add_parser(
+        "web",
+        aliases=["serve"],
+        help="Start the web dashboard (chords, improvisation guides, fretboard)",
+        description="Start the Flask web app on http://localhost:<port>.",
+    )
+    web_parser.add_argument("--port", type=int, default=8000, help="Port to listen on (default: 8000)")
+    web_parser.add_argument(
+        "--no-reload", action="store_true",
+        help="Disable the auto-reloader (it restarts the server whenever a Python file changes)",
+    )
+
+
 # ── Legacy Aliases ────────────────────────────────────────────────────────────
 
 # Mapping: old flag -> (new command words, extra processing-key or None)
@@ -542,7 +549,7 @@ def rewrite_legacy_args(argv: list[str]) -> list[str]:
         return argv
 
     # If the first arg already looks like a subcommand, skip
-    if argv[0] in ("artist", "releases", "playlist", "library", "system", "recom", "rec", "genre"):
+    if argv[0] in ("artist", "releases", "playlist", "library", "system", "recom", "rec", "genre", "web", "serve"):
         return argv
 
     new_argv: list[str] = []

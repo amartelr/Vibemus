@@ -15,6 +15,7 @@ from src.cli.commands import (
     handle_recom,
     handle_genre,
     handle_youtube,
+    handle_web,
 )
 from src.cli.parser import build_parser, rewrite_legacy_args
 from src.config import Config
@@ -29,6 +30,7 @@ _HANDLERS = {
     "genre": handle_genre,
     "system": handle_system,
     "youtube": handle_youtube,
+    "web": handle_web,
 }
 
 
@@ -68,6 +70,7 @@ def main() -> None:
         "gen": "genre",
         "sys": "system",
         "yt": "youtube",
+        "serve": "web",
     }
     command = _CMD_MAP.get(command, command)
 
@@ -86,8 +89,9 @@ def main() -> None:
         # Initialize services
         is_system_auth = (command == "system" and getattr(args, "action", None) in ("auth",))
 
-        if is_system_auth:
-            # system auth only runs grab_cookies.js — no services needed.
+        if is_system_auth or command == "web":
+            # system auth only runs grab_cookies.js and the web app has its own credentials:
+            # no CLI services needed.
             # Skip initialization entirely so a fully expired token doesn't block the command.
             yt = None
             sheets = None
@@ -119,7 +123,12 @@ def main() -> None:
     # 4. Dispatch to handler
     handler = _HANDLERS.get(command)
     if handler:
-        exit_code = handler(args, manager)
+        if command == "web":
+            exit_code = handler(args, manager)
+        else:
+            from src.services.sheet_lock import cli_session
+            with cli_session(" ".join(filter(None, [command, getattr(args, "action", None)]))):
+                exit_code = handler(args, manager)
         sys.exit(exit_code or 0)
     else:
         parser.print_help()
