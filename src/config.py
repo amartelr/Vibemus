@@ -1,8 +1,12 @@
 import os
 import json
 
+from dotenv import load_dotenv
+
 class Config:
     BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    # One .env for both halves (CLI and web); config/keys.json still takes precedence for CLI keys
+    load_dotenv(os.path.join(BASE_DIR, '.env'))
     CONFIG_DIR = os.path.join(BASE_DIR, 'config')
     DATA_DIR = os.path.join(BASE_DIR, 'data')
     

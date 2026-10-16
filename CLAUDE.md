@@ -26,7 +26,7 @@ vibemus web                    # dashboard en http://localhost:8000 (--port N, -
 python3 scripts/recalculate_skills.py   # recalcula la dificultad de todas las canciones (--dry-run, --mode ug)
 vibemus playlist sync --name "#"        # sincroniza una playlist (CLI)
 ```
-Pruebas: `.venv/bin/python -m pytest scratch/test_sheets_live_overlay.py scratch/test_sheet_gateway.py scratch/test_sheet_lock.py`. No hay suite formal; la web se prueba a mano.
+Pruebas: `.venv/bin/python -m pytest scratch/test_sheets_live_overlay.py scratch/test_sheet_gateway.py scratch/test_sheet_lock.py scratch/test_web_endpoints.py`. No hay suite formal; la web se prueba a mano.
 
 ## ARCHIVOS CLAVE
 - `src/core/` - Lógica pura (manager)
@@ -36,7 +36,7 @@ Pruebas: `.venv/bin/python -m pytest scratch/test_sheets_live_overlay.py scratch
 - `web/fretboard.js` - teoría musical, mástil SVG, audio (Web Audio)
 - `src/services/sheet_gateway.py` - única puerta de la web a la hoja (cuenta de servicio, escrituras solo de las celdas que cambian, localiza por Video ID / artista+título)
 - `config/web/` - `client_secret.json`, `youtube_token.json` (OAuth solo para YouTube; la hoja usa `config/service_account.json` en CLI y web)
-- `.env` - `GEMINI_API_KEY` (el servidor solo lo lee al arrancar)
+- `.env` - único para CLI y web (`src/config.py` y `src/web/paths.py` lo cargan): `GEMINI_API_KEY` (el servidor solo lo lee al arrancar); `config/keys.json` sigue teniendo prioridad para las claves de la CLI
 - `main.py` - Entry point, `requirements.txt` - Deps
 
 ## DASHBOARD WEB: decisiones y trampas
