@@ -1971,7 +1971,7 @@ function refreshChordDiagrams() {
         const el = document.getElementById(id);
         if (el && el.children.length) renderProgressionDiagrams(el, song.progression, song.tonality);
     });
-    renderChordSheet(song.chord, state.selectedLyrics);
+    renderChordSheet((els.editChord && els.editChord.value.trim()) || song.chord, state.selectedLyrics);
     ['expanded-chord-sheet', 'chord-float-content'].forEach(id => {
         const el = document.getElementById(id);
         if (el && el.children.length) renderExpandedChordSheet(el, song);
@@ -2307,7 +2307,12 @@ function renderProgressionDiagrams(container, progressionStr, tonalityStr) {
 
     // The roman-numeral string keeps only a few chords and folds slash chords away, so the cards come from the
     // chord text itself (the same list as the practice panel); the string is the fallback when there is no text.
-    const chordText = (els.editChord && els.editChord.value.trim()) || (state.selectedSong && state.selectedSong.chord) || '';
+    const editorChord = els.editChord && els.editChord.value.trim();
+    const chordText = editorChord || (state.selectedSong && state.selectedSong.chord) || '';
+    // Chords and key must come from the same place: an unsaved transposition lives in the editor, so its key
+    // does too (otherwise Bbm9 is spelled A#m9 against the key saved in the sheet).
+    const editorTonality = els.editTonality && els.editTonality.value.trim();
+    if (editorChord && editorTonality) tonalityStr = editorTonality;
     const allChords = tonalityStr ? songUniqueChords(chordText, state.selectedLyrics, tonalityStr) : [];
 
     if ((!progressionStr && !allChords.length) || !tonalityStr) return;
@@ -3888,6 +3893,8 @@ function handleTonalityChange(newTonality) {
     }
     
     state.lastActiveTonality = newTonality;
+    // Redraw cards and sheet now with the new key (the analysis below returns early without chord text)
+    refreshChordDiagrams();
     triggerLiveHarmonicAnalysis();
 }
 
@@ -3911,6 +3918,7 @@ function handleQuickTranspose(deltaSemitones) {
     
     state.lastActiveTonality = newTonality;
     showToast(`Transpuesto ${deltaSemitones > 0 ? '+1' : '-1'} semitono a ${newTonality} 🎵`);
+    refreshChordDiagrams();
     triggerLiveHarmonicAnalysis();
 }
 
@@ -5109,7 +5117,8 @@ function openImprovisationModal(song) {
 // Chord/lyrics sheet shown by the "Expandir" modal and by the floating chord window
 function renderExpandedChordSheet(container, song) {
     container.innerHTML = '';
-    const chordString = song.chord || '';
+    // Same source as the key used to spell them (the editor holds unsaved transpositions)
+    const chordString = (els.editChord && els.editChord.value.trim()) || song.chord || '';
     const lyricsData = state.selectedLyrics;
 
     const hasLyrics = !!(lyricsData && lyricsData.length > 0);
