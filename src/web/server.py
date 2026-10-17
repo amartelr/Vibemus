@@ -59,6 +59,14 @@ def get_songs():
                 except Exception:
                     lyrics_parsed = None
             
+            voicings = {}
+            try:
+                loaded = _json.loads(get_val(row, "voicings") or "{}")
+                if isinstance(loaded, dict):
+                    voicings = {str(k): str(v) for k, v in loaded.items() if v}
+            except Exception:
+                pass
+
             liked_raw = str(get_val(row, "liked")).strip().lower()
             
             song = {
@@ -83,6 +91,7 @@ def get_songs():
                 "lastScanDate": get_val(row, "lastScanDate"),
                 "lyrics": lyrics_parsed,
                 "improvisation": get_val(row, "improvisation"),
+                "voicings": voicings,
                 "bpm": _parse_bpm(get_val(row, "bpm"))
             }
             songs.append(song)
@@ -212,6 +221,9 @@ def update_song():
                     "style", "improvisation", "bpm", "videoId", "lastScanDate"):
             if key in data:
                 fields[key] = data[key] or ""
+        if "voicings" in data:
+            per_song = data["voicings"]
+            fields["voicings"] = _json.dumps(per_song, ensure_ascii=False, sort_keys=True) if per_song else ""
         if "lyricsWithChords" in data:
             lyrics_val = data["lyricsWithChords"]
             fields["lyrics"] = _json.dumps(lyrics_val, ensure_ascii=False) if lyrics_val else ""

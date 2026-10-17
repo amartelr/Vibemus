@@ -625,6 +625,18 @@
                         <span id="expanded-song-title-label" style="color: var(--text-secondary); font-size: 14px;">-</span>
                     </div>
                     
+                    <!-- Mixer (same volumes as the improvisation guide): song (YouTube) and scale/chord playback -->
+                    <div id="expanded-mixer" style="display: flex; gap: 22px; justify-content: center; flex-shrink: 0;">
+                        <label title="Volumen canción" style="display: flex; flex-direction: column; align-items: center; gap: 4px; font-size: 10px; color: var(--text-tertiary);">
+                            <input type="range" id="expanded-vol-song" min="0" max="100" step="1" style="writing-mode: vertical-lr; direction: rtl; width: 18px; height: 56px; margin: 0; accent-color: var(--theme-accent, #6366f1);">
+                            <i class="ph ph-music-notes" style="font-size: 15px; color: var(--text-secondary);"></i>Canción
+                        </label>
+                        <label title="Volumen escalas y acordes" style="display: flex; flex-direction: column; align-items: center; gap: 4px; font-size: 10px; color: var(--text-tertiary);">
+                            <input type="range" id="expanded-vol-scale" min="0" max="100" step="1" style="writing-mode: vertical-lr; direction: rtl; width: 18px; height: 56px; margin: 0; accent-color: var(--theme-accent, #6366f1);">
+                            <i class="ph ph-guitar" style="font-size: 15px; color: var(--text-secondary);"></i>Escalas
+                        </label>
+                    </div>
+
                     <div class="flex items-center gap-6">
                         <div id="expanded-song-meta" class="flex flex-col gap-3 items-center justify-center" style="font-family: 'Geist Mono', monospace; background: rgba(0,0,0,0.2); padding: 12px 16px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.05);">
                             <div class="flex gap-4 items-center justify-center">
@@ -656,6 +668,12 @@
                 </div>
                 
                 <div class="double-bezel chord-bezel" style="flex-grow: 1; overflow-y: auto; background: var(--bg-surface);">
+                    <!-- Folds the fretboard practice panel away so the lyrics get the whole modal -->
+                    <div class="modal-header-toggle-anchor">
+                        <button id="toggle-expanded-header-btn" type="button" class="panel-toggle-btn modal-header-toggle" aria-label="Ocultar el mástil" title="Ocultar el mástil para ver la letra completa">
+                            <i class="ph ph-caret-up"></i>
+                        </button>
+                    </div>
                     <div class="inner-core chord-core" id="expanded-chords-content" style="min-height: 100%; padding: 24px;">
                         <!-- Chords content will be cloned/rendered here -->
                     </div>

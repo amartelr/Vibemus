@@ -20,7 +20,7 @@ MANAGED_SONG_COLUMNS = [
 # fill one in while it is empty (chord enrichment / harmonic analysis), but it
 # must never blank one out nor drop the column from the sheet.
 EXTERNAL_SONG_COLUMNS = [
-    "Chord", "Tonality", "Progression", "Complex", "Style", "LastScanned", "Lyrics"
+    "Chord", "Tonality", "Progression", "Complex", "Style", "LastScanned", "Lyrics", "Voicings"
 ]
 
 SONG_HEADER = MANAGED_SONG_COLUMNS + EXTERNAL_SONG_COLUMNS

@@ -2137,6 +2137,18 @@ body {
     background: rgba(255, 255, 255, 0.05);
 }
 
+/* Expanded chords modal: the toggle sticks to the top-left of the scrolling body and folds the fretboard practice
+   panel away so the lyrics get the whole modal */
+.modal-header-toggle-anchor {
+    position: sticky;
+    top: 0;
+    height: 0;
+    z-index: 100;
+}
+.modal-core.practice-panel-hidden #chord-practice-panel {
+    display: none;
+}
+
 .double-bezel.panel-collapsed .inner-core {
     padding-bottom: 24px;
 }

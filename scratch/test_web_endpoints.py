@@ -89,3 +89,27 @@ def test_generate_improvisation_validates_and_needs_key(client, monkeypatch):
 
 def test_sheet_status_idle(client):
     assert client.get("/api/sheet-status").get_json()["busy"] is False
+
+
+def test_update_voicings_creates_missing_column_and_writes_json(client):
+    r = client.post("/api/update", json={"row": 3, "artist": "Artist2", "title": "Song2", "lookupVideoId": "v2",
+                                         "voicings": {"F#": "2,-1,4,3,2,2"}})
+    assert r.status_code == 200
+    col = chr(65 + len(HEADER))  # first column after the current header
+    assert client.ws.written == [
+        {"range": f"{col}1", "values": [["Voicings"]]},
+        {"range": f"{col}3", "values": [['{"F#": "2,-1,4,3,2,2"}']]},
+    ]
+
+
+def test_update_empty_voicings_clears_cell(client):
+    client.post("/api/update", json={"row": 3, "artist": "Artist2", "title": "Song2", "lookupVideoId": "v2",
+                                     "voicings": {}})
+    assert client.ws.written[-1]["values"] == [[""]]
+
+
+def test_songs_expose_per_song_voicings(client):
+    client.ws.values[0] = HEADER + ["Voicings"]
+    client.ws.values[1] = client.ws.values[1] + ['{"F#": "2,-1,4,3,2,2"}']
+    songs = client.get("/api/songs").get_json()
+    assert songs[0]["voicings"] == {"F#": "2,-1,4,3,2,2"} and songs[1]["voicings"] == {}

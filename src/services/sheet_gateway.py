@@ -55,7 +55,12 @@ def get_column_mapping(headers):
     mapping["lastScanDate"] = find_idx("last scanned", "lastscan", "lastscanned", "lastscandate", "last_scan_date", "último escaneo", "ultimo escaneo", "fecha", "fecha de escaneo")
     mapping["lyrics"] = find_idx("lyrics", "letra", "letras")
     mapping["bpm"] = find_idx("bpm", "tempo")
+    mapping["voicings"] = find_idx("voicings", "posiciones", "posiciones de acordes")
     return mapping
+
+
+# Dashboard columns the web may create itself when a sheet lacks them: key -> header written in row 1
+CREATABLE_COLUMNS = {"voicings": "Voicings"}
 
 
 def _norm(text):
@@ -134,10 +139,28 @@ class SongSheet:
                 self.ws.batch_update(data[i:i + 500], value_input_option="RAW")
         return len(data)
 
+    def _ensure_columns(self, header, col_map, keys):
+        """Appends the CREATABLE_COLUMNS in `keys` missing from row 1 and returns the refreshed col_map."""
+        missing = [k for k in keys if k in CREATABLE_COLUMNS and col_map.get(k, -1) == -1]
+        if not missing:
+            return col_map
+        new_header = list(header)
+        while new_header and not str(new_header[-1]).strip():
+            new_header.pop()  # trailing blanks are grid padding, not columns
+        first_new = len(new_header)
+        new_header += [CREATABLE_COLUMNS[k] for k in missing]
+        cols = getattr(self.ws, "col_count", None)
+        if cols is not None and len(new_header) > cols:
+            self.ws.add_cols(len(new_header) - cols)
+        self.ws.batch_update([{"range": f"{col_idx_to_letter(first_new + i)}1", "values": [[CREATABLE_COLUMNS[k]]]}
+                              for i, k in enumerate(missing)], value_input_option="RAW")
+        return get_column_mapping(new_header)
+
     def update_song(self, fields, video_id=None, artist=None, title=None, row_hint=None):
         """Write {key: value} for one song. Raises SongNotFound; returns the row written."""
         with write_lock():
-            _, rows, col_map = self.read()
+            header, rows, col_map = self.read()
+            col_map = self._ensure_columns(header, col_map, fields.keys())
             row = self.locate(rows, col_map, video_id, artist, title, row_hint)
             if row is None:
                 raise SongNotFound(f"{artist} - {title}")

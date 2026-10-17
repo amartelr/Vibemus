@@ -1257,6 +1257,10 @@ function getChordVoicings(chordName) {
     const mine = (getCustomVoicings()[chordPrefKey(chordName)] || [])
         .filter(k => !generated.some(v => v.key === k))
         .map(k => buildVoicingFromFrets(k.split(',').map(Number), 'custom'));
+    const songShape = songVoicingPrefs(state.selectedSong)[chordPrefKey(chordName)];
+    if (songShape && ![...generated, ...mine].some(v => v.key === songShape)) {
+        mine.push(buildVoicingFromFrets(songShape.split(',').map(Number), 'custom'));
+    }
     return [...generated, ...mine].sort((a, b) => a.position - b.position || b.score - a.score);
 }
 
@@ -1417,6 +1421,31 @@ function setVoicingPref(chordName, voicingKey) {
     const prefs = getVoicingPrefs();
     if (voicingKey) prefs[chordPrefKey(chordName)] = voicingKey; else delete prefs[chordPrefKey(chordName)];
     try { localStorage.setItem(VOICING_PREF_KEY, JSON.stringify(prefs)); } catch (e) { console.warn('No se pudo guardar la preferencia'); }
+}
+
+// Per-song layer, stored in the song's Voicings column ({ chord: frets }); it beats the global default of the same chord
+function songVoicingPrefs(song) {
+    return canonKeys((song && song.voicings) || {});
+}
+// What is actually used to draw a chord of the open song: the song's choice, else the global one
+function getEffectivePrefs() {
+    return { ...getVoicingPrefs(), ...songVoicingPrefs(state.selectedSong) };
+}
+async function setSongVoicingPref(song, chordName, voicingKey) {
+    const prev = song.voicings || {};
+    const next = songVoicingPrefs(song);
+    if (voicingKey) next[chordPrefKey(chordName)] = voicingKey; else delete next[chordPrefKey(chordName)];
+    song.voicings = next;
+    try {
+        await updateGoogleSheetField(song, 'voicings', next);
+        try { localStorage.setItem('vibemus_songs_data', JSON.stringify(state.songs)); } catch (e) { console.warn('Cache quota exceeded'); }
+        return true;
+    } catch (err) {
+        song.voicings = prev;
+        console.error('Error saving per-song voicing:', err);
+        showToast('No se pudo guardar la posición en la hoja', true);
+        return false;
+    }
 }
 
 const VOICING_HOME_FRET = 5; // comfortable mid-neck zone the voicings gravitate to
@@ -1815,7 +1844,9 @@ function renderChordPracticePanel(container, song) {
 
     const draw = () => {
         const voicings = getChordVoicings(view.chord);
-        const prefKey = getVoicingPrefs()[chordPrefKey(view.chord)];
+        const globalPref = getVoicingPrefs()[chordPrefKey(view.chord)];
+        const songPref = songVoicingPrefs(song)[chordPrefKey(view.chord)];
+        const prefKey = songPref || globalPref;
         if (view.voicingKey !== '__all__' && !voicings.some(v => v.key === view.voicingKey)) {
             view.voicingKey = (voicings.find(v => v.key === prefKey) || getChordShape(view.chord) || voicings[0] || {}).key || null;
         }
@@ -1831,7 +1862,7 @@ function renderChordPracticePanel(container, song) {
                 ${typeBtns}
             </div>
             <div style="display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 10px;">
-                ${chords.map(c => `<button type="button" data-chord="${c}" style="${chip} background: ${c === view.chord ? accent : 'rgba(255,255,255,0.04)'}; color: ${c === view.chord ? '#fff' : 'var(--text-primary)'};">${c}${getVoicingPrefs()[chordPrefKey(c)] ? ' ★' : ''}</button>`).join('')}
+                ${chords.map(c => `<button type="button" data-chord="${c}" style="${chip} background: ${c === view.chord ? accent : 'rgba(255,255,255,0.04)'}; color: ${c === view.chord ? '#fff' : 'var(--text-primary)'};">${c}${getEffectivePrefs()[chordPrefKey(c)] ? ' ★' : ''}</button>`).join('')}
             </div>`;
 
         let body;
@@ -1864,7 +1895,7 @@ function renderChordPracticePanel(container, song) {
                     <button type="button" data-nav="-1" ${voicings.length ? '' : 'disabled'} style="${chip} background: rgba(255,255,255,0.04); color: var(--text-primary);" title="Posición anterior (←)"><i class="ph ph-caret-left"></i> Anterior</button>
                     <div style="min-width: 210px; text-align: center; font-size: 12px; line-height: 1.35;">
                         ${current
-                            ? `<div style="color: var(--text-primary); font-weight: 700;">Posición ${voicings.indexOf(current) + 1} de ${voicings.length} · ${current.position ? 'traste ' + current.position : 'primera posición'}${current.family === 'custom' ? ' · mía' : ''}${current.key === prefKey ? ' · ★' : ''}</div>
+                            ? `<div style="color: var(--text-primary); font-weight: 700;">Posición ${voicings.indexOf(current) + 1} de ${voicings.length} · ${current.position ? 'traste ' + current.position : 'primera posición'}${current.family === 'custom' ? ' · mía' : ''}${current.key === prefKey ? (songPref ? ' · ★ canción' : ' · ★') : ''}</div>
                                <div style="font-family: 'Geist Mono', monospace; color: var(--text-tertiary); font-size: 11px;">${fretsText(current.frets)}</div>`
                             : `<div style="color: var(--text-primary); font-weight: 700;">Todas las notas</div><div style="color: var(--text-tertiary); font-size: 11px;">${voicings.length} posiciones disponibles</div>`}
                     </div>
@@ -1875,7 +1906,8 @@ function renderChordPracticePanel(container, song) {
                         <button type="button" data-play style="${chip} margin-left: auto; background: rgba(255,255,255,0.04); color: var(--text-primary);"><i class="ph-fill ph-play"></i> Tocar</button>
                         <button type="button" data-arpeggio style="${chip} background: rgba(255,255,255,0.04); color: var(--text-primary);"><i class="ph ph-wave-sine"></i> Arpegio</button>
                         ${current.family === 'custom' ? `<button type="button" data-edit-existing style="${chip} background: rgba(255,255,255,0.04); color: var(--text-primary);"><i class="ph ph-pencil-simple"></i> Editar</button><button type="button" data-delete style="${chip} background: rgba(255,255,255,0.04); color: #ef4444;"><i class="ph ph-trash"></i></button>` : ''}
-                        <button type="button" data-default style="${chip} background: ${current.key === prefKey ? 'rgba(245,158,11,0.18)' : 'rgba(255,255,255,0.04)'}; color: ${current.key === prefKey ? '#f59e0b' : 'var(--text-primary)'}; border-color: ${current.key === prefKey ? 'rgba(245,158,11,0.5)' : 'var(--border-hairline-light)'};">${current.key === prefKey ? '★ Predeterminada (quitar)' : '☆ Usar como predeterminada'}</button>` : ''}
+                        <button type="button" data-song-default style="${chip} background: ${current.key === songPref ? 'rgba(245,158,11,0.18)' : 'rgba(255,255,255,0.04)'}; color: ${current.key === songPref ? '#f59e0b' : 'var(--text-primary)'}; border-color: ${current.key === songPref ? 'rgba(245,158,11,0.5)' : 'var(--border-hairline-light)'};" title="Se guarda en la hoja, solo para esta canción, y manda sobre la predeterminada de todas">${current.key === songPref ? '★ Esta canción (quitar)' : '☆ Solo esta canción'}</button>
+                        <button type="button" data-default style="${chip} background: ${current.key === globalPref ? 'rgba(245,158,11,0.18)' : 'rgba(255,255,255,0.04)'}; color: ${current.key === globalPref ? '#f59e0b' : 'var(--text-primary)'}; border-color: ${current.key === globalPref ? 'rgba(245,158,11,0.5)' : 'var(--border-hairline-light)'};" title="Se usa en todas las canciones que lleven este acorde (salvo las que tengan la suya)">${current.key === globalPref ? '★ Todas las canciones (quitar)' : '☆ Para todas las canciones'}</button>` : ''}
                 </div>
                 ${voicings.length ? chordFretboardSVG(view.chord, current, view.labelMode, spell) : '<div style="color: var(--text-tertiary); font-size: 12px;">No hay formas disponibles para este acorde.</div>'}
                 <div style="font-size: 11.5px; color: var(--text-tertiary); margin-top: 6px;">Haz clic en una nota para escucharla. La forma predeterminada es la que se dibuja en todos los diagramas de ${view.chord}.</div>`;
@@ -1943,10 +1975,18 @@ function renderChordPracticePanel(container, song) {
         });
         const def = $('[data-default]');
         if (def && current) def.addEventListener('click', () => {
-            setVoicingPref(view.chord, current.key === prefKey ? null : current.key);
+            setVoicingPref(view.chord, current.key === globalPref ? null : current.key);
             refreshChordDiagrams();
             draw();
-            showToast(current.key === prefKey ? `Forma de ${view.chord} restablecida` : `Forma predeterminada de ${view.chord} guardada ★`);
+            showToast(current.key === globalPref ? `Forma de ${view.chord} restablecida para todas las canciones` : `Forma predeterminada de ${view.chord} guardada para todas las canciones ★`);
+        });
+        const songDef = $('[data-song-default]');
+        if (songDef && current) songDef.addEventListener('click', async () => {
+            const clearing = current.key === songPref;
+            if (!await setSongVoicingPref(song, view.chord, clearing ? null : current.key)) return;
+            refreshChordDiagrams();
+            draw();
+            showToast(clearing ? `${view.chord}: vuelve a la forma general` : `Forma de ${view.chord} guardada solo para esta canción ★`);
         });
         container.querySelectorAll('.chord-practice-dot').forEach(g => g.addEventListener('click', () => {
             if (window.GuitarFretboard) window.GuitarFretboard.playNote(parseInt(g.dataset.midi, 10));
@@ -1987,7 +2027,7 @@ function getChordShape(chordName) {
 // (Viterbi over the candidates), with a light pull towards the home zone so it doesn't drift.
 // Returns an array aligned with chordNames (null where no shape exists).
 function voiceChordSequence(chordNames) {
-    const prefs = getVoicingPrefs();
+    const prefs = getEffectivePrefs();
     const cands = chordNames.map(name => {
         const list = getChordVoicings(name);
         const chosen = prefs[chordPrefKey(name)] && list.find(v => v.key === prefs[chordPrefKey(name)]);
@@ -3750,9 +3790,33 @@ function setupEventListeners() {
         if (Number.isFinite(v)) ytCommand(expandedPlayer, 'setVolume', [v]);
     });
 
+    // Mixer of this modal: same storage keys (and sliders) as the one in the improvisation guide
+    const loadVol = (key) => {
+        const v = parseInt(localStorage.getItem(key), 10);
+        return Number.isFinite(v) ? Math.min(100, Math.max(0, v)) : 100;
+    };
+    const mixerSliders = (songId, scaleId) => [document.getElementById(songId), document.getElementById(scaleId)];
+    const syncMixerSliders = () => {
+        ['expanded-vol-song', 'improv-vol-song'].forEach(id => { const el = document.getElementById(id); if (el) el.value = loadVol('vibemus_vol_song'); });
+        ['expanded-vol-scale', 'improv-vol-scale'].forEach(id => { const el = document.getElementById(id); if (el) el.value = loadVol('vibemus_vol_scale'); });
+    };
+    const [expVolSong, expVolScale] = mixerSliders('expanded-vol-song', 'expanded-vol-scale');
+    if (expVolSong) expVolSong.addEventListener('input', () => {
+        localStorage.setItem('vibemus_vol_song', expVolSong.value);
+        ytCommand(expandedPlayer, 'setVolume', [parseInt(expVolSong.value, 10)]);
+        syncMixerSliders();
+    });
+    if (expVolScale) expVolScale.addEventListener('input', () => {
+        localStorage.setItem('vibemus_vol_scale', expVolScale.value);
+        if (window.setScaleVolume) window.setScaleVolume(expVolScale.value / 100);
+        syncMixerSliders();
+    });
+    syncMixerSliders();
+
     if (expandChordsBtn && expandChordsModal) {
         expandChordsBtn.addEventListener('click', () => {
             if (!state.selectedSong) return;
+            syncMixerSliders();
             
             // Set song title in modal
             expandedSongTitleLabel.textContent = `${state.selectedSong.artist} - ${state.selectedSong.title}`;
@@ -5023,7 +5087,7 @@ function updateSongCardInDOM(song) {
 
 // ── GLOBAL PANEL COLLAPSE LOGIC ────────────────────────────────────────────────
 function initPanelCollapseLogic() {
-    document.querySelectorAll('.panel-toggle-btn').forEach(btn => {
+    document.querySelectorAll('.panel-toggle-btn:not(.modal-header-toggle)').forEach(btn => {
         btn.addEventListener('click', (e) => {
             const panel = e.target.closest('.double-bezel, .collapsible-panel');
             if (!panel) return;
@@ -5054,6 +5118,30 @@ if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', initPanelCollapseLogic);
 } else {
     initPanelCollapseLogic();
+}
+
+// Expanded chords modal: fold the fretboard practice panel away to read the whole lyrics
+function initPracticePanelToggle() {
+    const btn = document.getElementById('toggle-expanded-header-btn');
+    const core = document.querySelector('#expand-chords-modal .modal-core');
+    if (!btn || !core) return;
+    btn.addEventListener('click', () => {
+        const hidden = core.classList.toggle('practice-panel-hidden');
+        const icon = btn.querySelector('i');
+        if (icon) {
+            icon.classList.toggle('ph-caret-up', !hidden);
+            icon.classList.toggle('ph-caret-down', hidden);
+        }
+        const label = hidden ? 'Mostrar el mástil' : 'Ocultar el mástil para ver la letra completa';
+        btn.setAttribute('title', label);
+        btn.setAttribute('aria-label', label);
+    });
+}
+
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initPracticePanelToggle);
+} else {
+    initPracticePanelToggle();
 }
 
 
