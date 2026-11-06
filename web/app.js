@@ -22,7 +22,9 @@ const state = {
         progression: 'all',
         playlist: 'all',
         justFound: false,
-        likedOnly: false
+        likedOnly: false,
+        lyricsOnly: false,
+        noLyricsOnly: false
     },
     sortRule: 'title-asc', // 'title-asc' or 'scrobble-desc'
     selectedSource: 'Ultimate Guitar', // selected search source
@@ -99,6 +101,10 @@ const els = {
     statTotalArtists: document.getElementById('stat-total-artists'),
     statHarmonyPct: document.getElementById('stat-harmony-pct'),
     statLikedSongs: document.getElementById('stat-liked-songs'),
+    statLyricsSongs: document.getElementById('stat-lyrics-songs'),
+    filterLyricsCard: document.getElementById('filter-lyrics-card'),
+    statNoLyricsSongs: document.getElementById('stat-no-lyrics-songs'),
+    filterNoLyricsCard: document.getElementById('filter-no-lyrics-card'),
     filterLikedCard: document.getElementById('filter-liked-card'),
     
     // Filters
@@ -148,6 +154,8 @@ const els = {
     editTonality: document.getElementById('edit-tonality'),
     btnTransposeDown: document.getElementById('btn-transpose-down'),
     btnTransposeUp: document.getElementById('btn-transpose-up'),
+    btnDetectKey: document.getElementById('btn-detect-key'),
+    keySuggestion: document.getElementById('key-suggestion'),
     editComplex: document.getElementById('edit-complex'),
     editStyle: document.getElementById('edit-style'),
     editProgression: document.getElementById('edit-progression'),
@@ -339,6 +347,11 @@ function setSyncingStatus(isSyncing) {
     }
 }
 
+function songHasLyrics(song) {
+    const l = song.lyrics;
+    return Array.isArray(l) ? l.length > 0 : !!(l && String(l).trim());
+}
+
 // Process data to extract stats, genres, playlists and styles
 function processSongsMetadata() {
     state.availableStyles.clear();
@@ -348,11 +361,13 @@ function processSongsMetadata() {
     
     let withChords = 0;
     let likedCount = 0;
+    let lyricsCount = 0;
     const artists = new Set();
     
     state.songs.forEach(song => {
         if (song.chord && song.chord.trim() !== '') withChords++;
         if (song.liked) likedCount++;
+        if (songHasLyrics(song)) lyricsCount++;
         if (song.artist) artists.add(song.artist);
         
         // Extract style (normalize to lowercase first-letter capitalized, splitting by commas)
@@ -382,6 +397,8 @@ function processSongsMetadata() {
     els.statTotalSongs.textContent = state.songs.length;
     els.statTotalArtists.textContent = artists.size;
     els.statLikedSongs.textContent = likedCount;
+    if (els.statLyricsSongs) els.statLyricsSongs.textContent = lyricsCount;
+    if (els.statNoLyricsSongs) els.statNoLyricsSongs.textContent = state.songs.length - lyricsCount;
     
     const harmonyPct = state.songs.length > 0 ? Math.round((withChords / state.songs.length) * 100) : 0;
     els.statHarmonyPct.textContent = `${harmonyPct}%`;
@@ -719,8 +736,9 @@ function applyFiltersAndRender() {
             (filters.scanStatus === 'never' && (!hasScanDate || isSelected));
         // 8. Liked Status filter
         const matchesLiked = !filters.likedOnly || song.liked;
+        const matchesLyrics = (!filters.lyricsOnly || songHasLyrics(song)) && (!filters.noLyricsOnly || !songHasLyrics(song));
             
-        return matchesSearch && matchesTonality && matchesComplexity && matchesStyle && matchesPlaylist && matchesProgressionLength && matchesProgression && matchesHarmonyStatus && matchesScanStatus && matchesLiked;
+        return matchesSearch && matchesTonality && matchesComplexity && matchesStyle && matchesPlaylist && matchesProgressionLength && matchesProgression && matchesHarmonyStatus && matchesScanStatus && matchesLiked && matchesLyrics;
     });
     
     // Sort songs
@@ -997,7 +1015,6 @@ function selectSong(song, shouldRedrawList = true) {
     els.focusSongAlbumYear.textContent = albumDetails || 'Álbum Desconocido';
     els.focusProgressionText.textContent = song.progression || '— Sin Progresión Numérica';
     els.focusProgressionChords.textContent = romanProgressionToChords(song.progression, song.tonality) || '';
-    renderProgressionDiagrams(document.getElementById('focus-progression-diagrams'), song.progression, song.tonality);
     
     // Set Scrobbles
     els.focusLastfmScrobble.textContent = parseInt(song.lastfmScrobble || 0).toLocaleString();
@@ -1034,6 +1051,9 @@ function selectSong(song, shouldRedrawList = true) {
     // Set Accent Vibe Palette (Dynamic Visual Response)
     shiftVibeAccentColor(song.emotional || song.style);
     
+    // The chips read the key from the form's select, so it has to hold this song's key before they render
+    setSelectTonalityValue(song.tonality || '');
+
     // Render Chords Structure (with persisted lyrics if available)
     renderChordSheet(song.chord, state.selectedLyrics);
     renderImprovisationGuide(song);
@@ -1044,8 +1064,8 @@ function selectSong(song, shouldRedrawList = true) {
     
     // Fill Edit Form Values
     els.editRow.value = song.row;
-    setSelectTonalityValue(song.tonality || '');
     state.lastActiveTonality = els.editTonality.value || song.tonality || '';
+    hideKeySuggestion();
     els.editComplex.value = song.skill || song.complex || 'Baja';
     els.editStyle.value = song.emotional || song.style || '';
     els.editProgression.value = song.progression || '';
@@ -1254,7 +1274,7 @@ function getChordVoicings(chordName) {
         voicingCache.set(key, found.length ? found : getTemplateVoicings(key));
     }
     const generated = voicingCache.get(key);
-    const mine = (getCustomVoicings()[chordPrefKey(chordName)] || [])
+    const mine = [...new Set([...(getCustomVoicings()[chordPrefKey(chordName)] || []), ...(songCustomVoicings(state.selectedSong)[chordPrefKey(chordName)] || [])])]
         .filter(k => !generated.some(v => v.key === k))
         .map(k => buildVoicingFromFrets(k.split(',').map(Number), 'custom'));
     const songShape = songVoicingPrefs(state.selectedSong)[chordPrefKey(chordName)];
@@ -1423,18 +1443,28 @@ function setVoicingPref(chordName, voicingKey) {
     try { localStorage.setItem(VOICING_PREF_KEY, JSON.stringify(prefs)); } catch (e) { console.warn('No se pudo guardar la preferencia'); }
 }
 
-// Per-song layer, stored in the song's Voicings column ({ chord: frets }); it beats the global default of the same chord
+// Per-song layer, stored in the song's Voicings column as JSON: { chord: frets } is the chord's default grip,
+// { "custom:chord": "frets|frets" } lists every grip the user drew for it (so they follow the song, not the browser).
+const SONG_CUSTOM_PREFIX = 'custom:';
 function songVoicingPrefs(song) {
-    return canonKeys((song && song.voicings) || {});
+    const raw = (song && song.voicings) || {};
+    return canonKeys(Object.fromEntries(Object.entries(raw).filter(([k]) => !k.startsWith(SONG_CUSTOM_PREFIX))));
+}
+function songCustomVoicings(song) {
+    const out = {};
+    Object.entries((song && song.voicings) || {}).forEach(([k, v]) => {
+        if (k.startsWith(SONG_CUSTOM_PREFIX)) out[canonChordKey(k.slice(SONG_CUSTOM_PREFIX.length))] = String(v).split('|').filter(Boolean);
+    });
+    return out;
 }
 // What is actually used to draw a chord of the open song: the song's choice, else the global one
 function getEffectivePrefs() {
     return { ...getVoicingPrefs(), ...songVoicingPrefs(state.selectedSong) };
 }
-async function setSongVoicingPref(song, chordName, voicingKey) {
+async function writeSongVoicings(song, prefs, customs) {
     const prev = song.voicings || {};
-    const next = songVoicingPrefs(song);
-    if (voicingKey) next[chordPrefKey(chordName)] = voicingKey; else delete next[chordPrefKey(chordName)];
+    const next = { ...prefs };
+    Object.entries(customs).forEach(([k, list]) => { if (list.length) next[SONG_CUSTOM_PREFIX + k] = list.join('|'); });
     song.voicings = next;
     try {
         await updateGoogleSheetField(song, 'voicings', next);
@@ -1442,10 +1472,41 @@ async function setSongVoicingPref(song, chordName, voicingKey) {
         return true;
     } catch (err) {
         song.voicings = prev;
-        console.error('Error saving per-song voicing:', err);
+        console.error('Error saving per-song voicings:', err);
         showToast('No se pudo guardar la posición en la hoja', true);
         return false;
     }
+}
+async function setSongVoicingPref(song, chordName, voicingKey) {
+    const next = songVoicingPrefs(song);
+    if (voicingKey) next[chordPrefKey(chordName)] = voicingKey; else delete next[chordPrefKey(chordName)];
+    return writeSongVoicings(song, next, songCustomVoicings(song));
+}
+async function addSongCustomVoicing(song, chordName, key) {
+    const customs = songCustomVoicings(song);
+    const k = chordPrefKey(chordName);
+    if ((customs[k] || []).includes(key)) return true;
+    customs[k] = [...(customs[k] || []), key];
+    return writeSongVoicings(song, songVoicingPrefs(song), customs);
+}
+async function removeSongCustomVoicing(song, chordName, key) {
+    const customs = songCustomVoicings(song);
+    const k = chordPrefKey(chordName);
+    if (!(customs[k] || []).includes(key)) return true;
+    customs[k] = customs[k].filter(x => x !== key);
+    return writeSongVoicings(song, songVoicingPrefs(song), customs);
+}
+// Grips drawn before they followed the song only exist in this browser: copy those of the song's chords to the sheet
+async function syncLocalCustomsToSong(song, chords) {
+    const local = getCustomVoicings();
+    const customs = songCustomVoicings(song);
+    let changed = false;
+    chords.forEach(c => {
+        const k = chordPrefKey(c);
+        const add = (local[k] || []).filter(x => !(customs[k] || []).includes(x));
+        if (add.length) { customs[k] = [...(customs[k] || []), ...add]; changed = true; }
+    });
+    if (changed) await writeSongVoicings(song, songVoicingPrefs(song), customs);
 }
 
 const VOICING_HOME_FRET = 5; // comfortable mid-neck zone the voicings gravitate to
@@ -1493,6 +1554,9 @@ function getChordTones(chordName) {
     if (!m || NOTE_PITCH_MAP[m[1]] === undefined) return null;
     const rootPc = NOTE_PITCH_MAP[m[1]];
     const intervals = new Set(CHORD_QUALITY_TONES[chordQualityFromSuffix(m[2])] || CHORD_QUALITY_TONES.maj);
+    // sus replaces the third even after a 7th/maj7 (Gmaj7sus4: 1 4 5 7), which the quality lookup alone drops
+    const sus = m[2].match(/sus(2|4)?/);
+    if (sus) { intervals.delete(3); intervals.delete(4); intervals.add(sus[1] === '2' ? 2 : 5); }
     (m[2].match(/add(\d+)/g) || []).forEach(a => {
         const n = parseInt(a.slice(3), 10);
         intervals.add({ 2: 2, 9: 2, 4: 5, 11: 5, 6: 9, 13: 9 }[n] ?? 2);
@@ -1549,7 +1613,30 @@ function identifyChord(frets, spell) {
             best = { score, name: spell(root) + suffix + (root !== bassPc ? '/' + spell(bassPc) : '') };
         }
     }));
+    if (!best) best = identifyAddChord(pcs, bassPc, spell);
     return best ? { name: best.name, notes: pcs.map(pc => spell(pc)) } : null;
+}
+
+// Fallback for grips no listed quality covers: triad (or sus) on a root, optional 7th, plus add9/add11/add6,
+// e.g. Bmadd9add11 or Gmaj7add11/C. Roots that give a third win over sus readings; the bass wins ties.
+function identifyAddChord(pcs, bassPc, spell) {
+    const roots = [bassPc, ...pcs.filter(pc => pc !== bassPc)];
+    const adds = { 2: 'add9', 5: 'add11', 9: 'add6' };
+    let best = null;
+    roots.forEach((root, order) => {
+        const rel = pcs.map(pc => (pc - root + 12) % 12);
+        const minor = rel.includes(3), major = rel.includes(4);
+        if (minor && major) return;
+        const base = minor ? 'm' : major ? '' : rel.includes(5) ? 'sus4' : rel.includes(2) ? 'sus2' : null;
+        if (base === null) return;
+        const seventh = rel.includes(11) ? (minor ? 'mmaj7' : 'maj7') : rel.includes(10) ? (minor ? 'm7' : '7') : '';
+        const rest = rel.filter(i => ![0, 3, 4, 7, 10, 11].includes(i) && !(base === 'sus4' && i === 5) && !(base === 'sus2' && i === 2));
+        if (!rest.every(i => adds[i])) return;
+        const suffix = (seventh || base) + (seventh && base.startsWith('sus') ? base : '') + rest.sort((x, y) => x - y).map(i => adds[i]).join('');
+        const score = (minor || major ? 10 : 0) - order;
+        if (!best || score > best.score) best = { score, name: spell(root) + suffix + (root !== bassPc ? '/' + spell(bassPc) : '') };
+    });
+    return best;
 }
 
 // Fretboard with every position of the chord's notes; the chosen voicing is outlined, the rest dimmed.
@@ -1668,6 +1755,14 @@ function mapLyricsToText(lyrics, text) {
     return { tokens, slotChords, tokOf: i => map.get(i) };
 }
 
+// Harmony the saved improvisation guide was written for. The chord editors mutate song.chord before saving,
+// so they remember the original here and handleFormSubmission compares against it.
+const guideHarmonyBaseline = new WeakMap();
+const harmonySnapshot = song => ({ chord: song.chord, tonality: song.tonality, progression: song.progression });
+function rememberGuideHarmony(song) {
+    if (!guideHarmonyBaseline.has(song)) guideHarmonyBaseline.set(song, harmonySnapshot(song));
+}
+
 // Change (newName) or delete (newName === null) one chord of the lyrics view, mirror it in the chord text that
 // feeds the diagrams view, then re-analyse and save. ref = { si, li, ci } position inside state.selectedLyrics.
 async function editLyricsChord(ref, newName) {
@@ -1702,6 +1797,7 @@ async function editLyricsChord(ref, newName) {
             }))
             .filter(l => l.lyric || l.chords.length)
     }));
+    rememberGuideHarmony(song);
     if (els.editChord) els.editChord.value = newText;
     song.chord = newText;
     redrawChordViews(); // instant feedback: analysing and saving to the sheet take a few seconds
@@ -1753,6 +1849,7 @@ async function addLyricsChord(si, li, wordIdx, at, name) {
             return { ...l, chords };
         })
     }));
+    rememberGuideHarmony(song);
     if (els.editChord) els.editChord.value = newText;
     song.chord = newText;
     redrawChordViews();
@@ -1790,22 +1887,34 @@ function promptChordInline(anchor, onSubmit, onCancel) {
     input.addEventListener('click', ev => ev.stopPropagation());
 }
 
-// Swap a chord name for another everywhere in the open song (chord text and lyrics), then re-analyse and save
+// Swap a chord name for another everywhere in the open song (chord text and lyrics), then re-analyse and save.
+// With newName === null the chord is removed from the whole song instead.
 async function renameChordInSong(oldName, newName) {
     const song = state.selectedSong;
     if (!song) return 0;
     const same = c => canonChordKey(c) === canonChordKey(oldName);
     let count = 0;
     const text = (els.editChord ? els.editChord.value : song.chord) || '';
-    const newText = text.replace(/(<[^>]+>)|(\S+)/g, (m, tag, tok) => (tag || !same(tok) ? m : (count++, newName)));
+    const newText = newName === null
+        ? text.replace(/(<[^>]+>)|[ \t]*(\S+)/g, (m, tag, tok) => (tag || !same(tok) ? m : (count++, '')))
+        : text.replace(/(<[^>]+>)|(\S+)/g, (m, tag, tok) => (tag || !same(tok) ? m : (count++, newName)));
     if (Array.isArray(state.selectedLyrics)) {
         state.selectedLyrics = state.selectedLyrics.map(sec => ({
             ...sec,
-            lines: sec.lines.map(l => ({ ...l, chords: l.chords.map(c => (same(c.chord) ? { ...c, chord: newName } : c)) }))
+            lines: sec.lines
+                .map(l => ({
+                    ...l,
+                    chords: newName === null
+                        ? l.chords.filter(c => !same(c.chord))
+                        : l.chords.map(c => (same(c.chord) ? { ...c, chord: newName } : c))
+                }))
+                .filter(l => l.lyric || l.chords.length)
         }));
     }
+    rememberGuideHarmony(song);
     if (els.editChord) els.editChord.value = newText;
     song.chord = newText;
+    redrawChordViews();
     await handleFormSubmission({ preventDefault() {} });
     return count;
 }
@@ -1816,15 +1925,17 @@ function renderChordPracticePanel(container, song) {
     const chords = songUniqueChords(song.chord, state.selectedLyrics, song.tonality);
     if (!chords.length) { container.innerHTML = ''; return; }
 
+    syncLocalCustomsToSong(song, chords);
     const songKey = parseTonalityString(song.tonality || 'C Major');
     const spell = pc => spellPitchForKey(pc, songKey.root, songKey.mode);
-    const view = { chord: chords[0], voicingKey: null, labelMode: 'degrees', edit: null };
+    const view = { chord: chords[0], voicingKey: null, labelMode: 'degrees', edit: null, tour: null, tourSecs: 3 };
     const chip = 'padding: 4px 10px; font-size: 12px; border-radius: 8px; border: 1px solid var(--border-hairline-light); cursor: pointer; font-weight: 600; font-family: inherit;';
     const accent = 'var(--theme-accent, #6366f1)';
     const fretsText = f => f.map(x => (x < 0 ? 'x' : x)).join(' ');
 
     // Previous / next grip along the neck (wraps around); from "Todas" it starts at either end
     const step = (dir) => {
+        stopTour();
         const list = getChordVoicings(view.chord);
         if (!list.length) return;
         const idx = list.findIndex(v => v.key === view.voicingKey);
@@ -1834,6 +1945,25 @@ function renderChordPracticePanel(container, song) {
         container.focus({ preventScroll: true }); // keep ← → working after the buttons are redrawn
         strumVoicing(list[next]);
     };
+
+    // Tour: walks the song's chords in order, showing (and strumming) each one's current position for tourSecs
+    const stopTour = () => {
+        if (!view.tour) return;
+        clearTimeout(view.tour.timer);
+        view.tour = null;
+        if (container.isConnected) draw();
+    };
+    const tourStep = (i) => {
+        if (!view.tour || !container.isConnected) return stopTour();
+        view.chord = chords[i];
+        view.voicingKey = null;
+        view.edit = null;
+        draw();
+        const v = getChordVoicings(view.chord).find(x => x.key === view.voicingKey);
+        if (v) strumVoicing(v);
+        view.tour.timer = setTimeout(() => (i + 1 < chords.length ? tourStep(i + 1) : stopTour()), view.tourSecs * 1000);
+    };
+    const startTour = () => { view.tour = { timer: null }; tourStep(0); };
     container.tabIndex = 0;
     container.style.outline = 'none';
     container.onkeydown = (e) => {
@@ -1848,7 +1978,9 @@ function renderChordPracticePanel(container, song) {
         const songPref = songVoicingPrefs(song)[chordPrefKey(view.chord)];
         const prefKey = songPref || globalPref;
         if (view.voicingKey !== '__all__' && !voicings.some(v => v.key === view.voicingKey)) {
-            view.voicingKey = (voicings.find(v => v.key === prefKey) || getChordShape(view.chord) || voicings[0] || {}).key || null;
+            // Same shape the progression card shows: the chords voiced together, not the chord alone
+            const seqShape = voiceChordSequence(chords)[chords.indexOf(view.chord)];
+            view.voicingKey = (voicings.find(v => v.key === prefKey) || seqShape || getChordShape(view.chord) || voicings[0] || {}).key || null;
         }
         const current = voicings.find(v => v.key === view.voicingKey) || null;
         const typeBtns = `
@@ -1863,6 +1995,14 @@ function renderChordPracticePanel(container, song) {
             </div>
             <div style="display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 10px;">
                 ${chords.map(c => `<button type="button" data-chord="${c}" style="${chip} background: ${c === view.chord ? accent : 'rgba(255,255,255,0.04)'}; color: ${c === view.chord ? '#fff' : 'var(--text-primary)'};">${c}${getEffectivePrefs()[chordPrefKey(c)] ? ' ★' : ''}</button>`).join('')}
+            </div>
+            <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 10px; font-size: 12px; color: var(--text-secondary);">
+                <button type="button" data-tour style="${chip} background: ${view.tour ? 'rgba(239,68,68,0.18)' : accent}; color: ${view.tour ? '#ef4444' : '#fff'};"><i class="ph-fill ph-${view.tour ? 'stop' : 'play'}"></i> ${view.tour ? 'Parar' : 'Recorrer la canción'}</button>
+                <label style="display: inline-flex; align-items: center; gap: 6px;">cada
+                    <select data-tour-secs style="background: rgba(255,255,255,0.04); color: var(--text-primary); border: 1px solid var(--border-hairline-light); border-radius: 8px; padding: 3px 6px; font-family: inherit; font-size: 12px;">
+                        ${[1, 2, 3, 4, 6, 8].map(n => `<option value="${n}" ${n === view.tourSecs ? 'selected' : ''}>${n} s</option>`).join('')}
+                    </select> por acorde
+                </label>
             </div>`;
 
         let body;
@@ -1910,12 +2050,14 @@ function renderChordPracticePanel(container, song) {
                         <button type="button" data-default style="${chip} background: ${current.key === globalPref ? 'rgba(245,158,11,0.18)' : 'rgba(255,255,255,0.04)'}; color: ${current.key === globalPref ? '#f59e0b' : 'var(--text-primary)'}; border-color: ${current.key === globalPref ? 'rgba(245,158,11,0.5)' : 'var(--border-hairline-light)'};" title="Se usa en todas las canciones que lleven este acorde (salvo las que tengan la suya)">${current.key === globalPref ? '★ Todas las canciones (quitar)' : '☆ Para todas las canciones'}</button>` : ''}
                 </div>
                 ${voicings.length ? chordFretboardSVG(view.chord, current, view.labelMode, spell) : '<div style="color: var(--text-tertiary); font-size: 12px;">No hay formas disponibles para este acorde.</div>'}
-                <div style="font-size: 11.5px; color: var(--text-tertiary); margin-top: 6px;">Haz clic en una nota para escucharla. La forma predeterminada es la que se dibuja en todos los diagramas de ${view.chord}.</div>`;
+                <div style="font-size: 11.5px; color: var(--text-tertiary); margin-top: 6px;">Haz clic en una nota para escucharla. ${prefKey ? `La forma ★ es la que se dibuja en los diagramas de ${view.chord}${songPref ? ' de esta canción' : ''}.` : `${view.chord} no tiene forma predeterminada: los diagramas usan la más cercana a los demás acordes.`}</div>`;
         }
         container.innerHTML = `<div style="background: rgba(0,0,0,0.25); border: 1px solid rgba(255,255,255,0.06); border-radius: 10px; padding: 14px 16px; margin-bottom: 22px;">${header}${body}</div>`;
 
         const $ = sel => container.querySelector(sel);
-        container.querySelectorAll('[data-chord]').forEach(b => b.addEventListener('click', () => { view.chord = b.dataset.chord; view.voicingKey = null; view.edit = null; draw(); }));
+        $('[data-tour]').addEventListener('click', () => (view.tour ? stopTour() : startTour()));
+        $('[data-tour-secs]').addEventListener('change', e => { view.tourSecs = parseInt(e.target.value, 10); });
+        container.querySelectorAll('[data-chord]').forEach(b => b.addEventListener('click', () => { stopTour(); view.chord = b.dataset.chord; view.voicingKey = null; view.edit = null; draw(); }));
         container.querySelectorAll('[data-label]').forEach(b => b.addEventListener('click', () => { view.labelMode = b.dataset.label; draw(); }));
 
         if (view.edit) {
@@ -1933,6 +2075,7 @@ function renderChordPracticePanel(container, song) {
                 const renaming = found && normalizeChordName(found.name) !== normalizeChordName(view.chord);
                 if (renaming && !confirm(`Las notas que has puesto forman ${found.name}, no ${view.chord}.\n\n¿Cambiar ${view.chord} por ${found.name} en toda la canción (acordes y letra) y guardar?`)) return;
                 const key = saveCustomVoicing(target, view.edit);
+                await addSongCustomVoicing(song, target, key);
                 if (makeDefault) setVoicingPref(target, key);
                 if (renaming) {
                     await renameChordInSong(view.chord, found.name);
@@ -1960,7 +2103,7 @@ function renderChordPracticePanel(container, song) {
         container.querySelectorAll('[data-nav]').forEach(b => b.addEventListener('click', () => step(parseInt(b.dataset.nav, 10))));
         const arp = $('[data-arpeggio]');
         if (arp && current) arp.addEventListener('click', () => strumVoicing(current, 260));
-        $('[data-edit-start]').addEventListener('click', () => { view.edit = current ? current.frets.slice() : [-1, -1, -1, -1, -1, -1]; draw(); });
+        $('[data-edit-start]').addEventListener('click', () => { stopTour(); view.edit = current ? current.frets.slice() : [-1, -1, -1, -1, -1, -1]; draw(); });
         const play = $('[data-play]');
         if (play && current) play.addEventListener('click', () => strumVoicing(current));
         const editExisting = $('[data-edit-existing]');
@@ -1968,6 +2111,7 @@ function renderChordPracticePanel(container, song) {
         const del = $('[data-delete]');
         if (del && current) del.addEventListener('click', () => {
             deleteCustomVoicing(view.chord, current.key);
+            removeSongCustomVoicing(song, view.chord, current.key);
             if (getVoicingPrefs()[chordPrefKey(view.chord)] === current.key) setVoicingPref(view.chord, null);
             view.voicingKey = null;
             refreshChordDiagrams();
@@ -2003,15 +2147,30 @@ function strumVoicing(voicing, gapMs = 45) {
     });
 }
 
+// Key/progression header of the chords modal. Reads the editor first (it holds unsaved transpositions) so the
+// text always agrees with the diagrams, which are spelled from the same key.
+function refreshExpandedChordsMeta() {
+    const song = state.selectedSong;
+    if (!song) return;
+    const tonality = (els.editTonality && els.editTonality.value.trim()) || song.tonality;
+    const progression = (els.editProgression && els.editProgression.value.trim()) || song.progression;
+    const set = (id, text) => { const el = document.getElementById(id); if (el) el.textContent = text || '—'; };
+    set('expanded-tonality', tonality);
+    set('expanded-progression', progression);
+    set('expanded-progression-chords', romanProgressionToChords(progression, tonality));
+    set('expanded-style', song.emotional || song.style);
+}
+
 // Redraw every visible chord diagram after the default voicing of a chord changes
 function refreshChordDiagrams() {
     const song = state.selectedSong;
     if (!song) return;
-    ['focus-progression-diagrams', 'expanded-progression-diagrams', 'expanded-improv-progression-diagrams', 'chord-float-diagrams'].forEach(id => {
+    ['expanded-progression-diagrams', 'expanded-improv-progression-diagrams', 'chord-float-diagrams'].forEach(id => {
         const el = document.getElementById(id);
-        if (el && el.children.length) renderProgressionDiagrams(el, song.progression, song.tonality);
+        if (el && el.children.length) renderProgressionDiagrams(el, song.progression, song.tonality, el.id !== 'expanded-improv-progression-diagrams');
     });
     renderChordSheet((els.editChord && els.editChord.value.trim()) || song.chord, state.selectedLyrics);
+    refreshExpandedChordsMeta();
     ['expanded-chord-sheet', 'chord-float-content'].forEach(id => {
         const el = document.getElementById(id);
         if (el && el.children.length) renderExpandedChordSheet(el, song);
@@ -2241,7 +2400,23 @@ function getChordAnalysis(chordName, tonalityString) {
         }
     }
 
-    return { roman, isTonic, quality, degree };
+    // Colour key: diatonic degree (1-7) unless the chord is borrowed/altered or a secondary dominant
+    const isDominant = quality === 'major' && /^(7|9|11|13)/.test(suffix);
+    const isHalfDim = quality === 'minor' && (/^m7b5|^m7\(b5\)/.test(suffix) || suffix.includes('ø'));
+    let degreeKey = degree >= 1 ? String(degree) : '';
+    if (isDominant && { 0: 'sec-IV', 2: 'sec-V', 4: 'sec-VI', 9: 'sec-II', 11: 'sec-III' }[diff]) {
+        degreeKey = { 0: 'sec-IV', 2: 'sec-V', 4: 'sec-VI', 9: 'sec-II', 11: 'sec-III' }[diff];
+    } else if (diff === 11 && (quality === 'diminished' || isHalfDim)) {
+        degreeKey = 'vii';
+    } else if (keyMode === 'major' && isDominant && diff === 10) {
+        degreeKey = 'bVII7';
+    } else if (keyMode === 'major') {
+        degreeKey = { 1: 'bII', 3: 'bIII', 6: 'sIV', 8: 'bVI', 10: 'bVII' }[diff] || (diff === 5 && isMinorQuality ? 'iv' : degreeKey);
+    } else {
+        degreeKey = { 1: 'bII', 6: 'sIV' }[diff] || degreeKey;
+    }
+
+    return { roman, isTonic, quality, degree, degreeKey };
 }
 
 /**
@@ -2340,7 +2515,7 @@ function songUniqueChords(chordText, lyrics, tonality) {
     return out;
 }
 
-function renderProgressionDiagrams(container, progressionStr, tonalityStr) {
+function renderProgressionDiagrams(container, progressionStr, tonalityStr, editable = false) {
     if (!container) return;
     container.innerHTML = '';
     container.style.flexWrap = 'wrap';
@@ -2377,7 +2552,7 @@ function renderProgressionDiagrams(container, progressionStr, tonalityStr) {
     allChords.forEach(chordName => {
         const analysis = getChordAnalysis(chordName, tonalityStr);
         const card = document.createElement('div');
-        card.className = 'progression-diagram-card' + (analysis.degree >= 1 ? ' chord-degree-' + analysis.degree : '');
+        card.className = 'progression-diagram-card' + (analysis.degreeKey ? ' chord-degree-' + analysis.degreeKey : '');
         const romanLabel = document.createElement('span');
         romanLabel.className = 'prog-card-roman';
         romanLabel.textContent = analysis.roman;
@@ -2387,6 +2562,36 @@ function renderProgressionDiagrams(container, progressionStr, tonalityStr) {
         nameLabel.textContent = chordName;
         card.appendChild(nameLabel);
         cards.push({ card, chordName });
+        if (editable && state.selectedSong) {
+            const actions = document.createElement('span');
+            actions.className = 'chord-edit-actions prog-card-actions';
+            const mk = (icon, title, cls) => {
+                const b = document.createElement('button');
+                b.type = 'button';
+                b.className = 'chord-edit-btn ' + cls;
+                b.title = title;
+                b.innerHTML = `<i class="ph ph-${icon}"></i>`;
+                return b;
+            };
+            const editBtn = mk('pencil-simple', `Cambiar ${chordName} en toda la canción`, 'edit');
+            const delBtn = mk('x', `Quitar ${chordName} de toda la canción`, 'del');
+            actions.append(editBtn, delBtn);
+            card.appendChild(actions);
+            editBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                actions.remove();
+                promptChordInline(card, async name => {
+                    const n = await renameChordInSong(chordName, name);
+                    showToast(`${chordName} → ${name}: ${n} cambio${n === 1 ? '' : 's'} en la canción`);
+                }, () => card.appendChild(actions));
+            });
+            delBtn.addEventListener('click', async (e) => {
+                e.stopPropagation();
+                if (!confirm(`¿Quitar ${chordName} de toda la canción?`)) return;
+                const n = await renameChordInSong(chordName, null);
+                showToast(`${chordName} quitado (${n} vez${n === 1 ? '' : 'es'})`);
+            });
+        }
         card.addEventListener('click', (e) => {
             e.stopPropagation();
             playChordNotes(chordName, card);
@@ -2722,7 +2927,8 @@ function createGuitarChordDiagram(chordName, shape = getChordShape(chordName)) {
     const positiveFrets = shape.frets.filter(f => f > 0);
     let baseFret = 1;
     // Start the diagram at the lowest fretted note so a shape at fret 2 isn't mistaken for an open chord
-    if (positiveFrets.length > 0 && !shape.frets.includes(0)) {
+    // Open strings don't pin it to the nut when the fretted notes sit beyond the 4 visible frets (e.g. 8 10 0 11 0 x)
+    if (positiveFrets.length > 0 && (!shape.frets.includes(0) || Math.max(...positiveFrets) > 4)) {
         baseFret = Math.min(...positiveFrets);
     }
     
@@ -2899,8 +3105,8 @@ function _renderDiagramSheet(container, chordString) {
                 const tonalityString = (els.editTonality ? els.editTonality.value : null) || (state.selectedSong ? state.selectedSong.tonality : null);
                 const analysis = getChordAnalysis(ch, tonalityString);
 
-                if (analysis.degree >= 1 && analysis.degree <= 7) {
-                    box.classList.add('chord-degree-' + analysis.degree);
+                if (analysis.degreeKey) {
+                    box.classList.add('chord-degree-' + analysis.degreeKey);
                 }
 
                 if (analysis.roman) {
@@ -2987,8 +3193,8 @@ function _renderLyricsSheet(container, lyricsData) {
         const chip = document.createElement('span');
         chip.className = 'lyrics-chord-chip';
         
-        if (analysis.degree >= 1 && analysis.degree <= 7) {
-            chip.classList.add('chord-degree-' + analysis.degree);
+        if (analysis.degreeKey) {
+            chip.classList.add('chord-degree-' + analysis.degreeKey);
         }
         
         chip.textContent = spellChordForKey(chordName, tonalityString);
@@ -3053,20 +3259,6 @@ function _renderLyricsSheet(container, lyricsData) {
                 await editLyricsChord(ref, null);
             });
         }
-
-        // Build the diagram tooltip
-        const tooltip = document.createElement('span');
-        tooltip.className = 'chord-diagram-tooltip';
-        const diag = createGuitarChordDiagram(chordName);
-        if (diag) {
-            // Resize diagram to fit tooltip
-            diag.setAttribute('width', '72');
-            diag.setAttribute('height', '82');
-            tooltip.appendChild(diag);
-        } else {
-            tooltip.textContent = chordName;
-        }
-        wrap.appendChild(tooltip);
 
         return wrap;
     }
@@ -3221,6 +3413,17 @@ function loadYouTubeEmbed(videoId) {
 }
 
 // 8. WEB AUDIO SYNTHESIZER ENGINE (Premium Rhodes & Warm Ambient Synth)
+// Output of chord clicks: follows the same "Escalas" volume as the fretboard notes
+function getChordMaster() {
+    const ctx = state.audioContext;
+    if (!window.__chordMasterGain || window.__chordMasterGain.context !== ctx) {
+        window.__chordMasterGain = ctx.createGain();
+        window.__chordMasterGain.gain.value = window.vibemusScaleVolume ?? 1;
+        window.__chordMasterGain.connect(ctx.destination);
+    }
+    return window.__chordMasterGain;
+}
+
 function playChordNotes(chordName, buttonEl) {
     initAudioContext();
     
@@ -3244,10 +3447,14 @@ function playChordNotes(chordName, buttonEl) {
     const instrumentId = window.VibemusSound ? window.VibemusSound.getId() : 'original';
     if (instrumentId !== 'original') {
         freqs.forEach((freq, idx) => {
-            const oscs = window.VibemusSound.playNote(state.audioContext, state.audioContext.destination, freq, now + idx * 0.018, 1.6, instrumentId, Math.min(1, 2.4 / freqs.length));
+            const oscs = window.VibemusSound.playNote(state.audioContext, getChordMaster(), freq, now + idx * 0.018, 1.6, instrumentId, Math.min(1, 2.4 / freqs.length));
             state.synths.push(...oscs);
         });
         return;
+    }
+    if (window.VibemusSound) {
+        const f = window.VibemusSound.octaveFactor('original');
+        for (let i = 0; i < freqs.length; i++) freqs[i] *= f;
     }
     
     // Create master chord gain node
@@ -3297,11 +3504,11 @@ function playChordNotes(chordName, buttonEl) {
     
     // Connect Main paths to destination
     chordGainNode.connect(mainFilter);
-    mainFilter.connect(state.audioContext.destination);
+    mainFilter.connect(getChordMaster());
     
     // Connect delay input and wet output
     mainFilter.connect(delayNode);
-    delayWet.connect(state.audioContext.destination);
+    delayWet.connect(getChordMaster());
     
     // 4. Generate voices for each chord note
     freqs.forEach((freq, idx) => {
@@ -3412,7 +3619,11 @@ function playChordNotes(chordName, buttonEl) {
     const { instruments, getId, setId } = window.VibemusSound;
     sel.innerHTML = Object.entries(instruments).map(([id, i]) => `<option value="${id}">${i.label}</option>`).join('');
     sel.value = getId();
-    sel.addEventListener('change', () => setId(sel.value));
+    const octSel = document.getElementById('octave-select');
+    const syncOctave = () => { if (octSel) octSel.value = String(window.VibemusSound.getOctave(getId())); };
+    sel.addEventListener('change', () => { setId(sel.value); syncOctave(); });
+    if (octSel) octSel.addEventListener('change', () => window.VibemusSound.setOctave(getId(), octSel.value));
+    syncOctave();
 })();
 
 function initAudioContext() {
@@ -3522,6 +3733,18 @@ function setupEventListeners() {
             applyFiltersAndRender();
         });
     }
+
+    // 1a-bis. Lyrics filter cards (with / without lyrics; mutually exclusive)
+    const toggleLyricsFilter = (key) => {
+        const other = key === 'lyricsOnly' ? 'noLyricsOnly' : 'lyricsOnly';
+        state.activeFilters[key] = !state.activeFilters[key];
+        if (state.activeFilters[key]) state.activeFilters[other] = false;
+        if (els.filterLyricsCard) els.filterLyricsCard.classList.toggle('active', state.activeFilters.lyricsOnly);
+        if (els.filterNoLyricsCard) els.filterNoLyricsCard.classList.toggle('active', state.activeFilters.noLyricsOnly);
+        applyFiltersAndRender();
+    };
+    if (els.filterLyricsCard) els.filterLyricsCard.addEventListener('click', () => toggleLyricsFilter('lyricsOnly'));
+    if (els.filterNoLyricsCard) els.filterNoLyricsCard.addEventListener('click', () => toggleLyricsFilter('noLyricsOnly'));
 
     // 1b. Progression Length Filter Selector
     els.filterProgressionLength.addEventListener('change', (e) => {
@@ -3821,18 +4044,12 @@ function setupEventListeners() {
             // Set song title in modal
             expandedSongTitleLabel.textContent = `${state.selectedSong.artist} - ${state.selectedSong.title}`;
             
-            // Set song meta in modal
-            if (expandedTonality) expandedTonality.textContent = state.selectedSong.tonality || '—';
-            if (expandedProgression) expandedProgression.textContent = state.selectedSong.progression || '—';
-            if (expandedProgressionChords) {
-                const chordNames = romanProgressionToChords(state.selectedSong.progression, state.selectedSong.tonality);
-                expandedProgressionChords.textContent = chordNames || '—';
-            }
-            if (expandedStyle) expandedStyle.textContent = state.selectedSong.emotional || state.selectedSong.style || '—';
+            // Set song meta in modal (key and progression of the editor, like the diagram cards)
+            refreshExpandedChordsMeta();
             
             // Render mini fretboard diagrams for each chord in the progression
             const diagramsContainer = document.getElementById('expanded-progression-diagrams');
-            renderProgressionDiagrams(diagramsContainer, state.selectedSong.progression, state.selectedSong.tonality);
+            renderProgressionDiagrams(diagramsContainer, state.selectedSong.progression, state.selectedSong.tonality, true);
             
             // Visible YouTube player in the header; the one on the main page is paused so only one plays
             const videoId = (state.selectedSong.videoId || '').trim();
@@ -3850,7 +4067,10 @@ function setupEventListeners() {
             expandChordsModal.classList.remove('hide');
         });
         
+        setupModalFullscreen(expandChordsModal, document.getElementById('fullscreen-expand-modal-btn'));
+
         closeExpandModalBtn.addEventListener('click', () => {
+            if (document.fullscreenElement === expandChordsModal) document.exitFullscreen();
             expandChordsModal.classList.add('hide');
             expandedChordsContent.innerHTML = ''; // Clean up memory and prevent double audio play events
             if (expandedPlayer) expandedPlayer.src = ''; // stops the video
@@ -3875,6 +4095,13 @@ function setupEventListeners() {
         els.btnTransposeUp.addEventListener('click', (e) => {
             e.preventDefault();
             handleQuickTranspose(1);
+        });
+    }
+
+    if (els.btnDetectKey) {
+        els.btnDetectKey.addEventListener('click', (e) => {
+            e.preventDefault();
+            handleDetectKey();
         });
     }
 
@@ -3919,7 +4146,6 @@ async function triggerLiveHarmonicAnalysis() {
                 renderChordSheet(chordText, state.selectedLyrics);
                 els.focusProgressionText.textContent = data.progression || '— Sin Progresión Numérica';
                 els.focusProgressionChords.textContent = romanProgressionToChords(data.progression, data.tonality || state.selectedSong?.tonality) || '';
-                renderProgressionDiagrams(document.getElementById('focus-progression-diagrams'), data.progression, data.tonality || state.selectedSong?.tonality);
                 els.focusBadgeComplexity.textContent = data.complex || 'Baja';
                 els.focusBadgeStyle.textContent = data.style || 'Sin Estilo';
                 shiftVibeAccentColor(data.style);
@@ -3984,6 +4210,83 @@ function handleQuickTranspose(deltaSemitones) {
     showToast(`Transpuesto ${deltaSemitones > 0 ? '+1' : '-1'} semitono a ${newTonality} 🎵`);
     refreshChordDiagrams();
     triggerLiveHarmonicAnalysis();
+}
+
+// Key estimated from the audio (Deezer preview). It is only a suggestion: the user picks one of the candidates
+// and applying it transposes the chords, exactly as changing the key selector does.
+async function handleDetectKey() {
+    const song = state.selectedSong;
+    if (!song || !els.keySuggestion) return;
+    els.btnDetectKey.disabled = true;
+    els.keySuggestion.classList.remove('hide');
+    els.keySuggestion.textContent = 'Escuchando el preview…';
+    try {
+        const params = new URLSearchParams({ artist: song.artist, title: song.title });
+        const res = await fetch(`/api/estimate-key?${params}`);
+        const data = await res.json();
+        if (state.selectedSong !== song) return; // the user moved on while the audio was being analysed
+        if (!res.ok) {
+            els.keySuggestion.textContent = data.error || 'No se pudo estimar la tonalidad';
+            return;
+        }
+        renderKeySuggestion(data.candidates, data.candidates[0].tonality);
+    } catch (err) {
+        els.keySuggestion.textContent = 'No se pudo estimar la tonalidad';
+    } finally {
+        els.btnDetectKey.disabled = false;
+    }
+}
+
+function renderKeySuggestion(candidates, chosen) {
+    const box = els.keySuggestion;
+    const current = (els.editTonality.value || '').trim();
+    const offset = current ? getSemitoneOffset(current, chosen) : 0;
+    const sameKey = current && offset === 0 && parseTonalityString(current).mode === parseTonalityString(chosen).mode;
+
+    box.replaceChildren();
+    const title = document.createElement('div');
+    title.className = 'key-suggestion-title';
+    title.textContent = sameKey ? 'El audio confirma la tonalidad actual' : 'El audio sugiere:';
+    box.appendChild(title);
+
+    const chips = document.createElement('div');
+    chips.className = 'key-suggestion-chips';
+    candidates.forEach(c => {
+        const chip = document.createElement('button');
+        chip.type = 'button';
+        chip.className = 'key-chip' + (c.tonality === chosen ? ' active' : '');
+        chip.textContent = `${c.tonality} · ${Math.round(c.score * 100)}%`;
+        chip.addEventListener('click', () => renderKeySuggestion(candidates, c.tonality));
+        chips.appendChild(chip);
+    });
+    box.appendChild(chips);
+
+    const actions = document.createElement('div');
+    actions.className = 'key-suggestion-actions';
+    const addAction = (label, hint, fn) => {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'btn-transpose';
+        b.textContent = label;
+        b.title = hint;
+        b.addEventListener('click', fn);
+        actions.appendChild(b);
+    };
+    if (!sameKey) {
+        addAction('Aplicar tonalidad', 'Cambia la tonalidad y transpone los acordes', () => applyDetectedKey(chosen));
+    }
+    addAction('Cerrar', '', hideKeySuggestion);
+    box.appendChild(actions);
+}
+
+function applyDetectedKey(tonality) {
+    setSelectTonalityValue(tonality);
+    handleTonalityChange(tonality); // transposes the chords from lastActiveTonality, like the key selector
+    hideKeySuggestion();
+}
+
+function hideKeySuggestion() {
+    if (els.keySuggestion) els.keySuggestion.classList.add('hide');
 }
 
 // Submit Edits back to LocalStorage cache and Google Sheets API through Flask
@@ -4064,7 +4367,18 @@ async function handleFormSubmission(e) {
     };
     
     const songIndex = state.songs.findIndex(s => s.row === rowNum);
-    
+
+    // A saved improvisation guide describes the old harmony: drop it when the new one differs, so it gets regenerated
+    const editedSong = state.selectedSong;
+    if (editedSong && editedSong.row === rowNum && editedSong.improvisation && editedSong.improvisation.trim()) {
+        const before = guideHarmonyBaseline.get(editedSong) || harmonySnapshot(editedSong);
+        const sameText = (a, b) => String(a || '').replace(/\s+/g, ' ').trim() === String(b || '').replace(/\s+/g, ' ').trim();
+        if (!sameText(before.chord, chordInput) || !sameText(before.tonality, tonalityInput) || !sameText(before.progression, progressionInput)) {
+            updatedValues.improvisation = '';
+        }
+    }
+    if (editedSong) guideHarmonyBaseline.delete(editedSong);
+
     // 1. Instantly update local client memory & UI (Optimistic UI update)
     if (songIndex !== -1) {
         state.songs[songIndex] = {
@@ -4089,7 +4403,6 @@ async function handleFormSubmission(e) {
         renderChordSheet(chordInput, state.selectedLyrics);
         els.focusProgressionText.textContent = progressionInput || '— Sin Progresión Numérica';
         els.focusProgressionChords.textContent = romanProgressionToChords(progressionInput, tonalityInput || state.selectedSong?.tonality) || '';
-        renderProgressionDiagrams(document.getElementById('focus-progression-diagrams'), progressionInput, tonalityInput || state.selectedSong?.tonality);
         els.focusBadgeComplexity.textContent = chordInput ? (complexInput || 'Baja') : '—';
         els.focusBadgeStyle.textContent = styleInput || 'Sin Estilo';
         shiftVibeAccentColor(styleInput);
@@ -4536,7 +4849,6 @@ async function handleAcceptSuggestion() {
         renderChordSheet(chord, state.selectedLyrics);
         els.focusProgressionText.textContent = progression || '— Sin Progresión Numérica';
         els.focusProgressionChords.textContent = romanProgressionToChords(progression, tonality) || '';
-        renderProgressionDiagrams(document.getElementById('focus-progression-diagrams'), progression, tonality);
         els.focusBadgeComplexity.textContent = chord ? (complex || 'Baja') : '—';
         els.focusBadgeStyle.textContent      = style || 'Sin Estilo';
         shiftVibeAccentColor(style);
@@ -5226,7 +5538,7 @@ function openChordFloat(song) {
     const popup = document.getElementById('chord-float-popup');
     if (!popup || !song) return;
     document.getElementById('chord-float-title').lastChild.textContent = ` ${song.artist} - ${song.title}`;
-    renderProgressionDiagrams(document.getElementById('chord-float-diagrams'), song.progression, song.tonality);
+    renderProgressionDiagrams(document.getElementById('chord-float-diagrams'), song.progression, song.tonality, true);
     renderExpandedChordSheet(document.getElementById('chord-float-content'), song);
     popup.classList.remove('hide');
 }
@@ -5428,9 +5740,28 @@ async function postPlaylistSync(url, body, retry, retried) {
     });
 })();
 
+// Browser fullscreen on a whole modal overlay: the button toggles it, Esc leaves it (the modal stays open) and the
+// overlay gets `is-fullscreen` so the frame can fill the screen
+function setupModalFullscreen(modal, btn) {
+    if (!btn) return;
+    if (!modal || !modal.requestFullscreen) { btn.style.display = 'none'; return; }
+    btn.addEventListener('click', () => {
+        if (document.fullscreenElement) document.exitFullscreen();
+        else modal.requestFullscreen().catch(() => {});
+    });
+    document.addEventListener('fullscreenchange', () => {
+        const on = document.fullscreenElement === modal;
+        modal.classList.toggle('is-fullscreen', on);
+        btn.querySelector('i').className = on ? 'ph ph-arrows-in-simple' : 'ph ph-arrows-out-simple';
+        btn.querySelector('span').textContent = on ? 'Salir de pantalla completa' : 'Pantalla completa';
+    });
+}
+setupModalFullscreen(els.expandImprovModal, document.getElementById('fullscreen-expand-improv-btn'));
+
 function closeImprovisationModal() {
     closeChordFloat();
     if (window.GuitarFretboard) window.GuitarFretboard.stopPractice();
+    if (document.fullscreenElement === els.expandImprovModal) document.exitFullscreen();
     if (els.expandImprovModal) {
         els.expandImprovModal.classList.add('hide');
     }

@@ -15,7 +15,7 @@
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     
     <!-- Premium Stylesheet -->
-    <link rel="stylesheet" href="style.css?v=36">
+    <link rel="stylesheet" href="style.css?v=38">
 </head>
 <body>
 
@@ -42,6 +42,17 @@
                     <label class="flex items-center gap-2" title="Sonido de acordes y escalas (mapa de acordes y guía de improvisación)" style="font-size: 12px; color: var(--text-secondary);">
                         <i class="ph ph-speaker-high"></i>
                         <select id="instrument-select" class="select-field" style="width: auto; min-width: 170px; padding: 7px 34px 7px 12px; font-size: 12.5px;"></select>
+                    </label>
+                    <label class="flex items-center gap-2" title="Octava del instrumento elegido (se recuerda por instrumento)" style="font-size: 12px; color: var(--text-secondary);">
+                        <i class="ph ph-arrows-down-up"></i>
+                        <select id="octave-select" class="select-field" style="width: auto; padding: 7px 34px 7px 12px; font-size: 12.5px;">
+                            <option value="-3">−3 octavas</option>
+                            <option value="-2">−2 octavas</option>
+                            <option value="-1">−1 octava</option>
+                            <option value="0">Normal</option>
+                            <option value="1">+1 octava</option>
+                            <option value="2">+2 octavas</option>
+                        </select>
                     </label>
                     <button id="bulk-restyle-btn" class="btn btn-secondary" title="Recalcular estilos emocionales de todas las canciones con armonía">
                         <i class="ph ph-sparkle"></i>
@@ -158,6 +169,28 @@
                         <div class="metric-data">
                             <span class="metric-value font-mono" id="stat-liked-songs">0</span>
                             <span class="metric-label">Canciones Favoritas</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Metric 5: Songs with lyrics -->
+                <div class="double-bezel metric-bezel" id="filter-lyrics-card" style="cursor: pointer;">
+                    <div class="inner-core metric-core">
+                        <div class="metric-icon"><i class="ph ph-microphone-stage"></i></div>
+                        <div class="metric-data">
+                            <span class="metric-value font-mono" id="stat-lyrics-songs">0</span>
+                            <span class="metric-label">Canciones con Letra</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Metric 6: Songs without lyrics -->
+                <div class="double-bezel metric-bezel" id="filter-no-lyrics-card" style="cursor: pointer;">
+                    <div class="inner-core metric-core">
+                        <div class="metric-icon"><i class="ph ph-microphone-stage"></i></div>
+                        <div class="metric-data">
+                            <span class="metric-value font-mono" id="stat-no-lyrics-songs">0</span>
+                            <span class="metric-label">Canciones sin Letra</span>
                         </div>
                     </div>
                 </div>
@@ -417,7 +450,6 @@
                                 <label class="focus-field-label">Progresión Armónica (Cifrado Romano)</label>
                                 <div class="progression-text font-mono" id="focus-progression-text">-</div>
                                 <div id="focus-progression-chords" style="font-family: 'Geist Mono', monospace; font-size: 12px; color: var(--accent-color, #e74c6f); font-weight: 600; margin-top: 2px; letter-spacing: 0.02em;">-</div>
-                                <div id="focus-progression-diagrams" class="flex gap-3 items-end" style="margin-top: 8px; flex-wrap: wrap;"></div>
                             </div>
                         </div>
 
@@ -449,8 +481,10 @@
                                                 <span style="font-size: 10px; color: var(--text-tertiary); margin-right: 2px;">Transponer:</span>
                                                 <button type="button" id="btn-transpose-down" class="btn-transpose" title="Bajar 1 semitono (-1)">-1</button>
                                                 <button type="button" id="btn-transpose-up" class="btn-transpose" title="Subir 1 semitono (+1)">+1</button>
+                                                <button type="button" id="btn-detect-key" class="btn-transpose" style="margin-left: 6px;" title="Estimar la tonalidad escuchando el preview de Deezer (30 s)">🎧 Detectar</button>
                                             </div>
                                         </div>
+                                        <div id="key-suggestion" class="key-suggestion hide"></div>
                                         <select id="edit-tonality" class="select-field font-mono">
                                             <option value="">— Seleccionar Tonalidad —</option>
                                             <optgroup label="Tonalidades Mayores">
@@ -661,10 +695,16 @@
 
                     </div>
 
-                    <button id="close-expand-modal-btn" class="btn-close" style="align-self: flex-start;">
-                        <i class="ph ph-x"></i>
-                        <span>Cerrar</span>
-                    </button>
+                    <div style="display: flex; gap: 8px; align-self: flex-start;">
+                        <button id="fullscreen-expand-modal-btn" class="btn-close" type="button" title="Pantalla completa">
+                            <i class="ph ph-arrows-out-simple"></i>
+                            <span>Pantalla completa</span>
+                        </button>
+                        <button id="close-expand-modal-btn" class="btn-close">
+                            <i class="ph ph-x"></i>
+                            <span>Cerrar</span>
+                        </button>
+                    </div>
                 </div>
                 
                 <div class="double-bezel chord-bezel" style="flex-grow: 1; overflow-y: auto; background: var(--bg-surface);">
@@ -753,10 +793,16 @@
                             <div id="expanded-improv-progression-diagrams" class="flex gap-3 items-end justify-center" style="min-height: 0;"></div>
                         </div>
 
-                        <button id="close-expand-improv-btn" class="btn-close" style="align-self: flex-start;">
-                            <i class="ph ph-x"></i>
-                            <span>Cerrar</span>
-                        </button>
+                        <div style="display: flex; gap: 8px; align-self: flex-start;">
+                            <button id="fullscreen-expand-improv-btn" class="btn-close" type="button" title="Pantalla completa">
+                                <i class="ph ph-arrows-out-simple"></i>
+                                <span>Pantalla completa</span>
+                            </button>
+                            <button id="close-expand-improv-btn" class="btn-close">
+                                <i class="ph ph-x"></i>
+                                <span>Cerrar</span>
+                            </button>
+                        </div>
                     </div>
                 </div>
                 
@@ -780,6 +826,6 @@
 
     <!-- Premium Javascript Application Logic -->
     <script src="fretboard.js?v=18"></script>
-    <script src="app.js?v=43"></script>
+    <script src="app.js?v=45"></script>
 </body>
 </html>

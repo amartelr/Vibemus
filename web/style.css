@@ -408,8 +408,8 @@ body {
 
 .bento-grid-metrics {
     display: grid;
-    grid-template-columns: repeat(4, 1fr);
-    gap: 24px;
+    grid-template-columns: repeat(6, 1fr);
+    gap: 16px;
 }
 
 .metric-bezel {
@@ -1117,13 +1117,30 @@ body {
 }
 
 /* ── Degree-based chord box coloring (I–VII) ────────────────────── */
-.chord-box.chord-degree-1 { background: rgba(239, 68, 68, 0.10); border-color: rgba(239, 68, 68, 0.50); box-shadow: 0 4px 12px rgba(239, 68, 68, 0.15); }
-.chord-box.chord-degree-2 { background: rgba(96, 165, 250, 0.06); border-color: rgba(96, 165, 250, 0.40); }
-.chord-box.chord-degree-3 { background: rgba(52, 211, 153, 0.06); border-color: rgba(52, 211, 153, 0.40); }
-.chord-box.chord-degree-4 { background: rgba(251, 191, 36, 0.06); border-color: rgba(251, 191, 36, 0.40); }
-.chord-box.chord-degree-5 { background: rgba(168, 85, 247, 0.06); border-color: rgba(168, 85, 247, 0.40); }
-.chord-box.chord-degree-6 { background: rgba(34, 211, 238, 0.06); border-color: rgba(34, 211, 238, 0.40); }
-.chord-box.chord-degree-7 { background: rgba(251, 146, 60, 0.06); border-color: rgba(251, 146, 60, 0.40); }
+/* ── Paleta de grados: diatónicos (1–7), prestados/alterados y dominantes secundarias ── */
+.chord-degree-1 { --dc: #E85A4F; --dc-rgb: 232, 90, 79; }
+.chord-degree-2 { --dc: #4A9EFF; --dc-rgb: 74, 158, 255; }
+.chord-degree-3 { --dc: #5CDB95; --dc-rgb: 92, 219, 149; }
+.chord-degree-4 { --dc: #F4C430; --dc-rgb: 244, 196, 48; }
+.chord-degree-5 { --dc: #9B59B6; --dc-rgb: 155, 89, 182; }
+.chord-degree-6 { --dc: #6C5CE7; --dc-rgb: 108, 92, 231; }
+.chord-degree-7 { --dc: #E67E22; --dc-rgb: 230, 126, 34; }
+.chord-degree-bII { --dc: #E84393; --dc-rgb: 232, 67, 147; }
+.chord-degree-bIII { --dc: #A3CB38; --dc-rgb: 163, 203, 56; }
+.chord-degree-bVI { --dc: #1ABC9C; --dc-rgb: 26, 188, 156; }
+.chord-degree-bVII { --dc: #D35400; --dc-rgb: 211, 84, 0; }
+.chord-degree-sIV { --dc: #FD79A8; --dc-rgb: 253, 121, 168; }
+.chord-degree-iv { --dc: #27AE60; --dc-rgb: 39, 174, 96; }
+.chord-degree-vii { --dc: #636E72; --dc-rgb: 99, 110, 114; }
+.chord-degree-bVII7 { --dc: #CD6133; --dc-rgb: 205, 97, 51; }
+.chord-degree-sec-V { --dc: #8E44AD; --dc-rgb: 142, 68, 173; }
+.chord-degree-sec-II { --dc: #0984E3; --dc-rgb: 9, 132, 227; }
+.chord-degree-sec-VI { --dc: #6C5CE7; --dc-rgb: 108, 92, 231; }
+.chord-degree-sec-III { --dc: #00CEC9; --dc-rgb: 0, 206, 201; }
+.chord-degree-sec-IV { --dc: #F39C12; --dc-rgb: 243, 156, 18; }
+
+.chord-box[class*="chord-degree-"] { background: rgba(var(--dc-rgb), 0.06); border-color: rgba(var(--dc-rgb), 0.40); }
+.chord-box.chord-degree-1 { background: rgba(var(--dc-rgb), 0.10); border-color: rgba(var(--dc-rgb), 0.50); box-shadow: 0 4px 12px rgba(var(--dc-rgb), 0.15); }
 
 .chord-box-roman {
     position: absolute;
@@ -1197,26 +1214,14 @@ body {
 }
 
 /* ── Degree-based overrides for SVG dots & barres ──────────────── */
-.chord-box.chord-degree-1 svg .chord-dot { fill: #ef4444; stroke: #ef4444; }
-.chord-box.chord-degree-1 svg .chord-barre { stroke: #ef4444; }
+.chord-box[class*="chord-degree-"] svg .chord-dot { fill: var(--dc); stroke: var(--dc); }
+.chord-box[class*="chord-degree-"] svg .chord-barre { stroke: var(--dc); }
 
-.chord-box.chord-degree-2 svg .chord-dot { fill: #60a5fa; stroke: #60a5fa; }
-.chord-box.chord-degree-2 svg .chord-barre { stroke: #60a5fa; }
 
-.chord-box.chord-degree-3 svg .chord-dot { fill: #34d399; stroke: #34d399; }
-.chord-box.chord-degree-3 svg .chord-barre { stroke: #34d399; }
 
-.chord-box.chord-degree-4 svg .chord-dot { fill: #fbbf24; stroke: #fbbf24; }
-.chord-box.chord-degree-4 svg .chord-barre { stroke: #fbbf24; }
 
-.chord-box.chord-degree-5 svg .chord-dot { fill: #a855f7; stroke: #a855f7; }
-.chord-box.chord-degree-5 svg .chord-barre { stroke: #a855f7; }
 
-.chord-box.chord-degree-6 svg .chord-dot { fill: #22d3ee; stroke: #22d3ee; }
-.chord-box.chord-degree-6 svg .chord-barre { stroke: #22d3ee; }
 
-.chord-box.chord-degree-7 svg .chord-dot { fill: #fb923c; stroke: #fb923c; }
-.chord-box.chord-degree-7 svg .chord-barre { stroke: #fb923c; }
 
 .chord-box svg .string-marker {
     font-size: 9px;
@@ -1403,33 +1408,15 @@ body {
 }
 
 /* ── Degree-based lyrics chip coloring (I–VII) ────────────────────── */
-.lyrics-chord-chip.chord-degree-1 { color: #ef4444; background: rgba(239, 68, 68, 0.08); border-color: rgba(239, 68, 68, 0.35); }
-.lyrics-chord-chip.chord-degree-1:hover { background: rgba(239, 68, 68, 0.18); box-shadow: 0 0 6px rgba(239, 68, 68, 0.3); }
-.lyrics-chord-chip.chord-degree-1.playing { background: #ef4444; color: #fff; box-shadow: 0 0 10px rgba(239, 68, 68, 0.6); border-color: #ef4444; }
+.lyrics-chord-chip[class*="chord-degree-"] { color: var(--dc); background: rgba(var(--dc-rgb), 0.08); border-color: rgba(var(--dc-rgb), 0.35); }
+.lyrics-chord-chip[class*="chord-degree-"]:hover { background: rgba(var(--dc-rgb), 0.18); box-shadow: 0 0 6px rgba(var(--dc-rgb), 0.3); }
+.lyrics-chord-chip[class*="chord-degree-"].playing { background: var(--dc); color: #fff; box-shadow: 0 0 10px rgba(var(--dc-rgb), 0.6); border-color: var(--dc); }
 
-.lyrics-chord-chip.chord-degree-2 { color: #60a5fa; background: rgba(96, 165, 250, 0.08); border-color: rgba(96, 165, 250, 0.35); }
-.lyrics-chord-chip.chord-degree-2:hover { background: rgba(96, 165, 250, 0.18); box-shadow: 0 0 6px rgba(96, 165, 250, 0.3); }
-.lyrics-chord-chip.chord-degree-2.playing { background: #60a5fa; color: #fff; box-shadow: 0 0 10px rgba(96, 165, 250, 0.6); border-color: #60a5fa; }
 
-.lyrics-chord-chip.chord-degree-3 { color: #34d399; background: rgba(52, 211, 153, 0.08); border-color: rgba(52, 211, 153, 0.35); }
-.lyrics-chord-chip.chord-degree-3:hover { background: rgba(52, 211, 153, 0.18); box-shadow: 0 0 6px rgba(52, 211, 153, 0.3); }
-.lyrics-chord-chip.chord-degree-3.playing { background: #34d399; color: #fff; box-shadow: 0 0 10px rgba(52, 211, 153, 0.6); border-color: #34d399; }
 
-.lyrics-chord-chip.chord-degree-4 { color: #fbbf24; background: rgba(251, 191, 36, 0.08); border-color: rgba(251, 191, 36, 0.35); }
-.lyrics-chord-chip.chord-degree-4:hover { background: rgba(251, 191, 36, 0.18); box-shadow: 0 0 6px rgba(251, 191, 36, 0.3); }
-.lyrics-chord-chip.chord-degree-4.playing { background: #fbbf24; color: #fff; box-shadow: 0 0 10px rgba(251, 191, 36, 0.6); border-color: #fbbf24; }
 
-.lyrics-chord-chip.chord-degree-5 { color: #a855f7; background: rgba(168, 85, 247, 0.08); border-color: rgba(168, 85, 247, 0.35); }
-.lyrics-chord-chip.chord-degree-5:hover { background: rgba(168, 85, 247, 0.18); box-shadow: 0 0 6px rgba(168, 85, 247, 0.3); }
-.lyrics-chord-chip.chord-degree-5.playing { background: #a855f7; color: #fff; box-shadow: 0 0 10px rgba(168, 85, 247, 0.6); border-color: #a855f7; }
 
-.lyrics-chord-chip.chord-degree-6 { color: #22d3ee; background: rgba(34, 211, 238, 0.08); border-color: rgba(34, 211, 238, 0.35); }
-.lyrics-chord-chip.chord-degree-6:hover { background: rgba(34, 211, 238, 0.18); box-shadow: 0 0 6px rgba(34, 211, 238, 0.3); }
-.lyrics-chord-chip.chord-degree-6.playing { background: #22d3ee; color: #fff; box-shadow: 0 0 10px rgba(34, 211, 238, 0.6); border-color: #22d3ee; }
 
-.lyrics-chord-chip.chord-degree-7 { color: #fb923c; background: rgba(251, 146, 60, 0.08); border-color: rgba(251, 146, 60, 0.35); }
-.lyrics-chord-chip.chord-degree-7:hover { background: rgba(251, 146, 60, 0.18); box-shadow: 0 0 6px rgba(251, 146, 60, 0.3); }
-.lyrics-chord-chip.chord-degree-7.playing { background: #fb923c; color: #fff; box-shadow: 0 0 10px rgba(251, 146, 60, 0.6); border-color: #fb923c; }
 
 .lyrics-chord-chip.playing {
     background: var(--accent-color);
@@ -1460,58 +1447,9 @@ body {
     /* when placed above a lyric word */
 }
 
-/* Floating diagram tooltip — appears on hover */
-.chord-diagram-tooltip {
-    display: none;
-    position: absolute;
-    bottom: calc(100% + 6px);
-    left: 50%;
-    transform: translateX(-50%);
-    z-index: 200;
-    background: var(--surface-elevated, #1c1c2a);
-    border: 1px solid rgba(var(--accent-rgb), 0.35);
-    border-radius: 8px;
-    padding: 6px;
-    box-shadow: 0 8px 24px rgba(0,0,0,0.5);
-    pointer-events: none;
-    white-space: nowrap;
-}
-
-/* Arrow pointing down */
-.chord-diagram-tooltip::after {
-    content: '';
-    position: absolute;
-    top: 100%;
-    left: 50%;
-    transform: translateX(-50%);
-    border: 6px solid transparent;
-    border-top-color: rgba(var(--accent-rgb), 0.35);
-}
-
-.lyrics-chord-chip-wrap:hover .chord-diagram-tooltip {
-    display: block;
-    animation: tooltipFadeIn 0.15s ease;
-}
-
-@keyframes tooltipFadeIn {
-    from { opacity: 0; transform: translateX(-50%) translateY(4px); }
-    to   { opacity: 1; transform: translateX(-50%) translateY(0); }
-}
-
-/* SVG lines inside tooltip inherit sheet colors */
-.chord-diagram-tooltip .chord-fret-line,
-.chord-diagram-tooltip .chord-string-line {
-    stroke: rgba(255,255,255,0.35);
-}
-.chord-diagram-tooltip .chord-nut { stroke: rgba(255,255,255,0.7); }
-.chord-diagram-tooltip .chord-dot { fill: var(--accent-color); }
-.chord-diagram-tooltip .chord-dot-text { fill: #fff; }
-.chord-diagram-tooltip .string-marker { fill: rgba(255,255,255,0.6); }
-.chord-diagram-tooltip .chord-barre { stroke: var(--accent-color); }
-.chord-diagram-tooltip .fret-label { fill: #fff; font-size: 9px; font-weight: 700; }
-
 /* ── Mini Progression Diagram Cards ────────────────────────────── */
 .progression-diagram-card {
+    position: relative;
     display: flex;
     flex-direction: column;
     align-items: center;
@@ -1574,54 +1512,18 @@ body {
 }
 
 /* ── Degree-based progression cards (I–VII) ─────────────────────── */
-.progression-diagram-card.chord-degree-1 { border-color: rgba(239, 68, 68, 0.25); background: rgba(239, 68, 68, 0.06); }
-.progression-diagram-card.chord-degree-1:hover { border-color: rgba(239, 68, 68, 0.4); background: rgba(239, 68, 68, 0.1); }
-.progression-diagram-card.chord-degree-1 .prog-card-name { color: #ef4444; }
-.progression-diagram-card.chord-degree-1 svg .chord-dot { fill: #ef4444; stroke: #ef4444; }
-.progression-diagram-card.chord-degree-1 svg .chord-barre { stroke: #ef4444; }
-.progression-diagram-card.chord-degree-1 svg .chord-nut { stroke: rgba(239, 68, 68, 0.6); }
+.progression-diagram-card[class*="chord-degree-"] { border-color: rgba(var(--dc-rgb), 0.25); background: rgba(var(--dc-rgb), 0.06); }
+.progression-diagram-card[class*="chord-degree-"]:hover { border-color: rgba(var(--dc-rgb), 0.4); background: rgba(var(--dc-rgb), 0.1); }
+.progression-diagram-card[class*="chord-degree-"] .prog-card-name { color: var(--dc); }
+.progression-diagram-card[class*="chord-degree-"] svg .chord-dot { fill: var(--dc); stroke: var(--dc); }
+.progression-diagram-card[class*="chord-degree-"] svg .chord-barre { stroke: var(--dc); }
+.progression-diagram-card[class*="chord-degree-"] svg .chord-nut { stroke: rgba(var(--dc-rgb), 0.6); }
 
-.progression-diagram-card.chord-degree-2 { border-color: rgba(96, 165, 250, 0.25); background: rgba(96, 165, 250, 0.06); }
-.progression-diagram-card.chord-degree-2:hover { border-color: rgba(96, 165, 250, 0.4); background: rgba(96, 165, 250, 0.1); }
-.progression-diagram-card.chord-degree-2 .prog-card-name { color: #60a5fa; }
-.progression-diagram-card.chord-degree-2 svg .chord-dot { fill: #60a5fa; stroke: #60a5fa; }
-.progression-diagram-card.chord-degree-2 svg .chord-barre { stroke: #60a5fa; }
-.progression-diagram-card.chord-degree-2 svg .chord-nut { stroke: rgba(96, 165, 250, 0.6); }
 
-.progression-diagram-card.chord-degree-3 { border-color: rgba(52, 211, 153, 0.25); background: rgba(52, 211, 153, 0.06); }
-.progression-diagram-card.chord-degree-3:hover { border-color: rgba(52, 211, 153, 0.4); background: rgba(52, 211, 153, 0.1); }
-.progression-diagram-card.chord-degree-3 .prog-card-name { color: #34d399; }
-.progression-diagram-card.chord-degree-3 svg .chord-dot { fill: #34d399; stroke: #34d399; }
-.progression-diagram-card.chord-degree-3 svg .chord-barre { stroke: #34d399; }
-.progression-diagram-card.chord-degree-3 svg .chord-nut { stroke: rgba(52, 211, 153, 0.6); }
 
-.progression-diagram-card.chord-degree-4 { border-color: rgba(251, 191, 36, 0.25); background: rgba(251, 191, 36, 0.06); }
-.progression-diagram-card.chord-degree-4:hover { border-color: rgba(251, 191, 36, 0.4); background: rgba(251, 191, 36, 0.1); }
-.progression-diagram-card.chord-degree-4 .prog-card-name { color: #fbbf24; }
-.progression-diagram-card.chord-degree-4 svg .chord-dot { fill: #fbbf24; stroke: #fbbf24; }
-.progression-diagram-card.chord-degree-4 svg .chord-barre { stroke: #fbbf24; }
-.progression-diagram-card.chord-degree-4 svg .chord-nut { stroke: rgba(251, 191, 36, 0.6); }
 
-.progression-diagram-card.chord-degree-5 { border-color: rgba(168, 85, 247, 0.25); background: rgba(168, 85, 247, 0.06); }
-.progression-diagram-card.chord-degree-5:hover { border-color: rgba(168, 85, 247, 0.4); background: rgba(168, 85, 247, 0.1); }
-.progression-diagram-card.chord-degree-5 .prog-card-name { color: #a855f7; }
-.progression-diagram-card.chord-degree-5 svg .chord-dot { fill: #a855f7; stroke: #a855f7; }
-.progression-diagram-card.chord-degree-5 svg .chord-barre { stroke: #a855f7; }
-.progression-diagram-card.chord-degree-5 svg .chord-nut { stroke: rgba(168, 85, 247, 0.6); }
 
-.progression-diagram-card.chord-degree-6 { border-color: rgba(34, 211, 238, 0.25); background: rgba(34, 211, 238, 0.06); }
-.progression-diagram-card.chord-degree-6:hover { border-color: rgba(34, 211, 238, 0.4); background: rgba(34, 211, 238, 0.1); }
-.progression-diagram-card.chord-degree-6 .prog-card-name { color: #22d3ee; }
-.progression-diagram-card.chord-degree-6 svg .chord-dot { fill: #22d3ee; stroke: #22d3ee; }
-.progression-diagram-card.chord-degree-6 svg .chord-barre { stroke: #22d3ee; }
-.progression-diagram-card.chord-degree-6 svg .chord-nut { stroke: rgba(34, 211, 238, 0.6); }
 
-.progression-diagram-card.chord-degree-7 { border-color: rgba(251, 146, 60, 0.25); background: rgba(251, 146, 60, 0.06); }
-.progression-diagram-card.chord-degree-7:hover { border-color: rgba(251, 146, 60, 0.4); background: rgba(251, 146, 60, 0.1); }
-.progression-diagram-card.chord-degree-7 .prog-card-name { color: #fb923c; }
-.progression-diagram-card.chord-degree-7 svg .chord-dot { fill: #fb923c; stroke: #fb923c; }
-.progression-diagram-card.chord-degree-7 svg .chord-barre { stroke: #fb923c; }
-.progression-diagram-card.chord-degree-7 svg .chord-nut { stroke: rgba(251, 146, 60, 0.6); }
 
 /* Group of chord chips that sit above a word */
 .lyrics-chord-above-group {
@@ -2149,6 +2051,15 @@ body {
     display: none;
 }
 
+/* Songs with many chords: the cards in the header scroll within one row's height instead of pushing the lyrics
+   out of view (they stay visible when the practice panel is folded away) */
+#expanded-progression-diagrams,
+#expanded-improv-progression-diagrams {
+    max-height: 170px;
+    overflow-y: auto;
+    flex-wrap: wrap;
+}
+
 .double-bezel.panel-collapsed .inner-core {
     padding-bottom: 24px;
 }
@@ -2429,21 +2340,9 @@ body {
 }
 
 /* ── Degree-based chord tags (I–VII) ─────────────────────────── */
-.chip-chord-tag.chord-degree-1 { background: rgba(239, 68, 68, 0.15); border-color: rgba(239, 68, 68, 0.35); color: #ef4444; }
-.chip-chord-tag.chord-degree-2 { background: rgba(96, 165, 250, 0.15); border-color: rgba(96, 165, 250, 0.35); color: #60a5fa; }
-.chip-chord-tag.chord-degree-3 { background: rgba(52, 211, 153, 0.15); border-color: rgba(52, 211, 153, 0.35); color: #34d399; }
-.chip-chord-tag.chord-degree-4 { background: rgba(251, 191, 36, 0.15); border-color: rgba(251, 191, 36, 0.35); color: #fbbf24; }
-.chip-chord-tag.chord-degree-5 { background: rgba(168, 85, 247, 0.15); border-color: rgba(168, 85, 247, 0.35); color: #a855f7; }
-.chip-chord-tag.chord-degree-6 { background: rgba(34, 211, 238, 0.15); border-color: rgba(34, 211, 238, 0.35); color: #22d3ee; }
-.chip-chord-tag.chord-degree-7 { background: rgba(251, 146, 60, 0.15); border-color: rgba(251, 146, 60, 0.35); color: #fb923c; }
+.chip-chord-tag[class*="chord-degree-"] { background: rgba(var(--dc-rgb), 0.15); border-color: rgba(var(--dc-rgb), 0.35); color: var(--dc); }
 /* Active state degree-based chord tags */
-.btn-quick-scale.active-target .chip-chord-tag.chord-degree-1 { background: #ef4444; border-color: #ef4444; color: #000; }
-.btn-quick-scale.active-target .chip-chord-tag.chord-degree-2 { background: #60a5fa; border-color: #60a5fa; color: #000; }
-.btn-quick-scale.active-target .chip-chord-tag.chord-degree-3 { background: #34d399; border-color: #34d399; color: #000; }
-.btn-quick-scale.active-target .chip-chord-tag.chord-degree-4 { background: #fbbf24; border-color: #fbbf24; color: #000; }
-.btn-quick-scale.active-target .chip-chord-tag.chord-degree-5 { background: #a855f7; border-color: #a855f7; color: #000; }
-.btn-quick-scale.active-target .chip-chord-tag.chord-degree-6 { background: #22d3ee; border-color: #22d3ee; color: #000; }
-.btn-quick-scale.active-target .chip-chord-tag.chord-degree-7 { background: #fb923c; border-color: #fb923c; color: #000; }
+.btn-quick-scale.active-target .chip-chord-tag[class*="chord-degree-"] { background: var(--dc); border-color: var(--dc); color: #000; }
 .btn-quick-scale.active-target .chip-chord-tag { background: #f59e0b; border-color: #f59e0b; color: #000; } /* Fallback */
 .btn-fb-step {
     background: rgba(255, 255, 255, 0.05);
@@ -2479,7 +2378,9 @@ body {
     gap: 2px;
     z-index: 210;
 }
-.lyrics-chord-chip-wrap:hover .chord-edit-actions { display: inline-flex; }
+.lyrics-chord-chip-wrap:hover .chord-edit-actions,
+.progression-diagram-card:hover .chord-edit-actions { display: inline-flex; }
+.prog-card-actions { top: 3px; right: 3px; }
 .chord-edit-btn {
     width: 15px;
     height: 15px;
@@ -2533,3 +2434,60 @@ body {
 .chord-add-end { position: static; }
 .chord-only-row:hover .chord-add-end { display: inline-flex; }
 .chord-edit-btn.add:hover { background: #34d399; border-color: #34d399; color: #04130c; }
+
+/* Expanded chords modal: the sheet flows into columns (as many as fit, up to 3) so a song needs far less vertical
+   scrolling while playing; sections may split between columns but a line never does */
+#expanded-chords-content .lyrics-chord-sheet {
+    display: block;
+    column-width: 460px;
+    column-count: 3;
+    column-gap: 40px;
+    column-rule: 1px solid rgba(255, 255, 255, 0.06);
+}
+#expanded-chords-content .lyrics-section-block {
+    margin-bottom: 24px;
+}
+#expanded-chords-content .lyrics-line {
+    break-inside: avoid;
+}
+#expanded-chords-content .lyrics-section-title {
+    break-after: avoid;
+}
+
+/* Expanded chords and improvisation modals in browser fullscreen: the frame takes the whole screen (inline sizes
+   need !important) */
+#expand-chords-modal.is-fullscreen .modal-bezel,
+#expand-improvisation-modal.is-fullscreen .modal-bezel {
+    width: 100vw !important;
+    max-width: none !important;
+    height: 100vh !important;
+    border-radius: 0;
+}
+
+/* Key suggestion from the audio (chords editor) */
+.key-suggestion {
+    margin-bottom: 6px;
+    padding: 8px;
+    border: 1px solid var(--border-hairline);
+    border-radius: 6px;
+    background: rgba(255, 255, 255, 0.03);
+    font-size: 11px;
+    color: var(--text-secondary);
+}
+.key-suggestion-title { margin-bottom: 6px; }
+.key-suggestion-chips, .key-suggestion-actions { display: flex; flex-wrap: wrap; gap: 4px; }
+.key-suggestion-actions { margin-top: 6px; }
+.key-chip {
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid var(--border-hairline);
+    border-radius: 4px;
+    color: var(--text-secondary);
+    font-size: 11px;
+    padding: 2px 8px;
+    cursor: pointer;
+}
+.key-chip.active {
+    background: rgba(var(--accent-rgb), 0.18);
+    border-color: rgba(var(--accent-rgb), 0.45);
+    color: var(--accent-color);
+}

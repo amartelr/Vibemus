@@ -113,3 +113,17 @@ def test_songs_expose_per_song_voicings(client):
     client.ws.values[1] = client.ws.values[1] + ['{"F#": "2,-1,4,3,2,2"}']
     songs = client.get("/api/songs").get_json()
     assert songs[0]["voicings"] == {"F#": "2,-1,4,3,2,2"} and songs[1]["voicings"] == {}
+
+
+def test_estimate_key_returns_candidates_without_touching_the_sheet(client, monkeypatch):
+    fake = {"tonality": "C# Major", "score": 0.88, "candidates": [{"tonality": "C# Major", "score": 0.88}]}
+    monkeypatch.setattr(server, "estimate_key", lambda artist, title: fake)
+    r = client.get("/api/estimate-key?artist=Artist1&title=Song1")
+    assert r.status_code == 200 and r.get_json()["tonality"] == "C# Major"
+    assert client.ws.written == []
+
+
+def test_estimate_key_reports_missing_preview_and_missing_params(client, monkeypatch):
+    monkeypatch.setattr(server, "estimate_key", lambda artist, title: None)
+    assert client.get("/api/estimate-key?artist=A&title=T").status_code == 404
+    assert client.get("/api/estimate-key?artist=A").status_code == 400

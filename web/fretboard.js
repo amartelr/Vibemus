@@ -245,6 +245,7 @@
 
     // Global Visualizer State
     const fbState = {
+        pentatonicOnly: localStorage.getItem('vibemus_pent_only') === '1', // "Pentatónicas" view: hides the notes outside the matching pentatonic
         bluesActive: false, // "Blues" toggle: adds the blue note (and b3 on major modes) to the scales
         root1: 'A',
         scaleKey1: 'major',
@@ -290,7 +291,7 @@
                 const parentMatch = str.match(/\(([A-G][#b]?[^)]*)\)/);
                 const cleanChord = parentMatch ? parentMatch[1] : str.trim();
                 const analysis = window.getChordAnalysis(cleanChord, tonalityStr);
-                return analysis.degree || 0;
+                return analysis.degreeKey || 0;
             }
             return 0;
         }
@@ -353,10 +354,8 @@
         // 1. Primary Base Modes
         if (isMajor) {
             addMode(baseModesMap, mainRoot, 'major');
-            addMode(baseModesMap, mainRoot, 'pentatonic_major');
         } else {
             addMode(baseModesMap, mainRoot, 'minor');
-            addMode(baseModesMap, mainRoot, 'pentatonic_minor');
             addMode(baseModesMap, mainRoot, 'dorian');
         }
 
@@ -526,13 +525,53 @@
         };
     }
 
+    // "Pentatónicas" view: indices of the scale notes that belong to the pentatonic that fits it best
+    // (major or minor, whichever shares more notes). Null = show the whole scale (off, or no good fit, e.g. altered)
+    const PENT_SETS = [['pentatonic_major', [0, 2, 4, 7, 9]], ['pentatonic_minor', [0, 3, 5, 7, 10]]];
+    function pentatonicFit(scaleDef) {
+        if (!fbState.pentatonicOnly) return null;
+        let best = null;
+        PENT_SETS.forEach(([key, set]) => {
+            const idx = scaleDef.intervals.map((iv, i) => set.includes(iv) ? i : -1).filter(i => i >= 0);
+            if (!best || idx.length > best.idx.length) best = { key, idx };
+        });
+        return best && best.idx.length >= 4 ? best : null;
+    }
+    function pentatonicIndices(scaleDef) {
+        const fit = pentatonicFit(scaleDef);
+        return fit ? new Set(fit.idx) : null;
+    }
+    // Name shown for a scale: in the "Pentatónicas" view, the pentatonic it is reduced to
+    function scaleName(key) {
+        const def = SCALES[key];
+        if (!def) return key;
+        const fit = pentatonicFit(def);
+        return fit ? SCALES[fit.key].name : def.name;
+    }
+
+    // Fusion only means something when the target differs from the base: in the "Pentatónicas" view two
+    // modes can reduce to the very same pentatonic, and then there is nothing to compare
+    function isFusion() {
+        return fbState.fusionActive && !(fbState.pentatonicOnly && fbState.root1 === fbState.root2
+            && scaleName(fbState.scaleKey1) === scaleName(fbState.scaleKey2));
+    }
+
+    // In the "Pentatónicas" view several modes collapse into the same pentatonic: list each one once
+    function dedupeByName(keys) {
+        if (!fbState.pentatonicOnly) return keys;
+        const seen = new Set();
+        return keys.filter(k => !seen.has(scaleName(k)) && seen.add(scaleName(k)));
+    }
+
     // Build Scale Map: returns a Map of semitone -> { degree, isRoot }
     function getScaleMap(rootNote, scaleKey) {
         const rootSemi = noteToSemitone(rootNote);
         const scaleDef = SCALES[scaleKey] || SCALES['major'];
         const map = new Map();
 
+        const keep = pentatonicIndices(scaleDef);
         scaleDef.intervals.forEach((interval, idx) => {
+            if (keep && !keep.has(idx)) return;
             const semi = (rootSemi + interval) % 12;
             map.set(semi, {
                 degree: scaleDef.degrees[idx],
@@ -567,22 +606,33 @@
     }
 
     function getScaleIntervals(scaleKey) {
-        const intervals = (SCALES[scaleKey] || SCALES['major']).intervals;
-        return [...intervals, ...getBluesAdditions(intervals)];
+        const def = SCALES[scaleKey] || SCALES['major'];
+        const intervals = def.intervals;
+        const keep = pentatonicIndices(def);
+        const shown = keep ? intervals.filter((_, i) => keep.has(i)) : intervals;
+        return [...shown, ...getBluesAdditions(intervals)];
     }
 
     // ── Shared sound bank (fretboard notes and chord playback in app.js) ─────────
     // 'original' keeps the legacy synths; the others are additive voices built from these presets.
     const INSTRUMENTS = {
-        original:  { label: 'Original (por defecto)' },
-        acoustic:  { label: 'Guitarra acústica', harm: [1, .6, .4, .25, .15, .1, .06, .04], attack: .004, decay: 1.3, sustain: 0, fStart: 9, fEnd: 1.8, fTime: .5, gain: .3 },
+        original:  { label: 'Original (por defecto)', octave: -1 },
+        acoustic:  { label: 'Guitarra acústica', octave: -1, harm: [1, .6, .4, .25, .15, .1, .06, .04], attack: .004, decay: 1.3, sustain: 0, fStart: 9, fEnd: 1.8, fTime: .5, gain: .3 },
         electric:  { label: 'Guitarra eléctrica limpia', harm: [1, .5, .3, .15, .1, .05], attack: .005, decay: 1.8, sustain: 0, fStart: 6, fEnd: 2.2, fTime: .9, gain: .32 },
-        piano:     { label: 'Piano', harm: [1, .5, .3, .2, .1, .08, .05], attack: .003, decay: 2.2, sustain: 0, fStart: 7, fEnd: 2, fTime: .7, detune: 3, gain: .3 },
-        organ:     { label: 'Órgano', harm: [1, .9, .7, 0, .5, 0, 0, .3], attack: .02, decay: .1, sustain: 1, release: .08, fStart: 8, fEnd: 8, fTime: 1, gain: .2 },
-        strings:   { label: 'Cuerdas (pad)', harm: [1, .5, .33, .25, .2, .16, .14, .12], attack: .3, decay: .5, sustain: .8, release: .6, fStart: 4, fEnd: 4, fTime: 1, detune: 7, gain: .14 },
-        synth:     { label: 'Sintetizador lead', harm: [1, 0, .33, 0, .2, 0, .14, 0, .11], attack: .01, decay: .3, sustain: .7, release: .15, fStart: 5, fEnd: 5, fTime: 1, vibrato: [5.5, 8], detune: 5, gain: .2 },
-        flute:     { label: 'Flauta', harm: [1, .2, .1, .05], attack: .07, decay: .3, sustain: .8, release: .15, fStart: 5, fEnd: 5, fTime: 1, vibrato: [5, 10], gain: .38 }
+        piano:     { label: 'Piano', octave: -1, harm: [1, .5, .3, .2, .1, .08, .05], attack: .003, decay: 2.2, sustain: 0, fStart: 7, fEnd: 2, fTime: .7, detune: 3, gain: .3 },
+        organ:     { label: 'Órgano', octave: -1, harm: [1, .9, .7, 0, .5, 0, 0, .3], attack: .02, decay: .1, sustain: 1, release: .08, fStart: 8, fEnd: 8, fTime: 1, gain: .2 },
+        strings:   { label: 'Cuerdas (pad)', octave: -1, harm: [1, .5, .33, .25, .2, .16, .14, .12], attack: .3, decay: .5, sustain: .8, release: .6, fStart: 4, fEnd: 4, fTime: 1, detune: 7, gain: .14 },
+        synth:     { label: 'Sintetizador lead', octave: -1, harm: [1, 0, .33, 0, .2, 0, .14, 0, .11], attack: .01, decay: .3, sustain: .7, release: .15, fStart: 5, fEnd: 5, fTime: 1, vibrato: [5.5, 8], detune: 5, gain: .2 },
+        flute:     { label: 'Flauta', octave: -1, harm: [1, .2, .1, .05], attack: .07, decay: .3, sustain: .8, release: .15, fStart: 5, fEnd: 5, fTime: 1, vibrato: [5, 10], gain: .38 }
     };
+    // Octave shift per preset (-1 = one octave down), applied to every note the preset plays
+    // The user's choice (header selector, saved per instrument) wins over the preset default
+    function getOctave(id) {
+        const saved = parseInt(localStorage.getItem('vibemus_octave_' + id), 10);
+        if (!isNaN(saved)) return Math.max(-3, Math.min(2, saved));
+        return (INSTRUMENTS[id] && INSTRUMENTS[id].octave) || 0;
+    }
+    const octaveFactor = id => Math.pow(2, getOctave(id));
     const waveCache = {};
     function getInstrumentId() {
         const id = localStorage.getItem('vibemus_instrument');
@@ -593,6 +643,7 @@
     function playInstrumentNote(ctx, dest, freq, t, len, id, volume = 1) {
         const p = INSTRUMENTS[id];
         if (!p || !p.harm) return [];
+        freq *= octaveFactor(id);
         const wave = waveCache[id] || (waveCache[id] = ctx.createPeriodicWave(
             new Float32Array([0, ...p.harm.map(() => 0)]), new Float32Array([0, ...p.harm])));
         const release = p.release || .25;
@@ -640,6 +691,9 @@
         instruments: INSTRUMENTS,
         getId: getInstrumentId,
         setId: id => { if (INSTRUMENTS[id]) localStorage.setItem('vibemus_instrument', id); },
+        octaveFactor,
+        getOctave,
+        setOctave: (id, n) => localStorage.setItem('vibemus_octave_' + id, String(n)),
         playNote: playInstrumentNote
     };
 
@@ -657,6 +711,7 @@
     window.setScaleVolume = function(v) {
         window.vibemusScaleVolume = v;
         if (window.__fbMasterGain) window.__fbMasterGain.gain.value = v;
+        if (window.__chordMasterGain) window.__chordMasterGain.gain.value = v;
     };
 
     // Play guitar note synthesis
@@ -678,6 +733,7 @@
                 playInstrumentNote(ctx, getFretboardMaster(ctx), freq, now, 1.0, instrument);
                 return;
             }
+            freq *= octaveFactor('original');
 
             const osc = ctx.createOscillator();
             const gain = ctx.createGain();
@@ -935,7 +991,7 @@
         const scaleLabel = panel.querySelector('#practice-scale-label');
         if (scaleLabel) {
             const ps = getPracticeScale();
-            scaleLabel.textContent = `${dn(ps.root)} ${(SCALES[ps.key] || SCALES['major']).name}${fbState.bluesActive ? ' + Blues' : ''}`;
+            scaleLabel.textContent = `${dn(ps.root)} ${scaleName(ps.key in SCALES ? ps.key : 'major')}${fbState.bluesActive ? ' + Blues' : ''}`;
         }
         panel.querySelectorAll('[data-caged]').forEach(btn => {
             const on = btn.dataset.caged === p.form;
@@ -1071,7 +1127,7 @@
         const fretWidth = (endX - nutX) / totalFrets;
 
         const scaleMap1 = getScaleMap(fbState.root1, fbState.scaleKey1);
-        const scaleMap2 = fbState.fusionActive ? getScaleMap(fbState.root2, fbState.scaleKey2) : null;
+        const scaleMap2 = isFusion() ? getScaleMap(fbState.root2, fbState.scaleKey2) : null;
         const practiceWin = getCagedWindow(fbState.practice.form);
         const practiceMidis = new Set(getPracticeNotes().map(n => n.midi));
         const pattern313 = fbState.practice.show313 ? getPattern313() : null;
@@ -1079,7 +1135,7 @@
 
         // Collect transition notes analysis
         let transitionInfo = null;
-        if (fbState.fusionActive) {
+        if (isFusion()) {
             const sharedSemis = [];
             const only1Semis = [];
             const only2Semis = [];
@@ -1211,13 +1267,13 @@
                     return s.label;
                 };
 
-                if (!fbState.fusionActive) {
+                if (!isFusion()) {
                     const roleLabel = applyRole(fbState.scaleKey1, noteData1);
                     tooltip = `${noteName} (Grado ${noteData1.degree}) · ${roleLabel} - Cuerda ${sIdx + 1}, Traste ${f}`;
                 } else {
                     const in1 = !!noteData1;
                     const in2 = !!noteData2;
-                    const target = `${dn(fbState.root2)} ${SCALES[fbState.scaleKey2].name}`;
+                    const target = `${dn(fbState.root2)} ${scaleName(fbState.scaleKey2)}`;
 
                     if (in2) {
                         const roleLabel = applyRole(fbState.scaleKey2, noteData2);
@@ -1225,7 +1281,7 @@
                             tooltip = `${noteName} (${noteData2.degree} en ${target}) · ${roleLabel} · Común a ambos modos`;
                         } else {
                             isPulse = true;
-                            tooltip = `¡NOTA DE CAMBIO! ${noteName} (${noteData2.degree}) · ${roleLabel} · No está en ${dn(fbState.root1)} ${SCALES[fbState.scaleKey1].name}`;
+                            tooltip = `¡NOTA DE CAMBIO! ${noteName} (${noteData2.degree}) · ${roleLabel} · No está en ${dn(fbState.root1)} ${scaleName(fbState.scaleKey1)}`;
                         }
                     } else if (in1) {
                         fillColor = '#3b82f6';
@@ -1233,7 +1289,7 @@
                         textColor = '#ffffff';
                         const degreeVsTarget = INTERVAL_NAMES[(semitone - noteToSemitone(fbState.root2) + 12) % 12];
                         labelText = fbState.labelType === 'notes' ? noteName : degreeVsTarget;
-                        tooltip = `${noteName} (${degreeVsTarget} respecto a ${dn(fbState.root2)}): Solo en ${dn(fbState.root1)} ${SCALES[fbState.scaleKey1].name} — déjala al pasar a ${target}`;
+                        tooltip = `${noteName} (${degreeVsTarget} respecto a ${dn(fbState.root2)}): Solo en ${dn(fbState.root1)} ${scaleName(fbState.scaleKey1)} — déjala al pasar a ${target}`;
                     }
                 }
 
@@ -1264,7 +1320,7 @@
         // Legend & Explanations Container
         let legendHtml = '';
         const dot = (style) => `<span style="width: 12px; height: 12px; border-radius: 50%; display: inline-block; ${style}"></span>`;
-        if (!fbState.fusionActive) {
+        if (!isFusion()) {
             const def = SCALES[fbState.scaleKey1] || SCALES['major'];
             const roles = NOTE_ROLES[fbState.scaleKey1] || { chord: [], characteristic: [], avoid: [] };
             const hasChord = roles.chord.some(d => d !== '1');
@@ -1288,7 +1344,7 @@
                     </div>
                     <div style="font-size: 12px; color: var(--text-secondary); background: rgba(255,255,255,0.03); padding: 6px 10px; border-radius: 6px; border: 1px solid var(--border-hairline-light); line-height: 1.6;">
                         <em>${def.desc}</em>
-                        ${hasChar ? `<br><i class="ph ph-sparkle" style="color: #f59e0b;"></i> Destaca <strong style="color: #f59e0b; font-family: 'Geist Mono', monospace;">${charNotes}</strong> para que suene a ${dn(fbState.root1)} ${def.name}.` : ''}
+                        ${hasChar ? `<br><i class="ph ph-sparkle" style="color: #f59e0b;"></i> Destaca <strong style="color: #f59e0b; font-family: 'Geist Mono', monospace;">${charNotes}</strong> para que suene a ${dn(fbState.root1)} ${scaleName(fbState.scaleKey1)}.` : ''}
                         ${avoidMsg ? `<br><i class="ph ph-warning" style="color: #a1a1aa;"></i> No te detengas en ${avoidMsg}.` : ''}
                     </div>
                 </div>
@@ -1308,7 +1364,7 @@
             if (activeIdx < 0 && items.length > 0) activeIdx = 0;
 
             const diffMsg = (transitionInfo && transitionInfo.only2Notes.length > 0)
-                ? `Al modular a <strong>${dn(fbState.root2)} ${def2.name}</strong>, las notas que marcan la diferencia son: <span style="color: #f59e0b; font-weight: 700; font-family: 'Geist Mono';">${transitionInfo.only2Notes.join(', ')}</span>. ¡Enfócalas para crear el impacto modal!`
+                ? `Al modular a <strong>${dn(fbState.root2)} ${scaleName(fbState.scaleKey2)}</strong>, las notas que marcan la diferencia son: <span style="color: #f59e0b; font-weight: 700; font-family: 'Geist Mono';">${transitionInfo.only2Notes.join(', ')}</span>. ¡Enfócalas para crear el impacto modal!`
                 : `Ambos modos comparten exactamente las mismas notas (son modos relativos con diferente centro tonal / tónica).`;
 
             const roles2 = NOTE_ROLES[fbState.scaleKey2] || { chord: [], characteristic: [], avoid: [] };
@@ -1326,7 +1382,7 @@
                             ${roles2.characteristic.length ? `<span class="inline-flex items-center gap-2">${dot('background: #f59e0b;')} <strong style="color: #f59e0b;">Característica</strong></span>` : ''}
                             ${roles2.avoid.length ? `<span class="inline-flex items-center gap-2">${dot('background: #09090b; border: 1.5px dashed #a1a1aa;')} Evitar / solo de paso</span>` : ''}
                             <span class="inline-flex items-center gap-2">${dot('background: #09090b; border: 1px solid #52525b; box-shadow: 0 0 0 2px #090a0d, 0 0 0 3.5px rgba(245, 158, 11, 0.7);')} <strong style="color: #f59e0b;">Nota de cambio</strong> (nueva)</span>
-                            <span class="inline-flex items-center gap-2">${dot('background: #3b82f6;')} Solo en ${dn(fbState.root1)} ${def1.name}</span>
+                            <span class="inline-flex items-center gap-2">${dot('background: #3b82f6;')} Solo en ${dn(fbState.root1)} ${scaleName(fbState.scaleKey1)}</span>
                         </div>
                         <div style="color: var(--text-tertiary); font-size: 11.5px;">
                             <i class="ph ph-hand-pointing"></i> Haz clic en cualquier nota para escucharla
@@ -1344,7 +1400,7 @@
                                     <i class="ph ph-arrow-right" style="color: rgba(255,255,255,0.3); font-size: 12px;"></i>
                                 ` : ''}
                                 <span style="font-weight: 700; color: #f59e0b; font-size: 13.5px; display: inline-flex; align-items: center; gap: 6px;">
-                                    ${dn(fbState.root2)} ${def2.name}
+                                    ${dn(fbState.root2)} ${scaleName(fbState.scaleKey2)}
                                 </span>
                                 ${activeItem && activeItem.keyNotes ? `
                                     <span style="font-size: 11.5px; color: var(--text-secondary); background: rgba(255,255,255,0.04); padding: 2px 8px; border-radius: 4px; border: 1px solid var(--border-hairline-light);">
@@ -1383,7 +1439,7 @@
                         </div>
                         ${charNotes2 || avoidMsg2 ? `
                             <div style="font-size: 12px; color: var(--text-secondary); line-height: 1.6;">
-                                ${charNotes2 ? `<div><i class="ph ph-sparkle" style="color: #f59e0b;"></i> Destaca <strong style="color: #f59e0b; font-family: 'Geist Mono', monospace;">${charNotes2}</strong> para que suene a ${dn(fbState.root2)} ${def2.name}.</div>` : ''}
+                                ${charNotes2 ? `<div><i class="ph ph-sparkle" style="color: #f59e0b;"></i> Destaca <strong style="color: #f59e0b; font-family: 'Geist Mono', monospace;">${charNotes2}</strong> para que suene a ${dn(fbState.root2)} ${scaleName(fbState.scaleKey2)}.</div>` : ''}
                                 ${avoidMsg2 ? `<div><i class="ph ph-warning" style="color: #a1a1aa;"></i> No te detengas en ${avoidMsg2}.</div>` : ''}
                             </div>
                         ` : ''}
@@ -1485,10 +1541,11 @@
             const set1 = sm.baseModesMap.get(fbState.root1) || sm.allSongModesMap.get(fbState.root1);
             availableScales1 = set1 && set1.size ? Array.from(set1) : ['major'];
         }
+        availableScales1 = dedupeByName(availableScales1);
         if (!availableScales1.includes(fbState.scaleKey1)) {
             fbState.scaleKey1 = availableScales1[0] || 'major';
         }
-        populateDropdown(scale1El, availableScales1, fbState.scaleKey1, k => SCALES[k] ? SCALES[k].name : k);
+        populateDropdown(scale1El, availableScales1, fbState.scaleKey1, scaleName);
 
         // 3. Root 2 (Transition)
         const availableRoots2 = (fbState.showAll || !sm) ? CHROMATIC_SHARP : sm.transitionRoots;
@@ -1503,10 +1560,11 @@
             const set2 = sm.transitionModesMap.get(fbState.root2) || sm.allSongModesMap.get(fbState.root2);
             availableScales2 = set2 && set2.size ? Array.from(set2) : ['lydian'];
         }
+        availableScales2 = dedupeByName(availableScales2);
         if (!availableScales2.includes(fbState.scaleKey2)) {
             fbState.scaleKey2 = availableScales2[0] || 'lydian';
         }
-        populateDropdown(scale2El, availableScales2, fbState.scaleKey2, k => SCALES[k] ? SCALES[k].name : k);
+        populateDropdown(scale2El, availableScales2, fbState.scaleKey2, scaleName);
     }
 
     // Synchronize quick chip highlights strictly based on current state
@@ -1514,6 +1572,8 @@
         if (!container) return;
 
         container.querySelectorAll('.btn-quick-scale').forEach(chip => {
+            const label = chip.querySelector('.chip-scale-text');
+            if (label && chip.dataset.root) label.textContent = `${dn(chip.dataset.root)} ${scaleName(chip.dataset.scale)}`;
             chip.classList.remove('active-base', 'active-target');
 
             const category = chip.getAttribute('data-category');
@@ -1522,8 +1582,8 @@
             const cIdx = parseInt(chip.getAttribute('data-idx'));
 
             if (!fbState.fusionActive) {
-                // In single mode: highlight currently selected mode
-                if (cRoot === fbState.root1 && cScale === fbState.scaleKey1) {
+                // In single mode: highlight the selected base mode (transition chips are never the base)
+                if (category === 'base' && cRoot === fbState.root1 && cScale === fbState.scaleKey1) {
                     chip.classList.add('active-base');
                 }
             } else {
@@ -1535,7 +1595,8 @@
                 // Target mode gets amber/gold highlight
                 if (category === 'transition') {
                     if (!isNaN(cIdx) && fbState.activeTransitionIndex >= 0) {
-                        if (cIdx === fbState.activeTransitionIndex) {
+                        const idxs = (chip.dataset.idxs || '').split(',').map(Number);
+                        if (cIdx === fbState.activeTransitionIndex || idxs.includes(fbState.activeTransitionIndex)) {
                             chip.classList.add('active-target');
                         }
                     } else if (cRoot === fbState.root2 && cScale === fbState.scaleKey2) {
@@ -1610,7 +1671,11 @@
                             <!-- Populated with base modes -->
                         </div>
                     </div>
-                    <div style="display: flex; align-items: center; gap: 8px; flex-shrink: 0;">
+                    <div style="display: flex; align-items: center; gap: 8px; flex-shrink: 0; flex-wrap: wrap;">
+                        <div class="btn-group" title="Pentatónicas: solo las 5 notas más seguras de cada escala. Modos: la escala completa" style="display: flex; background: rgba(255,255,255,0.04); padding: 2px; border-radius: 8px; border: 1px solid var(--border-hairline-light);">
+                            <button type="button" id="fb-toggle-modes" style="padding: 4px 10px; font-size: 11.5px; border-radius: 6px; border: none; background: ${fbState.pentatonicOnly ? 'transparent' : 'var(--theme-accent, #6366f1)'}; color: #fff; cursor: pointer;">Modos</button>
+                            <button type="button" id="fb-toggle-pent" style="padding: 4px 10px; font-size: 11.5px; border-radius: 6px; border: none; background: ${fbState.pentatonicOnly ? 'var(--theme-accent, #6366f1)' : 'transparent'}; color: #fff; cursor: pointer;">Pentatónicas</button>
+                        </div>
                         <div class="btn-group" style="display: flex; background: rgba(255,255,255,0.04); padding: 2px; border-radius: 8px; border: 1px solid var(--border-hairline-light);">
                             <button type="button" class="btn-chip ${fbState.labelType === 'degrees' ? 'active' : ''}" id="fb-toggle-degrees" style="padding: 4px 10px; font-size: 11.5px; border-radius: 6px; border: none; background: ${fbState.labelType === 'degrees' ? 'var(--theme-accent, #6366f1)' : 'transparent'}; color: #fff; cursor: pointer;">
                                 Grados (1, 2, 3...)
@@ -1759,6 +1824,18 @@
             syncUIState(container);
         });
 
+        const setPent = on => {
+            fbState.pentatonicOnly = on;
+            localStorage.setItem('vibemus_pent_only', on ? '1' : '0');
+            container.querySelector('#fb-toggle-modes').style.background = on ? 'transparent' : 'var(--theme-accent, #6366f1)';
+            container.querySelector('#fb-toggle-pent').style.background = on ? 'var(--theme-accent, #6366f1)' : 'transparent';
+            restartIfPlaying();
+            if (fbState.rebuildTransitionChips) fbState.rebuildTransitionChips();
+            syncUIState(container);
+        };
+        container.querySelector('#fb-toggle-modes').addEventListener('click', () => setPent(false));
+        container.querySelector('#fb-toggle-pent').addEventListener('click', () => setPent(true));
+
         btnDegrees.addEventListener('click', () => {
             fbState.labelType = 'degrees';
             btnDegrees.style.background = 'var(--theme-accent, #6366f1)';
@@ -1837,80 +1914,28 @@
         const baseChipsContainer = container.querySelector('#fretboard-base-chips');
         const transChipsContainer = container.querySelector('#fretboard-transition-chips');
 
-        const baseChips = [];
-        const transChips = [];
-
-        // 1. Primary Base Scale (Tonalidad)
+        // 1. Primary Base Scale (Tonalidad) + additional base modes (e.g. dorian if song is minor)
         const baseRoot = sm.baseRoots[0] || fbState.root1;
         const baseScales = Array.from(sm.baseModesMap.get(baseRoot) || ['major']);
-        const primaryScale = baseScales[0] || 'major';
-        baseChips.push(`
-            <button type="button" class="btn-quick-scale" data-category="base" data-root="${baseRoot}" data-scale="${primaryScale}">
-                <span style="width: 8px; height: 8px; border-radius: 50%; background: #ef4444; display: inline-block;"></span>
-                ${dn(baseRoot)} ${SCALES[primaryScale].name}
-            </button>
-        `);
-
-        // 2. Pentatonic
-        const pentKey = primaryScale.includes('min') ? 'pentatonic_minor' : 'pentatonic_major';
-        if (SCALES[pentKey]) {
-            baseChips.push(`
-                <button type="button" class="btn-quick-scale" data-category="base" data-root="${baseRoot}" data-scale="${pentKey}">
-                    <i class="ph ph-lightning"></i>
-                    ${dn(baseRoot)} ${SCALES[pentKey].name}
+        const buildBaseChips = () => {
+            if (!baseChipsContainer) return;
+            const chips = dedupeByName(baseScales).map((s, i) => i === 0 ? `
+                <button type="button" class="btn-quick-scale" data-category="base" data-root="${baseRoot}" data-scale="${s}">
+                    <span style="width: 8px; height: 8px; border-radius: 50%; background: #ef4444; display: inline-block;"></span>
+                    <span class="chip-scale-text">${dn(baseRoot)} ${scaleName(s)}</span>
+                </button>
+            ` : `
+                <button type="button" class="btn-quick-scale" data-category="base" data-root="${baseRoot}" data-scale="${s}">
+                    <i class="ph ph-music-notes"></i>
+                    <span class="chip-scale-text">${dn(baseRoot)} ${scaleName(s)}</span>
                 </button>
             `);
-        }
+            baseChipsContainer.innerHTML = chips.join('');
+            baseChipsContainer.querySelectorAll('.btn-quick-scale').forEach(bindChip);
+        };
 
-        // Additional base modes for the primary root if any (e.g. dorian if song is minor)
-        baseScales.forEach(s => {
-            if (s !== primaryScale && s !== pentKey) {
-                baseChips.push(`
-                    <button type="button" class="btn-quick-scale" data-category="base" data-root="${baseRoot}" data-scale="${s}">
-                        <i class="ph ph-music-notes"></i>
-                        ${dn(baseRoot)} ${SCALES[s].name}
-                    </button>
-                `);
-            }
-        });
-
-        // 3. Transition Modes for this song (Chord modes)
-        if (sm.transitionItems && sm.transitionItems.length > 0) {
-            sm.transitionItems.forEach((item, idx) => {
-                const chordBadge = item.chord
-                    ? `<span class="chip-chord-tag ${item.degree ? 'chord-degree-' + item.degree : ''}">${item.chord}</span>`
-                    : '';
-                transChips.push(`
-                    <button type="button" class="btn-quick-scale btn-transition-chip" data-idx="${idx}" data-category="transition" data-root="${item.root}" data-scale="${item.scaleKey}" title="${item.chord ? item.chord + ' ➔ ' : ''}${item.scaleDisplayName}">
-                        <i class="ph ph-sparkle"></i>
-                        ${chordBadge}
-                        <span class="chip-scale-text">${item.scaleDisplayName}</span>
-                    </button>
-                `);
-            });
-        } else {
-            sm.transitionModesMap.forEach((scales, r) => {
-                scales.forEach(s => {
-                    if (r === baseRoot && baseScales.includes(s)) return;
-                    transChips.push(`
-                        <button type="button" class="btn-quick-scale" data-category="transition" data-root="${r}" data-scale="${s}">
-                            <i class="ph ph-sparkle"></i>
-                            ${dn(r)} ${SCALES[s] ? SCALES[s].name : s}
-                        </button>
-                    `);
-                });
-            });
-        }
-
-        if (baseChipsContainer) baseChipsContainer.innerHTML = baseChips.join('');
-        if (transChipsContainer) {
-            transChipsContainer.innerHTML = transChips.length
-                ? transChips.join('')
-                : '<span style="font-size: 11.5px; color: var(--text-tertiary); font-style: italic;">No hay transiciones registradas</span>';
-        }
-
-        // Click Handler for all quick chips across both rows
-        container.querySelectorAll('.btn-quick-scale').forEach(chip => {
+        // Click handler shared by every quick chip across both rows
+        const bindChip = chip => {
             chip.addEventListener('click', () => {
                 const category = chip.getAttribute('data-category');
                 const cRoot = chip.getAttribute('data-root');
@@ -1938,7 +1963,58 @@
 
                 syncUIState(container);
             });
-        });
+        };
+
+        // 3. Transition Modes for this song (Chord modes). In the "Pentatónicas" view, chords that
+        // end up on the same pentatonic share one chip.
+        const buildTransChips = () => {
+            const chips = [];
+            if (sm.transitionItems && sm.transitionItems.length > 0) {
+                const groups = [];
+                sm.transitionItems.forEach((item, idx) => {
+                    const label = `${item.root}|${scaleName(item.scaleKey)}`;
+                    const found = fbState.pentatonicOnly && groups.find(g => g.label === label);
+                    if (found) found.items.push({ item, idx });
+                    else groups.push({ label, items: [{ item, idx }] });
+                });
+                groups.forEach(g => {
+                    const first = g.items[0].item;
+                    const badges = g.items.map(({ item }) => item.chord
+                        ? `<span class="chip-chord-tag ${item.degree ? 'chord-degree-' + item.degree : ''}">${item.chord}</span>`
+                        : '').join('');
+                    const chords = g.items.map(({ item }) => item.chord).filter(Boolean).join(' + ');
+                    chips.push(`
+                        <button type="button" class="btn-quick-scale btn-transition-chip" data-idx="${g.items[0].idx}" data-idxs="${g.items.map(i => i.idx).join(',')}" data-category="transition" data-root="${first.root}" data-scale="${first.scaleKey}" title="${chords ? chords + ' ➔ ' : ''}${first.scaleDisplayName}">
+                            <i class="ph ph-sparkle"></i>
+                            ${badges}
+                            <span class="chip-scale-text">${dn(first.root)} ${scaleName(first.scaleKey)}</span>
+                        </button>
+                    `);
+                });
+            } else {
+                sm.transitionModesMap.forEach((scales, r) => {
+                    scales.forEach(s => {
+                        if (r === baseRoot && baseScales.includes(s)) return;
+                        chips.push(`
+                            <button type="button" class="btn-quick-scale" data-category="transition" data-root="${r}" data-scale="${s}">
+                                <i class="ph ph-sparkle"></i>
+                                <span class="chip-scale-text">${dn(r)} ${scaleName(s)}</span>
+                            </button>
+                        `);
+                    });
+                });
+            }
+            if (transChipsContainer) {
+                transChipsContainer.innerHTML = chips.length
+                    ? chips.join('')
+                    : '<span style="font-size: 11.5px; color: var(--text-tertiary); font-style: italic;">No hay transiciones registradas</span>';
+                transChipsContainer.querySelectorAll('.btn-quick-scale').forEach(bindChip);
+            }
+        };
+        fbState.rebuildTransitionChips = () => { buildBaseChips(); buildTransChips(); syncChipsVisual(container); };
+
+        buildBaseChips();
+        buildTransChips();
 
         // Initial visual highlight
         syncChipsVisual(container);

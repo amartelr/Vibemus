@@ -13,6 +13,7 @@ from .songsterr import fetch_songsterr_chords
 from .pdf_import import parse_chord_pdf
 from .gemini import GeminiError, generate_guide
 from .bpm import _lookup_bpm, _parse_bpm
+from .audio_key import AudioKeyError, estimate_key
 from .youtube import (YT_API_LINK, YouTubeAuthRequired, _is_embeddable, _score_video, _search_youtube,
                       get_youtube_service, replace_video_in_playlists, sync_song_in_playlists)
 
@@ -305,6 +306,25 @@ def get_song_bpm():
         except Exception as e:
             print(f"BPM save failed for {artist} - {title}: {e}")
     return jsonify({"bpm": bpm})
+
+
+@app.route('/api/estimate-key', methods=['GET'])
+def estimate_song_key():
+    """Key suggested by the audio (Deezer preview). Never written to the sheet: the user decides."""
+    artist = request.args.get("artist", "").strip()
+    title = request.args.get("title", "").strip()
+    if not artist or not title:
+        return jsonify({"error": "Faltan artista o título"}), 400
+    try:
+        result = estimate_key(artist, title)
+    except AudioKeyError as e:
+        return jsonify({"error": str(e)}), 503
+    except Exception as e:
+        print(f"Key estimation failed for {artist} - {title}: {e}")
+        return jsonify({"error": "No se pudo analizar el audio"}), 502
+    if not result:
+        return jsonify({"error": "Deezer no tiene un preview de esta canción"}), 404
+    return jsonify(result)
 
 
 @app.route('/api/alternative-video', methods=['GET'])
