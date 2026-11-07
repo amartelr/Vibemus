@@ -4469,7 +4469,7 @@ async function handleDetectKey() {
             els.keySuggestion.textContent = data.error || 'No se pudo estimar la tonalidad';
             return;
         }
-        renderKeySuggestion(data.candidates, data.candidates[0].tonality);
+        renderKeySuggestion(data.candidates, data.candidates[0].tonality, { agree: data.agree, sources: data.sources });
     } catch (err) {
         els.keySuggestion.textContent = 'No se pudo estimar la tonalidad';
     } finally {
@@ -4477,7 +4477,19 @@ async function handleDetectKey() {
     }
 }
 
-function renderKeySuggestion(candidates, chosen) {
+// What the two sources said, so the user knows how much to trust the suggestion. The candidates carry no percentage on
+// purpose: the score only ranks them, and measured against reviewed keys it says nothing about being right.
+function keySourcesNote(info) {
+    if (!info) return '';
+    if (info.agree === true) return 'Audio y acordes apuntan a la misma tonalidad.';
+    if (info.agree === false) {
+        const s = info.sources || {};
+        return `Audio: ${s.audio} · Acordes: ${s.chords}. Las fuentes discrepan: revisa a mano.`;
+    }
+    return 'Solo audio: no hay acordes legibles para contrastar.';
+}
+
+function renderKeySuggestion(candidates, chosen, info) {
     const box = els.keySuggestion;
     const current = (els.editTonality.value || '').trim();
     const offset = current ? getSemitoneOffset(current, chosen) : 0;
@@ -4486,8 +4498,15 @@ function renderKeySuggestion(candidates, chosen) {
     box.replaceChildren();
     const title = document.createElement('div');
     title.className = 'key-suggestion-title';
-    title.textContent = sameKey ? 'El audio confirma la tonalidad actual' : 'El audio sugiere:';
+    title.textContent = sameKey ? 'Coincide con la tonalidad actual' : 'Tonalidad sugerida (audio + acordes):';
     box.appendChild(title);
+    const note = keySourcesNote(info);
+    if (note) {
+        const noteEl = document.createElement('div');
+        noteEl.className = 'key-suggestion-title';
+        noteEl.textContent = note;
+        box.appendChild(noteEl);
+    }
 
     const chips = document.createElement('div');
     chips.className = 'key-suggestion-chips';
@@ -4495,8 +4514,8 @@ function renderKeySuggestion(candidates, chosen) {
         const chip = document.createElement('button');
         chip.type = 'button';
         chip.className = 'key-chip' + (c.tonality === chosen ? ' active' : '');
-        chip.textContent = `${c.tonality} · ${Math.round(c.score * 100)}%`;
-        chip.addEventListener('click', () => renderKeySuggestion(candidates, c.tonality));
+        chip.textContent = c.tonality;
+        chip.addEventListener('click', () => renderKeySuggestion(candidates, c.tonality, info));
         chips.appendChild(chip);
     });
     box.appendChild(chips);

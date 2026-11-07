@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Vibemus · Cómo se generan los acordes y las tonalidades</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root { --bg:#0f1218; --card:#181d27; --line:#2a3242; --txt:#e6e9ef; --mut:#9aa4b5;
+          --a:#6ea8fe; --b:#7ee0a8; --c:#ffc66e; --d:#ff8fa3; --e:#c3a6ff; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--txt); font:16px/1.6 -apple-system,Segoe UI,Roboto,sans-serif; }
+  main { max-width:960px; margin:0 auto; padding:40px 20px 80px; }
+  h1 { font-size:2rem; margin:0 0 6px; }
+  h2 { margin:48px 0 12px; padding-top:12px; border-top:1px solid var(--line); font-size:1.4rem; }
+  h3 { margin:24px 0 8px; font-size:1.05rem; color:var(--a); }
+  p, li { color:var(--txt); } .mut { color:var(--mut); }
+  code { background:#232a38; padding:1px 6px; border-radius:5px; font-size:.88em; color:var(--c); }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:18px 20px; margin:14px 0; }
+  .flow { display:flex; flex-wrap:wrap; align-items:stretch; gap:8px; margin:16px 0; }
+  .box { flex:1 1 150px; background:var(--card); border:1px solid var(--line); border-radius:10px; padding:12px; text-align:center; font-size:.92rem; }
+  .box b { display:block; margin-bottom:4px; }
+  .arrow { align-self:center; color:var(--mut); font-size:1.4rem; }
+  .t-a{border-top:3px solid var(--a)} .t-b{border-top:3px solid var(--b)} .t-c{border-top:3px solid var(--c)}
+  .t-d{border-top:3px solid var(--d)} .t-e{border-top:3px solid var(--e)}
+  table { width:100%; border-collapse:collapse; margin:12px 0; font-size:.93rem; }
+  th, td { padding:7px 10px; border-bottom:1px solid var(--line); text-align:left; }
+  th { color:var(--mut); font-weight:600; }
+  .bar { display:inline-block; height:10px; border-radius:5px; vertical-align:middle; }
+  .pos { background:var(--b); } .neg { background:var(--d); }
+  .pill { display:inline-block; padding:2px 10px; border-radius:99px; font-size:.82rem; margin:2px; background:#232a38; border:1px solid var(--line); }
+  .chords { display:flex; gap:8px; flex-wrap:wrap; margin:10px 0; }
+  .chip { padding:8px 14px; border-radius:8px; background:#232a38; border:1px solid var(--line); text-align:center; min-width:62px; }
+  .chip small { display:block; color:var(--c); font-size:.8rem; }
+  .steps { counter-reset:s; list-style:none; padding:0; }
+  .steps li { counter-increment:s; position:relative; padding:6px 0 6px 42px; }
+  .steps li::before { content:counter(s); position:absolute; left:0; top:4px; width:28px; height:28px; border-radius:50%;
+     background:var(--a); color:#0f1218; font-weight:700; text-align:center; line-height:28px; }
+  .note { border-left:3px solid var(--c); padding:6px 14px; background:#1d212b; border-radius:0 8px 8px 0; margin:14px 0; }
+  .wheel { display:flex; flex-wrap:wrap; gap:4px; margin:10px 0; }
+  .wheel span { width:52px; padding:6px 0; text-align:center; border-radius:6px; background:#232a38; border:1px solid var(--line); font-size:.85rem; }
+  .wheel span.in { background:#25402f; border-color:var(--b); }
+  .wheel span.ton { background:var(--a); color:#0f1218; font-weight:700; }
+</style>
+</head>
+<body>
+<main>
+
+<h1>🎸 Cómo se generan los acordes y las tonalidades</h1>
+<p class="mut">Guía del dashboard web de Vibemus · basada en <code>src/web/harmony.py</code>, <code>audio_key.py</code>, <code>custom_harmony.py</code> y <code>ultimate_guitar.py</code>.</p>
+
+<div class="card">
+  <b>Idea central:</b> los acordes <u>no se inventan</u> en la mayoría de casos: se <b>obtienen</b> de una fuente (Ultimate Guitar, PDF o una mezcla de letra + audio + Gemini). La <b>tonalidad</b> se <b>calcula</b> con reglas de teoría musical (y, si hay audio, escuchando la canción). Todo lo demás (progresión, complejidad, estilo) se <b>deriva</b> de esas dos cosas.
+</div>
+
+<h2>1 · Vista general</h2>
+<div class="flow">
+  <div class="box t-a"><b>① Fuente</b>UG · PDF · Personalizada</div><div class="arrow">→</div>
+  <div class="box t-b"><b>② Acordes</b>texto limpio y extraído</div><div class="arrow">→</div>
+  <div class="box t-c"><b>③ Tonalidad</b>por acordes y/o audio</div><div class="arrow">→</div>
+  <div class="box t-d"><b>④ Derivados</b>romanos · progresión · complejidad · estilo</div><div class="arrow">→</div>
+  <div class="box t-e"><b>⑤ Guardado</b>hoja de Google Sheets</div>
+</div>
+<p class="mut">Si ya escribes la tonalidad a mano, el servidor la respeta y no la recalcula (<code>server.py</code>: «If tonality is not supplied by user, detect it from chords»).</p>
+
+<h2>2 · De dónde salen los acordes</h2>
+<table>
+  <tr><th>Fuente</th><th>Qué hace</th><th>Confianza</th></tr>
+  <tr><td><b>Ultimate Guitar</b></td><td>Busca hasta 3 páginas de resultados y ofrece todas las versiones (oficial + comunidad), ordenadas por si traen letra y por popularidad.</td><td>Alta (transcripción humana)</td></tr>
+  <tr><td><b>PDF</b></td><td>Importa los acordes de un documento (<code>pdf_import.py</code>) y normaliza su escritura.</td><td>Alta</td></tr>
+  <tr><td><b>Personalizada</b></td><td>Letra (LRCLIB → lyrics.ovh) + audio (preview de Deezer) + Gemini que redacta la hoja de acordes.</td><td>Media (0.7 con letra y audio, 0.5 si falta uno)</td></tr>
+</table>
+
+<h3>Fuente «Personalizada» paso a paso</h3>
+<ol class="steps">
+  <li>Descarga la <b>letra</b> (LRCLIB; si falla, lyrics.ovh).</li>
+  <li>Descarga el <b>preview de 30 s</b> de Deezer y lo analiza: obtiene la tonalidad y una secuencia de acordes «escuchados» (sección 5).</li>
+  <li>Pasa letra + tonalidad + acordes escuchados a <b>Gemini</b>, que escribe la hoja con etiquetas <code>[ch]Am[/ch]</code> sobre la letra.</li>
+  <li>Se <b>sanea</b> el marcado: cualquier etiqueta <code>[ch]</code> que no sea un acorde real se elimina.</li>
+  <li>Se <b>recalcula la tonalidad definitiva</b> usando los acordes ya escritos (sección 4 + 5).</li>
+</ol>
+<div class="note">Los acordes «escuchados» son una <b>pista</b> para Gemini, no una transcripción. Por eso la confianza de esta fuente es la más baja.</div>
+
+<h2>3 · Extracción de acordes del texto</h2>
+<p><code>clean_and_extract_chords()</code> convierte una hoja de texto en una lista de acordes:</p>
+<div class="flow">
+  <div class="box">Texto con <code>[Verse 1]</code>, <code>[Chorus]</code>…</div><div class="arrow">→</div>
+  <div class="box">Se quitan secciones y etiquetas <code>&lt;…&gt;</code></div><div class="arrow">→</div>
+  <div class="box">Expresión regular de acordes</div><div class="arrow">→</div>
+  <div class="box">Se descartan palabras («in», «to», «verse»…)</div>
+</div>
+<p>La expresión reconoce <b>raíz</b> (A–G con # o b) + <b>sufijo</b> (m, maj, dim, aug, sus, add, números…) + <b>bajo opcional</b> (<code>/G</code>).</p>
+<div class="chords">
+  <div class="chip">Am7<small>raíz A · menor · 7</small></div>
+  <div class="chip">Cmaj7<small>raíz C · mayor · maj7</small></div>
+  <div class="chip">D/F#<small>raíz D · bajo F#</small></div>
+  <div class="chip">Bdim<small>raíz B · disminuido</small></div>
+  <div class="chip">Esus4<small>raíz E · suspendido</small></div>
+</div>
+<p><b>Etiquetas y letras:</b> si el texto trae etiquetas <code>[ch]Am[/ch]</code>, solo se leen esas. En texto libre se analiza línea a línea: una letra suelta (<code>A</code>, <code>C</code>) solo cuenta como acorde si al menos el 60 % de la línea son acordes, así el artículo «A» de una letra no se toma por un acorde.</p>
+<p>Después <code>parse_chord_root_and_quality()</code> clasifica cada acorde como <span class="pill">major</span><span class="pill">minor</span><span class="pill">dim</span><span class="pill">aug</span>, comprobando de lo más específico a lo más general (disminuido, aumentado, menor, mayor). Así <code>Bdim</code> es disminuido, <code>BM7</code> y <code>Bmaj7</code> son mayores y <code>Bmmaj7</code> es menor. Internamente todo se guarda en <b>sostenidos</b> (<code>Bb → A#</code>); al mostrar, se usan bemoles si la canción tiene más bemoles que sostenidos.</p>
+
+<h2>4 · Tonalidad a partir de los acordes</h2>
+<p><code>detect_key_from_chords()</code> prueba <b>las 24 tonalidades posibles</b> (12 notas × mayor/menor), puntúa cada una y gana la de más puntos.</p>
+
+<div class="wheel">
+  <span class="ton">C</span><span>C#</span><span>D</span><span>D#</span><span>E</span><span>F</span><span>F#</span><span>G</span><span>G#</span><span>A</span><span>A#</span><span>B</span>
+</div>
+<p class="mut">Cada una de estas 12 notas se prueba como posible tónica, en modo mayor y menor → 24 candidatas.</p>
+
+<h3>Qué suma o resta cada acorde</h3>
+<p>Para cada candidata, cada acorde se mide por su distancia en semitonos a la tónica y su calidad. Ejemplos en <b>modo mayor</b>:</p>
+<table>
+  <tr><th>Acorde (grado)</th><th>Puntos</th><th></th></tr>
+  <tr><td>I (tónica mayor)</td><td>+3.5</td><td><span class="bar pos" style="width:140px"></span></td></tr>
+  <tr><td>IV (subdominante)</td><td>+2.5</td><td><span class="bar pos" style="width:100px"></span></td></tr>
+  <tr><td>V (dominante)</td><td>+2.5</td><td><span class="bar pos" style="width:100px"></span></td></tr>
+  <tr><td>vi (relativa menor)</td><td>+2.0</td><td><span class="bar pos" style="width:80px"></span></td></tr>
+  <tr><td>ii (menor)</td><td>+1.5</td><td><span class="bar pos" style="width:60px"></span></td></tr>
+  <tr><td>♭VII (prestado, típico rock)</td><td>+1.0</td><td><span class="bar pos" style="width:40px"></span></td></tr>
+  <tr><td>Acorde ajeno a la tonalidad</td><td>−1.5</td><td><span class="bar neg" style="width:60px"></span></td></tr>
+</table>
+<p>En <b>modo menor</b> pesan i (+3.5), III, VI, VII y IV mayor (+2.0), v (+1.5)… Los acordes prestados comunes en pop/rock son ligeramente positivos, no se penalizan como «ajenos».</p>
+
+<h3>Bonificaciones y penalizaciones extra</h3>
+<table>
+  <tr><th>Regla</th><th>Efecto</th></tr>
+  <tr><td>La canción <b>empieza</b> en la tónica</td><td>+3.0</td></tr>
+  <tr><td>La canción <b>termina</b> en la tónica</td><td>+2.0</td></tr>
+  <tr><td>Cadencia V7 → I</td><td>+4.0 (V simple → I: +1.5)</td></tr>
+  <tr><td>IV, ♭VII o ii → I</td><td>+1.5</td></tr>
+  <tr><td>I → acorde diatónico</td><td>+1.0</td></tr>
+  <tr><td>IV → V o ii → V (modo mayor)</td><td>+2.5</td></tr>
+  <tr><td>Séptima dominante sobre el V</td><td>+1.0</td></tr>
+  <tr><td>La 7ª del acorde cae fuera de la escala (p. ej. Cmaj7 no puede ser el V de F)</td><td>−1.5</td></tr>
+</table>
+
+<div class="note">
+  <b>Por qué tantas reglas:</b> el primer sistema confundía el IV con la tónica (p. ej. un vamp I–IV leído como V–I). Se midió contra el audio de 146 canciones marcadas: con los pesos, las cadencias simétricas y la 7ª de cada acorde, los aciertos exactos subieron del <b>54 % al 68 %</b>.
+</div>
+
+<h3>Ejemplo</h3>
+<div class="chords">
+  <div class="chip">Am</div><div class="chip">F</div><div class="chip">C</div><div class="chip">G</div>
+</div>
+<p>Dos candidatas razonables: <b>A menor</b> (empieza en Am: bono de inicio) y <b>C mayor</b> (Am = vi, F = IV, G = V). El resultado depende de los bonos y de cómo termine la canción; ambas son «relativas» y el desempate lo da el audio, si existe.</p>
+
+<h2>5 · Tonalidad a partir del audio</h2>
+<p><code>audio_key.py</code> «escucha» el preview de 30 s de Deezer. El audio solo distingue <b>notas</b> (no acordes), así que la lógica combina audio y acordes.</p>
+
+<div class="flow">
+  <div class="box t-a"><b>Preview MP3</b>Deezer, 30 s</div><div class="arrow">→</div>
+  <div class="box t-b"><b>Parte armónica</b>se separa la batería (librosa)</div><div class="arrow">→</div>
+  <div class="box t-c"><b>Cromagrama</b>energía de las 12 notas</div><div class="arrow">→</div>
+  <div class="box t-d"><b>Correlación</b>con 24 perfiles de tonalidad</div><div class="arrow">→</div>
+  <div class="box t-e"><b>Árbitro</b>los acordes escritos</div>
+</div>
+
+<ol class="steps">
+  <li><b>Cromagrama:</b> se calcula cuánta energía hay en cada una de las 12 notas (C, C#, D…) a lo largo del clip y se promedia.</li>
+  <li><b>Perfiles:</b> se compara ese vector con un perfil «típico» de cada tonalidad mayor y menor (rotado a cada tónica). Mayor puntuación de correlación = tonalidad más probable.</li>
+  <li><b>Penalización por acordes:</b> si hay acordes escritos, a cada candidata se le resta <code>1.5 × (porción de notas de los acordes que quedan fuera de su escala)</code>. Así B mayor queda descartada para Em7 – Gmaj7 – Bm.</li>
+  <li><b>Arbitraje:</b> el audio suele confundir una tonalidad con su paralela (Fa mayor / Fa menor). La tonalidad que implican los acordes (sección 4) pasa al primer puesto; la elección del audio queda como alternativa.</li>
+  <li>Se devuelven las <b>3 mejores candidatas</b>.</li>
+</ol>
+
+<h3>Acordes «escuchados» (solo fuente Personalizada)</h3>
+<p><code>chords_in_frames()</code> divide el audio en <b>ventanas de 2 s</b> y, en cada una, elige el acorde cuya plantilla encaja mejor <u>entre las tríadas diatónicas de la tonalidad</u>:</p>
+<table>
+  <tr><th>Modo</th><th>Acordes candidatos</th></tr>
+  <tr><td>Mayor</td><td>I, ii, iii, IV, V, vi</td></tr>
+  <tr><td>Menor</td><td>i, III, iv, v, V, VI, VII</td></tr>
+</table>
+<p class="mut">Cada plantilla marca solo las 3 notas de la tríada; se elige por similitud coseno y se fusionan los repetidos consecutivos. Por diseño no detecta séptimas, extensiones ni acordes fuera de la tonalidad.</p>
+
+<h2>6 · Del acorde al grado (números romanos)</h2>
+<p><code>get_roman_numeral()</code> calcula la distancia en semitonos entre la tónica y la raíz del acorde y la traduce a un grado. Mayúscula = acorde mayor, minúscula = menor.</p>
+
+<table>
+  <tr><th>C mayor · semitonos</th><th>0</th><th>2</th><th>4</th><th>5</th><th>7</th><th>9</th><th>10</th><th>11</th></tr>
+  <tr><td>Acorde → grado</td><td>C → I</td><td>Dm → ii</td><td>Em → iii</td><td>F → IV</td><td>G → V</td><td>Am → vi</td><td>Bb → ♭VII</td><td>Bdim → vii°</td></tr>
+</table>
+<table>
+  <tr><th>A menor · semitonos</th><th>0</th><th>2</th><th>3</th><th>5</th><th>7</th><th>8</th><th>10</th></tr>
+  <tr><td>Acorde → grado</td><td>Am → i</td><td>Bdim → ii°</td><td>C → III</td><td>Dm → iv</td><td>Em → v</td><td>F → VI</td><td>G → VII</td></tr>
+</table>
+<p>En menor, los semitonos que no están en la escala (natural más sensible) llevan <code>#</code> para no repetir grado: C# es <code>#III</code> (C es <code>III</code>), F# es <code>#VI</code> y G# es <code>#VII</code>. Un disminuido en esos grados se escribe <code>vi°</code> o <code>vii°</code>.</p>
+<p>La <b>progresión</b> que se guarda son los primeros <b>6 grados distintos</b> en orden de aparición, p. ej. <code>vi - IV - I - V</code>. Aparte, <code>infer_progression_full()</code> conserva el orden y las repeticiones (solo funde un mismo acorde repetido seguido); es la que usa el estilo emocional para detectar patrones.</p>
+
+<h2>7 · Otros datos derivados</h2>
+
+<h3>Complejidad (<code>infer_complexity</code>)</h3>
+<p>Se cuentan los acordes <b>únicos</b> y se detectan tipos de acorde:</p>
+<table>
+  <tr><th>Nivel</th><th>Condición</th></tr>
+  <tr><td><span class="pill" style="border-color:var(--d)">Alta</span></td><td>8+ acordes únicos · o complejos (dim, aug, m7b5, 7b9, 11, 13…) con 5+ · o con extensiones (7, 9, sus, add, slash) y 7+</td></tr>
+  <tr><td><span class="pill" style="border-color:var(--c)">Media-Alta</span></td><td>Complejos con 3–4 · o extensiones con 6 · o 6+ acordes</td></tr>
+  <tr><td><span class="pill" style="border-color:var(--a)">Media</span></td><td>Extensiones con 4–5 · o 5 acordes básicos</td></tr>
+  <tr><td><span class="pill" style="border-color:var(--b)">Baja</span></td><td>1–4 acordes básicos</td></tr>
+</table>
+
+<h3>Estilo emocional (<code>infer_emotional_style</code>)</h3>
+<p>Suma puntos a 15 etiquetas (Melancólica, Alegre, Brillante, Cinematográfica…) y devuelve las 3 mejores. Las puntuaciones salen de:</p>
+<ul>
+  <li><b>Modo y color de la tonalidad</b> (mayor/menor y cada nota).</li>
+  <li><b>Tipos de acorde</b> (maj7, sus, dim, 7ª…) y <b>densidad</b> (acordes únicos).</li>
+  <li><b>Patrones de progresión</b>, como I–V–vi–IV (pop), ii–V–I (jazz) o IV–I (plagal). Se buscan en la progresión completa, <b>consecutivos</b> y respetando mayúsculas: <code>vi</code> no es <code>VI</code>. Un grado alterado (<code>bVII</code>) cuenta como su número.</li>
+  <li><b>Préstamo modal:</b> acordes que no son de la tonalidad pero sí de su modo paralelo (por ejemplo Fm en Do mayor). Mezclar mayores y menores diatónicos no cuenta.</li>
+  <li><b>Loop sin dominante:</b> si ningún acorde es V/v, suma Flotante y Soñadora.</li>
+</ul>
+<p class="mut">No hay verdad de referencia para el estilo: lo guardado en la hoja siempre fue salida de esta misma función.</p>
+
+<h3>Habilidad / dificultad</h3>
+<p>El script <code>scripts/recalculate_skills.py</code> recalcula la dificultad de todas las canciones (<code>--dry-run</code> para probar).</p>
+
+<h2>8 · Límites conocidos</h2>
+<ul>
+  <li>La tonalidad por acordes acierta <b>exactamente en ~68 %</b> de los casos medidos; las relativas (C mayor / A menor) y los modos (Mixolidio, Dórico) son su principal fuente de error.</li>
+  <li>El audio solo ve <b>30 segundos</b> y <b>notas sueltas</b>, no acordes; puede confundir tonalidad mayor y menor paralelas.</li>
+  <li>Los acordes «escuchados» solo contemplan tríadas diatónicas: son una pista para Gemini, no una transcripción.</li>
+  <li>Las canciones sin acordes reconocibles devuelven «C Major» por defecto; conviene revisar a mano si la tonalidad no te suena.</li>
+  <li>Siempre puedes <b>fijar la tonalidad a mano</b>: el servidor respeta tu valor.</li>
+</ul>
+
+<p class="mut" style="margin-top:40px">Documento generado a partir del código del repositorio.</p>
+</main>
+</body>
+</html>
