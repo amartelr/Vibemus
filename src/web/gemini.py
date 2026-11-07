@@ -1,9 +1,15 @@
 """Improvisation guides generated with Gemini (free tier; Claude is only used for development)."""
+import hashlib
 import os
 import re
 import time
 
 import requests
+
+from . import sheet_cache
+
+# Chord sheets must answer within this total, retries included (the dashboard waits on them)
+SHEET_BUDGET_SECONDS = 90
 
 
 def strip_latex(text):
@@ -53,9 +59,10 @@ class GeminiError(Exception):
         self.overloaded = overloaded
 
 
-def _generate(prompt, temperature=None):
+def _generate(prompt, temperature=None, budget_seconds=None):
     """Text Gemini answers to the prompt (falls back across Flash models, retries on demand spikes).
-    Raises GeminiError (overloaded=True on 429/503) or RuntimeError if no key."""
+    budget_seconds caps the whole call, retries included; without it each attempt waits up to 120 s.
+    Raises GeminiError (overloaded=True on 429/503 or when the budget runs out) or RuntimeError if no key."""
     api_key = os.getenv("GEMINI_API_KEY")
     if not api_key:
         raise RuntimeError("No se ha configurado la GEMINI_API_KEY en el servidor.")
@@ -64,6 +71,10 @@ def _generate(prompt, temperature=None):
     errors = []
     transient_codes = (429, 500, 503)
     attempts_per_model = 3
+    deadline = time.monotonic() + budget_seconds if budget_seconds else None
+
+    def time_left():
+        return deadline - time.monotonic() if deadline else float("inf")
 
     for model_name in candidate_models:
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent"
@@ -71,8 +82,11 @@ def _generate(prompt, temperature=None):
         if temperature is not None:
             payload["generationConfig"] = {"temperature": temperature}
         for attempt in range(attempts_per_model):
+            if time_left() < 3:
+                break
             try:
-                resp = requests.post(url, json=payload, headers={"x-goog-api-key": api_key}, timeout=120)
+                resp = requests.post(url, json=payload, headers={"x-goog-api-key": api_key},
+                                     timeout=min(120, time_left()) if deadline else 120)
                 resp_json = resp.json()
             except Exception as req_err:
                 errors.append(f"{model_name}: {req_err}")
@@ -87,12 +101,17 @@ def _generate(prompt, temperature=None):
             errors.append(f"{model_name}: {resp.status_code} {resp_json.get('error', {}).get('message', resp_json)}")
             # Demand spikes are temporary: back off and retry the same model before falling through
             if resp.status_code in transient_codes and attempt < attempts_per_model - 1:
-                time.sleep(2 * (attempt + 1))
+                pause = min(2 * (attempt + 1), max(0, time_left() - 3))
+                if pause <= 0:
+                    break
+                time.sleep(pause)
                 continue
             break
         if text:
             break
 
+    if not text and deadline and time_left() < 3:
+        raise GeminiError(f"Gemini va lento: no respondió en {budget_seconds} s. Reintenta en un minuto.", True)
     if not text:
         overloaded = any(("503" in e or "429" in e) for e in errors)
         hint = " Gemini está saturado ahora mismo; inténtalo de nuevo en un minuto." if overloaded else ""
@@ -135,12 +154,28 @@ FORMATO OBLIGATORIO (texto plano, sin Markdown, sin explicaciones, sin bloques d
 """
 
 
-def generate_chord_sheet(artist, title, tonality, lyrics, heard_chords):
+def _cached_sheet(prompt, temperature, fresh):
+    """Cache key of a sheet: the prompt holds every input (lyrics, chords, key), so the same request is answered
+    from data/generated_sheets.json without a new Gemini call. fresh=True skips the read and replaces the entry."""
+    key = hashlib.sha256(f"{temperature}\x1f{prompt}".encode("utf-8")).hexdigest()
+    if not fresh:
+        hit = sheet_cache.get(key)
+        if hit:
+            return hit, key
+    return None, key
+
+
+def generate_chord_sheet(artist, title, tonality, lyrics, heard_chords, fresh=False):
     """Chord sheet as Ultimate-Guitar-style markup ([Verse 1] sections, inline [ch]Am[/ch] chords)."""
-    text = _generate(build_chord_sheet_prompt(artist, title, tonality, lyrics, heard_chords), temperature=0.2)
+    prompt = build_chord_sheet_prompt(artist, title, tonality, lyrics, heard_chords)
+    cached, key = _cached_sheet(prompt, 0.2, fresh)
+    if cached:
+        return cached
+    text = _generate(prompt, temperature=0.2, budget_seconds=SHEET_BUDGET_SECONDS)
     text = strip_latex(text)
-    text = re.sub(r"^```[a-zA-Z]*\n?|\n?```$", "", text.strip())
-    return text.strip()
+    text = re.sub(r"^```[a-zA-Z]*\n?|\n?```$", "", text.strip()).strip()
+    sheet_cache.put(key, text)
+    return text
 
 
 def build_lyrics_alignment_prompt(artist, title, tonality, chord_text, lyrics):
@@ -166,8 +201,14 @@ FORMATO OBLIGATORIO (texto plano, sin Markdown, sin explicaciones, sin bloques d
 """
 
 
-def generate_lyrics_sheet(artist, title, tonality, chord_text, lyrics):
+def generate_lyrics_sheet(artist, title, tonality, chord_text, lyrics, fresh=False):
     """The song's existing chords laid over its lyrics, as Ultimate-Guitar-style markup."""
-    text = _generate(build_lyrics_alignment_prompt(artist, title, tonality, chord_text, lyrics), temperature=0.1)
+    prompt = build_lyrics_alignment_prompt(artist, title, tonality, chord_text, lyrics)
+    cached, key = _cached_sheet(prompt, 0.1, fresh)
+    if cached:
+        return cached
+    text = _generate(prompt, temperature=0.1, budget_seconds=SHEET_BUDGET_SECONDS)
     text = strip_latex(text)
-    return re.sub(r"^```[a-zA-Z]*\n?|\n?```$", "", text.strip()).strip()
+    text = re.sub(r"^```[a-zA-Z]*\n?|\n?```$", "", text.strip()).strip()
+    sheet_cache.put(key, text)
+    return text

@@ -141,7 +141,7 @@ def suggest_harmony():
         
         if source == "Personalizada":
             try:
-                result = fetch_custom_chords(artist, title)
+                result = fetch_custom_chords(artist, title, fresh=bool(data.get("fresh")))
             except (GeminiError, RuntimeError) as e:
                 return jsonify({"found": False, "message": str(e)}), 200
         else:
@@ -165,7 +165,8 @@ def add_lyrics():
     if not artist or not title or not chord_text:
         return jsonify({"found": False, "message": "La canción necesita artista, título y acordes"}), 400
     try:
-        result = add_lyrics_to_chords(artist, title, chord_text, (data.get("tonality") or "").strip(), data.get("lyrics") or "")
+        result = add_lyrics_to_chords(artist, title, chord_text, (data.get("tonality") or "").strip(), data.get("lyrics") or "",
+                                          fresh=bool(data.get("fresh")))
     except (GeminiError, RuntimeError) as e:
         return jsonify({"found": False, "message": str(e)}), 200
     if not result:

@@ -3159,11 +3159,24 @@ function updateAddLyricsUI(chordString, lyricsData) {
     discard.classList.toggle('hide', !pending);
 }
 
+// Songs whose proposal was discarded: the next request asks Gemini again instead of replaying the cached sheet
+const freshLyricsSongs = new Set();
+const songKey = song => `${song.artist} - ${song.title}`;
+
+// Shows "Buscando… 12s" on a button while a request runs; returns the function that stops it
+function startElapsedLabel(labelEl, text) {
+    const started = Date.now();
+    const tick = () => { labelEl.textContent = `${text} ${Math.round((Date.now() - started) / 1000)}s`; };
+    tick();
+    const timer = setInterval(tick, 1000);
+    return () => clearInterval(timer);
+}
+
 async function requestLyricsSheet(song, pastedLyrics) {
     const response = await fetch('/api/add-lyrics', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ artist: song.artist, title: song.title, chord: song.chord, tonality: song.tonality || '', lyrics: pastedLyrics || '' })
+        body: JSON.stringify({ artist: song.artist, title: song.title, chord: song.chord, tonality: song.tonality || '', lyrics: pastedLyrics || '', fresh: freshLyricsSongs.has(songKey(song)) })
     });
     return response.json();
 }
@@ -3184,7 +3197,8 @@ async function handleAddLyrics(pastedLyrics) {
     if (!song || !song.chord) return;
     const btn = document.getElementById('add-lyrics-btn');
     const label = btn.querySelector('.toggle-label');
-    btn.disabled = true; label.textContent = 'Buscando...';
+    btn.disabled = true;
+    const stopTimer = startElapsedLabel(label, 'Buscando...');
     try {
         const data = await requestLyricsSheet(song, pastedLyrics);
         if (state.selectedSong !== song) return; // the user moved on to another song
@@ -3199,6 +3213,7 @@ async function handleAddLyrics(pastedLyrics) {
         console.error('Fallo al añadir la letra:', err);
         showToast('Error de conexión con el servidor', true);
     } finally {
+        stopTimer();
         btn.disabled = false; label.textContent = 'Añadir letra';
     }
 }
@@ -3214,6 +3229,7 @@ async function handleSaveLyrics() {
     if (!song || !state.selectedLyrics) return;
     const lyricsSheet = state.selectedLyrics;
     state.pendingLyricsSong = null;
+    freshLyricsSongs.delete(songKey(song));
     const idx = state.songs.findIndex(s => s.row === song.row);
     if (idx !== -1) {
         state.songs[idx].lyrics = lyricsSheet;
@@ -3242,6 +3258,7 @@ function handleDiscardLyrics() {
     const song = state.pendingLyricsSong;
     if (!song) return;
     state.pendingLyricsSong = null;
+    freshLyricsSongs.add(songKey(song));
     state.selectedLyrics = null;
     state.chordViewMode = 'diagrams';
     renderChordSheet(song.chord, null);
@@ -4906,7 +4923,7 @@ async function handleAutodetect() {
     
     // Animate button loading state
     els.autodetectBtn.disabled = true;
-    els.autodetectBtn.querySelector('span').textContent = "Buscando...";
+    const stopAutodetectTimer = startElapsedLabel(els.autodetectBtn.querySelector('span'), 'Buscando...');
     els.autodetectBtn.classList.add('active');
     
     // The song counts as scanned the moment the button is pressed, whatever the search finds or the user decides
@@ -4944,6 +4961,7 @@ async function handleAutodetect() {
         console.error("Fallo al buscar autodetectar:", err);
         showToast("Error de conexión con el servidor", true);
     } finally {
+        stopAutodetectTimer();
         els.autodetectBtn.disabled = false;
         els.autodetectBtn.querySelector('span').textContent = "Autocompletar Armonía";
         els.autodetectBtn.classList.remove('active');

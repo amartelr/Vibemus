@@ -59,7 +59,7 @@ def sanitize_markup(text):
     return CHORD_TAG.sub(fix, text.replace("\r", ""))
 
 
-def fetch_custom_chords(artist, title):
+def fetch_custom_chords(artist, title, fresh=False):
     """Suggestion {chord, tonality, progression, lyrics_with_chords, ...} or None when there is nothing to work from.
     Raises GeminiError / RuntimeError (Gemini), which the route reports to the user."""
     lyrics = fetch_lyrics(artist, title)
@@ -75,7 +75,7 @@ def fetch_custom_chords(artist, title):
         return None
 
     raw = sanitize_markup(generate_chord_sheet(artist, title, heard["tonality"] if heard else "desconocida",
-                                               lyrics, heard["chords"] if heard else []))
+                                               lyrics, heard["chords"] if heard else [], fresh=fresh))
     chord_string = clean_ug_content(raw)
     if not clean_and_extract_chords(chord_string):
         return None
@@ -111,14 +111,14 @@ def fetch_custom_chords(artist, title):
     }
 
 
-def add_lyrics_to_chords(artist, title, chord_text, tonality="", lyrics=""):
+def add_lyrics_to_chords(artist, title, chord_text, tonality="", lyrics="", fresh=False):
     """Lays the song's existing chords over its lyrics (given, or found online) without touching the chords.
     Returns {'lyrics_with_chords', 'lyrics_found'}, or None when no lyrics are available.
     Raises GeminiError / RuntimeError (Gemini), which the route reports to the user."""
     lyrics = (lyrics or "").strip() or fetch_lyrics(artist, title)
     if not lyrics:
         return None
-    raw = sanitize_markup(generate_lyrics_sheet(artist, title, tonality, chord_text, lyrics))
+    raw = sanitize_markup(generate_lyrics_sheet(artist, title, tonality, chord_text, lyrics, fresh=fresh))
     sheet = extract_lyrics_with_chords(raw)
     if not sheet:
         return None
