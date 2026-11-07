@@ -70,8 +70,19 @@ def test_update_requires_artist_and_title(client):
 
 
 def test_analyze_chords(client):
-    d = client.post("/api/analyze-chords", json={"chord": "Am F C G"}).get_json()
-    assert d["tonality"] == "C Major" and d["progression"] == "vi - IV - I - V"
+    d = client.post("/api/analyze-chords", json={"chord": "C Am F G7 C"}).get_json()
+    assert d["tonality"] == "C Major" and d["progression"] == "I - vi - IV - V7"
+
+
+@pytest.mark.parametrize("chords, key", [
+    # I - IV vamps and I - I7 - IV used to come out in the key of the IV (keys confirmed by ear)
+    ("<chorus> Emaj7 E7 Amaj7 A Emaj7 E7 Amaj7 A <verse> Emaj7 E7 Amaj7 A Emaj7 E7 Amaj7 Amaj7", "E Major"),
+    ("<intro> G Cmaj7 G <verse_1> Cmaj7 G Cmaj7 G Cmaj7 G Cmaj7", "G Major"),
+    ("Am Dm E7 Am", "A Minor"),
+])
+def test_detect_key_from_chords(chords, key):
+    from src.web.harmony import clean_and_extract_chords, detect_key_from_chords
+    assert detect_key_from_chords(clean_and_extract_chords(chords)) == key
 
 
 def test_bulk_reskill_writes_only_changes(client):
@@ -117,13 +128,19 @@ def test_songs_expose_per_song_voicings(client):
 
 def test_estimate_key_returns_candidates_without_touching_the_sheet(client, monkeypatch):
     fake = {"tonality": "C# Major", "score": 0.88, "candidates": [{"tonality": "C# Major", "score": 0.88}]}
-    monkeypatch.setattr(server, "estimate_key", lambda artist, title: fake)
+    monkeypatch.setattr(server, "estimate_key", lambda artist, title, chord_text=None: fake)
     r = client.get("/api/estimate-key?artist=Artist1&title=Song1")
     assert r.status_code == 200 and r.get_json()["tonality"] == "C# Major"
     assert client.ws.written == []
 
 
 def test_estimate_key_reports_missing_preview_and_missing_params(client, monkeypatch):
-    monkeypatch.setattr(server, "estimate_key", lambda artist, title: None)
+    monkeypatch.setattr(server, "estimate_key", lambda artist, title, chord_text=None: None)
     assert client.get("/api/estimate-key?artist=A&title=T").status_code == 404
     assert client.get("/api/estimate-key?artist=A").status_code == 400
+
+
+def test_detect_key_keeps_iv_v_ii_cadence_in_major():
+    # Vansire - Every Time Around: Amaj7 B G#m7 F#m7 is IV7 - V - iii - ii in E major (confirmed by ear)
+    from src.web.harmony import clean_and_extract_chords, detect_key_from_chords
+    assert detect_key_from_chords(clean_and_extract_chords("Amaj7 B G#m7 F#m7 Amaj7 B G#m7 F#m7")) == "E Major"
