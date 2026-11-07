@@ -1,0 +1,38 @@
+# Cachés Python
+__pycache__/
+.pytest_cache/
+*.pyc
+*.pyo
+*.egg-info/
+.eggs/
+
+# Dependencias
+.venv/
+venv/
+node_modules/
+
+# Datos y temporales
+tmp/
+scratch/
+data/
+*.log
+
+# Navegadores y auth
+chrome_auth_profile/
+.gemini/
+
+# IDE y sistema
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+
+# Builds
+build/
+dist/
+*.egg
+
+# Tests coverage
+.coverage
+htmlcov/

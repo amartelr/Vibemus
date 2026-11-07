@@ -1338,6 +1338,15 @@ body {
     gap: 1px;
 }
 
+/* Drag a chord within its line to move it to another word */
+.lyrics-chord-chip-wrap[draggable="true"] { cursor: grab; }
+.lyrics-chord-chip-wrap.dragging { opacity: 0.4; }
+.lyrics-word.lyrics-drop-target {
+    background: rgba(99, 102, 241, 0.15);
+    border-radius: 4px;
+    box-shadow: inset 0 0 0 1px var(--theme-accent, #6366f1);
+}
+
 /* Chord label above the word */
 .lyrics-chord-above {
     font-family: var(--font-mono, 'JetBrains Mono', monospace);
