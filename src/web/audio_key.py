@@ -10,6 +10,7 @@ import numpy as np
 import requests
 
 from .bpm import _norm_text
+from .harmony import NOTE_MAP, SEMITONES, clean_and_extract_chords, parse_chord_root_and_quality
 
 SAMPLE_RATE = 22050
 HOP = 2048
@@ -20,6 +21,13 @@ MINOR_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'Bb', 'B']
 # Temperley's profiles scored best on 60 sheet songs (Krumhansl and Albrecht-Shanahan were worse)
 MAJOR_PROFILE = np.array([5.0, 2.0, 3.5, 2.0, 4.5, 4.0, 2.0, 4.5, 2.0, 3.5, 1.5, 4.0])
 MINOR_PROFILE = np.array([5.0, 2.0, 3.5, 4.5, 2.0, 4.0, 2.0, 4.5, 3.5, 2.0, 1.5, 4.0])
+
+
+# Scale of each mode (the minor one includes the raised 7th, so V and vii° chords are not penalised)
+MAJOR_SCALE = (0, 2, 4, 5, 7, 9, 11)
+MINOR_SCALE = (0, 2, 3, 5, 7, 8, 10, 11)
+# How much a key loses when all of the song's chord tones fall outside its scale
+CHORD_MISFIT_WEIGHT = 1.5
 
 
 class AudioKeyError(Exception):
@@ -50,8 +58,8 @@ def _decode_mono(mp3_bytes):
     return np.frombuffer(proc.stdout, dtype=np.float32)
 
 
-def _chroma_profile(samples):
-    """Average 12-bin pitch-class energy of the clip, from its harmonic part (drums blur the key)."""
+def _chroma_frames(samples):
+    """12 x frames pitch-class energy of the clip, from its harmonic part (drums blur the key)."""
     if len(samples) < SAMPLE_RATE * 5:
         raise AudioKeyError("Audio demasiado corto")
     try:
@@ -59,27 +67,120 @@ def _chroma_profile(samples):
     except ImportError:
         raise AudioKeyError("Falta librosa (pip install -r requirements.txt)")
     harmonic = librosa.effects.harmonic(samples, margin=4)
-    chroma = librosa.feature.chroma_cqt(y=harmonic, sr=SAMPLE_RATE, hop_length=HOP, bins_per_octave=36)
-    return chroma.mean(axis=1)
+    return librosa.feature.chroma_cqt(y=harmonic, sr=SAMPLE_RATE, hop_length=HOP, bins_per_octave=36)
 
 
-def key_candidates(chroma):
-    """All 24 keys ranked by correlation with the key profiles."""
+def _chroma_profile(samples):
+    """Average 12-bin pitch-class energy of the clip."""
+    return _chroma_frames(samples).mean(axis=1)
+
+
+def chord_chroma(chord_text):
+    """12-bin pitch-class weight of the chord tones in a chord text (one count per chord written), or None."""
+    weights = np.zeros(12)
+    for name in clean_and_extract_chords(chord_text or ""):
+        root, quality, suffix = parse_chord_root_and_quality(name)
+        if root not in NOTE_MAP:
+            continue
+        r = SEMITONES.index(NOTE_MAP[root])
+        third = {"minor": 3, "dim": 3}.get(quality, 4)
+        fifth = {"dim": 6, "aug": 8}.get(quality, 7)
+        tones = [0, third, fifth]
+        low = suffix.lower()
+        if "maj7" in low or "m7" in low and "maj" in low:
+            tones.append(11)
+        elif "7" in low:
+            tones.append(10)
+        for t in tones:
+            weights[(r + t) % 12] += 1
+    return weights if weights.sum() else None
+
+
+def _chord_misfit(chords, tonic, scale):
+    """Share of the chord-tone weight that lies outside the key's scale (0 = every chord is diatonic)."""
+    inside = {(tonic + d) % 12 for d in scale}
+    outside = sum(w for pc, w in enumerate(chords) if pc not in inside)
+    return float(outside / chords.sum())
+
+
+def key_candidates(chroma, chords=None):
+    """All 24 keys ranked by correlation with the key profiles. With the song's chord tones, keys that
+    cannot hold those chords (B Major for Em7 - Gmaj7 - Bm) lose score in proportion to how many tones they miss."""
     ranked = []
     for tonic in range(12):
-        for names, profile, mode in ((MAJOR_NAMES, MAJOR_PROFILE, "Major"), (MINOR_NAMES, MINOR_PROFILE, "Minor")):
-            r = float(np.corrcoef(np.roll(profile, tonic), chroma)[0, 1])
-            ranked.append({"tonality": f"{names[tonic]} {mode}", "score": round(r, 3)})
+        for names, profile, scale, mode in ((MAJOR_NAMES, MAJOR_PROFILE, MAJOR_SCALE, "Major"),
+                                            (MINOR_NAMES, MINOR_PROFILE, MINOR_SCALE, "Minor")):
+            audio = float(np.corrcoef(np.roll(profile, tonic), chroma)[0, 1])
+            score = audio
+            if chords is not None:
+                score -= CHORD_MISFIT_WEIGHT * _chord_misfit(chords, tonic, scale)
+            ranked.append({"tonality": f"{names[tonic]} {mode}", "score": round(score, 3), "audio": round(audio, 3)})
     return sorted(ranked, key=lambda c: c["score"], reverse=True)
 
 
-@functools.lru_cache(maxsize=128)
-def estimate_key(artist, title):
-    """{'tonality', 'score', 'candidates'} from the song's Deezer preview, or None if Deezer has no preview."""
+@functools.lru_cache(maxsize=32)
+def _preview_frames(artist, title):
+    """Chroma frames (12 x T) of the song's Deezer preview, or None if Deezer has no preview."""
     url = _find_preview_url(artist, title)
     if not url:
         return None
     audio = requests.get(url, timeout=20)
     audio.raise_for_status()
-    ranked = key_candidates(_chroma_profile(_decode_mono(audio.content)))
+    return _chroma_frames(_decode_mono(audio.content))
+
+
+def _preview_chroma(artist, title):
+    """Pitch-class profile of the song's Deezer preview, or None if Deezer has no preview."""
+    frames = _preview_frames(artist, title)
+    return None if frames is None else frames.mean(axis=1)
+
+
+def estimate_key(artist, title, chord_text=None):
+    """{'tonality', 'score', 'candidates'} from the song's Deezer preview, or None if Deezer has no preview.
+    chord_text (the chords written in the editor) rules out keys those chords do not fit."""
+    chroma = _preview_chroma(artist, title)
+    if chroma is None:
+        return None
+    ranked = key_candidates(chroma, chord_chroma(chord_text))
     return {"tonality": ranked[0]["tonality"], "score": ranked[0]["score"], "candidates": ranked[:3]}
+
+
+# Chords heard in the preview: diatonic triads of the key, one guess per window of audio
+CHORD_WINDOW_SECONDS = 2.0
+_MAJOR_TRIADS = ((0, "major"), (2, "minor"), (4, "minor"), (5, "major"), (7, "major"), (9, "minor"))
+_MINOR_TRIADS = ((0, "minor"), (3, "major"), (5, "minor"), (7, "minor"), (7, "major"), (8, "major"), (10, "major"))
+
+
+def chords_in_frames(frames, tonality):
+    """Chord sequence (['Am', 'F', ...], repeats merged) heard in the chroma frames, choosing among the
+    diatonic triads of the tonality ('A Minor'). It is a hint for the chord sheet, not a transcription."""
+    name, mode = tonality.rsplit(" ", 1)
+    names = MINOR_NAMES if mode == "Minor" else MAJOR_NAMES
+    tonic = names.index(name) if name in names else SEMITONES.index(NOTE_MAP[name])
+    candidates = []
+    for degree, quality in (_MINOR_TRIADS if mode == "Minor" else _MAJOR_TRIADS):
+        root = (tonic + degree) % 12
+        template = np.zeros(12)
+        for tone in (0, 3 if quality == "minor" else 4, 7):
+            template[(root + tone) % 12] = 1.0
+        candidates.append((names[root] + ("m" if quality == "minor" else ""), template))
+    step = max(1, int(CHORD_WINDOW_SECONDS * SAMPLE_RATE / HOP))
+    sequence = []
+    for start in range(0, frames.shape[1], step):
+        window = frames[:, start:start + step].mean(axis=1)
+        if window.sum() <= 0:
+            continue
+        best = max(candidates, key=lambda c: float(np.dot(c[1], window) / (np.linalg.norm(c[1]) * np.linalg.norm(window))))
+        if not sequence or sequence[-1] != best[0]:
+            sequence.append(best[0])
+    return sequence
+
+
+def estimate_preview_chords(artist, title):
+    """{'tonality', 'chords'} heard in the song's Deezer preview, or None if Deezer has no preview."""
+    frames = _preview_frames(artist, title)
+    if frames is None:
+        return None
+    ranked = key_candidates(frames.mean(axis=1))
+    tonality = ranked[0]["tonality"]
+    return {"tonality": tonality, "chords": chords_in_frames(frames, tonality)}

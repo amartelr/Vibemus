@@ -9,12 +9,12 @@ from .paths import WEB_DIR
 from .harmony import (clean_and_extract_chords, detect_key_from_chords, infer_complexity,
                       infer_emotional_style, infer_progression)
 from .ultimate_guitar import fetch_ug_chords
-from .songsterr import fetch_songsterr_chords
+from .custom_harmony import add_lyrics_to_chords, fetch_custom_chords
 from .pdf_import import parse_chord_pdf
 from .gemini import GeminiError, generate_guide
 from .bpm import _lookup_bpm, _parse_bpm
 from .audio_key import AudioKeyError, estimate_key
-from .youtube import (YT_API_LINK, YouTubeAuthRequired, _is_embeddable, _score_video, _search_youtube,
+from .youtube import (YT_API_LINK, YouTubeAuthRequired, _is_embeddable, _score_video, _search_music_songs,
                       get_youtube_service, replace_video_in_playlists, sync_song_in_playlists)
 
 app = Flask(__name__, static_folder=WEB_DIR, static_url_path='')
@@ -134,13 +134,16 @@ def suggest_harmony():
         data = request.json
         artist = data.get("artist", "").strip()
         title = data.get("title", "").strip()
-        source = data.get("source", "Songsterr").strip()
+        source = data.get("source", "Ultimate Guitar").strip()
         
         if not artist or not title:
             return jsonify({"found": False, "message": "Falta el artista o título de la canción"}), 400
         
-        if source == "Songsterr":
-            result = fetch_songsterr_chords(artist, title)
+        if source == "Personalizada":
+            try:
+                result = fetch_custom_chords(artist, title)
+            except (GeminiError, RuntimeError) as e:
+                return jsonify({"found": False, "message": str(e)}), 200
         else:
             result = fetch_ug_chords(artist, title)
         
@@ -151,6 +154,24 @@ def suggest_harmony():
         
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/add-lyrics', methods=['POST'])
+def add_lyrics():
+    """Lays a song's saved chords over its lyrics (found online, or pasted by the user). Nothing is saved here."""
+    data = request.get_json(force=True, silent=True) or {}
+    artist, title = (data.get("artist") or "").strip(), (data.get("title") or "").strip()
+    chord_text = (data.get("chord") or "").strip()
+    if not artist or not title or not chord_text:
+        return jsonify({"found": False, "message": "La canción necesita artista, título y acordes"}), 400
+    try:
+        result = add_lyrics_to_chords(artist, title, chord_text, (data.get("tonality") or "").strip(), data.get("lyrics") or "")
+    except (GeminiError, RuntimeError) as e:
+        return jsonify({"found": False, "message": str(e)}), 200
+    if not result:
+        return jsonify({"found": False, "needs_lyrics": True,
+                        "message": "No se encontró la letra: pégala a mano"}), 200
+    return jsonify({"found": True, **result})
 
 
 @app.route('/api/analyze-chords', methods=['POST'])
@@ -316,7 +337,7 @@ def estimate_song_key():
     if not artist or not title:
         return jsonify({"error": "Faltan artista o título"}), 400
     try:
-        result = estimate_key(artist, title)
+        result = estimate_key(artist, title, request.args.get("chord", ""))
     except AudioKeyError as e:
         return jsonify({"error": str(e)}), 503
     except Exception as e:
@@ -336,8 +357,9 @@ def alternative_video():
         return jsonify({"videoId": None, "message": "Falta el artista o el título"}), 400
     try:
         scored = []
-        for query in (f"{artist} {title}", f"{artist} {title} official audio"):
-            for v in _search_youtube(query):
+        # YouTube Music songs only (audio tracks), never music videos
+        for query in (f"{artist} {title}",):
+            for v in _search_music_songs(query):
                 if v["id"] in exclude or any(v["id"] == c["video"]["id"] for c in scored):
                     continue
                 sc = _score_video(v, artist, title)

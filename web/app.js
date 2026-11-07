@@ -1856,6 +1856,65 @@ async function addLyricsChord(si, li, wordIdx, at, name) {
     await handleFormSubmission({ preventDefault() {} });
 }
 
+// Chord being dragged in the lyrics view: { si, li, ci }. Only words of the same line accept it.
+let lyricsChordDrag = null;
+
+// Move chord `ci` of line (si, li) onto word `wi` of that same line (drag & drop). Among the line's chords it goes after
+// the ones already on that word. The chord text follows: the token goes right after the token of the chord that now
+// precedes it in the line, or right before the one that now follows it. Then re-analyse and save.
+async function moveLyricsChord(si, li, ci, wi) {
+    const song = state.selectedSong;
+    const lyrics = state.selectedLyrics;
+    const line = lyrics && lyrics[si] && lyrics[si].lines[li];
+    if (!song || !line || !line.chords[ci]) return;
+    const wordOf = c => Math.max(0, c.word_idx);
+    if (wordOf(line.chords[ci]) === wi) return; // same word: nothing to move
+
+    const rest = line.chords.filter((_, j) => j !== ci);
+    let k = rest.findIndex(c => wordOf(c) > wi);
+    if (k === -1) k = rest.length;
+    const newChords = [...rest.slice(0, k), { ...line.chords[ci], word_idx: wi }, ...rest.slice(k)];
+
+    // flat slot number of the line's first chord, and the flat slot of each chord of the line
+    let lineStart = 0;
+    let flat = 0;
+    lyrics.forEach((sec, a) => sec.lines.forEach((l, b) => {
+        if (a === si && b === li) lineStart = flat;
+        flat += l.chords.length;
+    }));
+    const restToLocal = r => (r < ci ? r : r + 1); // index in rest -> index in line.chords
+    const text = (els.editChord ? els.editChord.value : song.chord) || '';
+    const { tokens, tokOf } = mapLyricsToText(lyrics, text);
+    const movedTok = tokOf(lineStart + ci);
+    const predTok = k - 1 >= 0 ? tokOf(lineStart + restToLocal(k - 1)) : undefined;
+    const succTok = k < rest.length ? tokOf(lineStart + restToLocal(k)) : undefined;
+
+    let newText = text;
+    const ref = predTok !== undefined ? { tok: tokens[predTok], after: true }
+        : succTok !== undefined ? { tok: tokens[succTok], after: false } : null;
+    if (movedTok !== undefined && ref) {
+        const t = tokens[movedTok];
+        const rs = t.start;
+        const re = t.end + (/^[ \t]/.test(text.slice(t.end)) ? 1 : 0); // token plus the space after it
+        const text1 = text.slice(0, rs) + text.slice(re);
+        const p = ref.after ? ref.tok.end : ref.tok.start; // insertion point in the original text
+        const pos = p <= rs ? p : p - (re - rs);
+        newText = ref.after
+            ? text1.slice(0, pos) + ' ' + t.text + text1.slice(pos)
+            : text1.slice(0, pos) + t.text + ' ' + text1.slice(pos);
+    }
+
+    state.selectedLyrics = lyrics.map((sec, a) => (a !== si ? sec : {
+        ...sec,
+        lines: sec.lines.map((l, b) => (b !== li ? l : { ...l, chords: newChords }))
+    }));
+    rememberGuideHarmony(song);
+    if (els.editChord) els.editChord.value = newText;
+    song.chord = newText;
+    redrawChordViews();
+    await handleFormSubmission({ preventDefault() {} });
+}
+
 // Inline input that asks for a chord name; calls onSubmit(name) with a valid, normalised name
 function promptChordInline(anchor, onSubmit, onCancel) {
     const input = document.createElement('input');
@@ -2023,6 +2082,8 @@ function renderChordPracticePanel(container, song) {
                 </div>
                 <div style="display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 8px;">
                     <button type="button" data-edit-play style="${chip} background: rgba(255,255,255,0.04); color: var(--text-primary);"><i class="ph-fill ph-play"></i> Tocar</button>
+                    <button type="button" data-edit-shift="-1" ${played && view.edit.every(f => f < 0 || f > 0) ? '' : 'disabled'} title="Bajar el acorde un traste (más grave)" style="${chip} background: rgba(255,255,255,0.04); color: var(--text-primary);"><i class="ph ph-arrow-down"></i> Bajar</button>
+                    <button type="button" data-edit-shift="1" ${played && view.edit.every(f => f < 15) ? '' : 'disabled'} title="Subir el acorde un traste (más agudo)" style="${chip} background: rgba(255,255,255,0.04); color: var(--text-primary);"><i class="ph ph-arrow-up"></i> Subir</button>
                     <button type="button" data-edit-clear style="${chip} background: rgba(255,255,255,0.04); color: var(--text-secondary);">Vaciar</button>
                     <button type="button" data-edit-save ${played ? '' : 'disabled'} style="${chip} background: rgba(255,255,255,0.04); color: var(--text-primary);">Guardar posición${found && !sameChord ? ` como ${found.name}` : ''}</button>
                     <button type="button" data-edit-default ${played ? '' : 'disabled'} style="${chip} background: rgba(245,158,11,0.18); color: #f59e0b; border-color: rgba(245,158,11,0.5);">★ Guardar y usar por defecto${found && !sameChord ? ` (y renombrar ${view.chord} → ${found.name})` : ''}</button>
@@ -2067,6 +2128,13 @@ function renderChordPracticePanel(container, song) {
                 draw();
             }));
             $('[data-edit-play]').addEventListener('click', () => strumVoicing({ frets: view.edit }));
+            container.querySelectorAll('[data-edit-shift]').forEach(b => b.addEventListener('click', () => {
+                const d = parseInt(b.dataset.editShift, 10);
+                const next = view.edit.map(f => (f < 0 ? f : f + d));
+                if (next.some(f => f > 15)) return;
+                view.edit = next; draw();
+                if (window.GuitarFretboard) strumVoicing({ frets: view.edit });
+            }));
             $('[data-edit-clear]').addEventListener('click', () => { view.edit = [-1, -1, -1, -1, -1, -1]; draw(); });
             $('[data-edit-cancel]').addEventListener('click', () => { view.edit = null; draw(); });
             const commit = async (makeDefault) => {
@@ -3049,6 +3117,7 @@ function createGuitarChordDiagram(chordName, shape = getChordShape(chordName)) {
 function renderChordSheet(chordString, lyricsData) {
     const container = els.focusChordsContainer;
     container.innerHTML = '';
+    updateAddLyricsUI(chordString, lyricsData);
 
     const hasLyrics = !!(lyricsData && lyricsData.length > 0);
     const hasChords = !!(chordString && chordString.trim() !== '');
@@ -3071,6 +3140,126 @@ function renderChordSheet(chordString, lyricsData) {
         _renderDiagramSheet(container, chordString);
     }
 }
+
+// ── Add lyrics to a song that already has chords ─────────────────────────────
+// Lyrics found online (or pasted) are laid under the saved chords. Nothing is stored until "Guardar letra".
+state.pendingLyricsSong = null; // song whose proposed lyrics are showing, not yet saved
+
+function updateAddLyricsUI(chordString, lyricsData) {
+    const add = document.getElementById('add-lyrics-btn');
+    const save = document.getElementById('save-lyrics-btn');
+    const discard = document.getElementById('discard-lyrics-btn');
+    if (!add || !save || !discard) return;
+    const pending = !!state.pendingLyricsSong && state.pendingLyricsSong === state.selectedSong;
+    if (!pending) state.pendingLyricsSong = null;
+    const hasChords = !!(chordString && chordString.trim());
+    const hasLyrics = !!(lyricsData && lyricsData.length);
+    add.classList.toggle('hide', !(hasChords && !hasLyrics));
+    save.classList.toggle('hide', !pending);
+    discard.classList.toggle('hide', !pending);
+}
+
+async function requestLyricsSheet(song, pastedLyrics) {
+    const response = await fetch('/api/add-lyrics', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ artist: song.artist, title: song.title, chord: song.chord, tonality: song.tonality || '', lyrics: pastedLyrics || '' })
+    });
+    return response.json();
+}
+
+function showLyricsProposal(song, lyricsSheet) {
+    const cleaned = _filterAndValidateLyrics(lyricsSheet);
+    if (!cleaned) { showToast('Gemini no devolvió una letra con acordes utilizable; inténtalo de nuevo', true); return false; }
+    state.selectedLyrics = cleaned;
+    state.chordViewMode = 'lyrics';
+    state.pendingLyricsSong = song;
+    renderChordSheet(song.chord, state.selectedLyrics);
+    showToast('Revisa la letra y pulsa "Guardar letra" (o "Descartar")');
+    return true;
+}
+
+async function handleAddLyrics(pastedLyrics) {
+    const song = state.selectedSong;
+    if (!song || !song.chord) return;
+    const btn = document.getElementById('add-lyrics-btn');
+    const label = btn.querySelector('.toggle-label');
+    btn.disabled = true; label.textContent = 'Buscando...';
+    try {
+        const data = await requestLyricsSheet(song, pastedLyrics);
+        if (state.selectedSong !== song) return; // the user moved on to another song
+        if (data.found) {
+            showLyricsProposal(song, data.lyrics_with_chords);
+        } else if (data.needs_lyrics) {
+            openPasteLyricsModal();
+        } else {
+            showToast(data.message || 'No se pudo añadir la letra', true);
+        }
+    } catch (err) {
+        console.error('Fallo al añadir la letra:', err);
+        showToast('Error de conexión con el servidor', true);
+    } finally {
+        btn.disabled = false; label.textContent = 'Añadir letra';
+    }
+}
+
+function openPasteLyricsModal() {
+    document.getElementById('paste-lyrics-text').value = '';
+    document.getElementById('paste-lyrics-modal').classList.remove('hide');
+    document.getElementById('paste-lyrics-text').focus();
+}
+
+async function handleSaveLyrics() {
+    const song = state.pendingLyricsSong;
+    if (!song || !state.selectedLyrics) return;
+    const lyricsSheet = state.selectedLyrics;
+    state.pendingLyricsSong = null;
+    const idx = state.songs.findIndex(s => s.row === song.row);
+    if (idx !== -1) {
+        state.songs[idx].lyrics = lyricsSheet;
+        try { localStorage.setItem('vibemus_songs_data', JSON.stringify(state.songs)); } catch (e) { console.warn('Cache quota exceeded'); }
+        processSongsMetadata();
+    }
+    renderChordSheet(song.chord, lyricsSheet);
+    try {
+        setSyncingStatus(true);
+        // Only the lyrics: chords, key and scan date stay as they are
+        const res = await apiUpdateFetch('/api/update', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ row: song.row, artist: song.artist, title: song.title, lyricsWithChords: lyricsSheet })
+        });
+        if (res.ok) showToast('Letra guardada en Google Sheets');
+        else showToast('No se pudo guardar la letra en Google Sheets', true);
+    } catch (err) {
+        showToast('No se pudo guardar la letra en Google Sheets', true);
+    } finally {
+        setSyncingStatus(false);
+    }
+}
+
+function handleDiscardLyrics() {
+    const song = state.pendingLyricsSong;
+    if (!song) return;
+    state.pendingLyricsSong = null;
+    state.selectedLyrics = null;
+    state.chordViewMode = 'diagrams';
+    renderChordSheet(song.chord, null);
+}
+
+(function setupAddLyrics() {
+    const on = (id, fn) => { const el = document.getElementById(id); if (el) el.addEventListener('click', fn); };
+    on('add-lyrics-btn', () => handleAddLyrics(''));
+    on('save-lyrics-btn', handleSaveLyrics);
+    on('discard-lyrics-btn', handleDiscardLyrics);
+    on('paste-lyrics-cancel', () => document.getElementById('paste-lyrics-modal').classList.add('hide'));
+    on('paste-lyrics-submit', () => {
+        const text = document.getElementById('paste-lyrics-text').value.trim();
+        if (!text) { showToast('Pega la letra primero', true); return; }
+        document.getElementById('paste-lyrics-modal').classList.add('hide');
+        handleAddLyrics(text);
+    });
+})();
 
 // ── Diagram Sheet (existing behavior) ────────────────────────────────────────
 function _renderDiagramSheet(container, chordString) {
@@ -3223,6 +3412,20 @@ function _renderLyricsSheet(container, lyricsData) {
             });
             wrap.appendChild(actions);
 
+            // drag the chord onto another word of its own line to move it there
+            wrap.draggable = true;
+            wrap.addEventListener('dragstart', (e) => {
+                lyricsChordDrag = { si: ref.si, li: ref.li, ci: ref.ci };
+                e.dataTransfer.effectAllowed = 'move';
+                e.dataTransfer.setData('text/plain', chordName); // Firefox does not start a drag without data
+                wrap.classList.add('dragging');
+            });
+            wrap.addEventListener('dragend', () => {
+                lyricsChordDrag = null;
+                wrap.classList.remove('dragging');
+                document.querySelectorAll('.lyrics-drop-target').forEach(el => el.classList.remove('lyrics-drop-target'));
+            });
+
             editBtn.addEventListener('click', (e) => {
                 e.stopPropagation();
                 const input = document.createElement('input');
@@ -3319,6 +3522,26 @@ function _renderLyricsSheet(container, lyricsData) {
             words.forEach((word, wi) => {
                 const wordEl = document.createElement('span');
                 wordEl.className = 'lyrics-word';
+
+                // accepts a chord dragged from this same line
+                const sameLineDrag = () => lyricsChordDrag && lyricsChordDrag.si === si && lyricsChordDrag.li === li;
+                wordEl.addEventListener('dragover', (e) => {
+                    if (!sameLineDrag()) return;
+                    e.preventDefault();
+                    e.dataTransfer.dropEffect = 'move';
+                    wordEl.classList.add('lyrics-drop-target');
+                });
+                wordEl.addEventListener('dragleave', (e) => {
+                    if (!wordEl.contains(e.relatedTarget)) wordEl.classList.remove('lyrics-drop-target');
+                });
+                wordEl.addEventListener('drop', (e) => {
+                    wordEl.classList.remove('lyrics-drop-target');
+                    if (!sameLineDrag()) return;
+                    e.preventDefault();
+                    const { ci } = lyricsChordDrag;
+                    lyricsChordDrag = null;
+                    moveLyricsChord(si, li, ci, wi);
+                });
 
                 if (chordMap[wi]) {
                     // One chip per chord at this word position
@@ -4221,7 +4444,7 @@ async function handleDetectKey() {
     els.keySuggestion.classList.remove('hide');
     els.keySuggestion.textContent = 'Escuchando el preview…';
     try {
-        const params = new URLSearchParams({ artist: song.artist, title: song.title });
+        const params = new URLSearchParams({ artist: song.artist, title: song.title, chord: (els.editChord.value || '').replace(/<[^>]+>/g, ' ') });
         const res = await fetch(`/api/estimate-key?${params}`);
         const data = await res.json();
         if (state.selectedSong !== song) return; // the user moved on while the audio was being analysed
@@ -4548,7 +4771,7 @@ function showToast(message, isWarning = false) {
     }, 3500);
 }
 
-// Fills the confirmation modal with a harmony suggestion (Ultimate Guitar, Songsterr or PDF) and opens it
+// Fills the confirmation modal with a harmony suggestion (Ultimate Guitar, custom or PDF) and opens it
 function showHarmonySuggestion(data, scanTime) {
     // Save the suggestion in state, including the scan timestamp so
     // handleAcceptSuggestion can pass it through to the API correctly.
@@ -4572,25 +4795,6 @@ function showHarmonySuggestion(data, scanTime) {
     const selectorContainer = document.getElementById('candidates-selector-container');
     const selectEl = document.getElementById('candidates-select');
     
-    // Songsterr track selector
-    const trackSelectorContainer = document.getElementById('songsterr-track-selector-container');
-    const trackSelectEl = document.getElementById('songsterr-track-select');
-    if (data.songsterr_tracks && data.songsterr_tracks.length > 1) {
-        trackSelectorContainer.classList.remove('hide');
-        trackSelectEl.innerHTML = '';
-        data.songsterr_tracks.forEach((track, idx) => {
-            const opt = document.createElement('option');
-            opt.value = idx;
-            let trackLabel = track.name || track.instrument;
-            if (track.views) trackLabel += ` (${track.views.toLocaleString()} views)`;
-            if (idx === 0) trackLabel += ' ★';
-            opt.textContent = trackLabel;
-            trackSelectEl.appendChild(opt);
-        });
-    } else {
-        trackSelectorContainer.classList.add('hide');
-    }
-
     if (data.candidates && data.candidates.length > 1) {
         selectorContainer.classList.remove('hide');
         selectEl.innerHTML = '';
@@ -4622,7 +4826,6 @@ function showHarmonySuggestion(data, scanTime) {
     } else {
         selectorContainer.classList.add('hide');
         selectEl.onchange = null;
-        if (trackSelectorContainer) trackSelectorContainer.classList.add('hide');
     }
         
     els.confirmModal.classList.remove('hide');
@@ -4730,7 +4933,7 @@ async function handleAutodetect() {
         if (data && data.found) {
             showHarmonySuggestion(data, scanTime);
         } else {
-            showToast(`No se encontraron coincidencias en ${state.selectedSource || 'Ultimate Guitar'}.`, true);
+            showToast((data && data.message) || `No se encontraron coincidencias en ${state.selectedSource || 'Ultimate Guitar'}.`, true);
             
             // Automatically jump to the next song since there is no harmony to check/verify here
             setTimeout(() => {

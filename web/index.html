@@ -390,8 +390,8 @@
 
                         <!-- Source Provider Tabs -->
                         <div class="source-tabs-row">
-                            <button class="source-tab" data-source="Songsterr" title="Songsterr (Tablatura multi-pista)">
-                                <i class="ph ph-guitar"></i> Songsterr
+                            <button class="source-tab" data-source="Personalizada" title="Personalizada: letra (LRCLIB) + tonalidad y acordes del audio + Gemini">
+                                <i class="ph ph-sparkle"></i> Personalizada
                             </button>
                             <button class="source-tab active" data-source="Ultimate Guitar" title="Ultimate Guitar (Acordes comunitarios)">
                                 <i class="ph ph-music-notes"></i> Ultimate Guitar
@@ -429,6 +429,18 @@
                             <div class="section-title-row" style="display: flex; align-items: center; justify-content: space-between;">
                                 <h4 class="section-subtitle">Mapa de Progresión de Acordes</h4>
                                 <div style="display: flex; gap: 8px;">
+                                    <button id="add-lyrics-btn" class="btn btn-secondary hide" style="gap: 6px; padding: 5px 12px; font-size: 11px; height: 28px; border-radius: 20px; letter-spacing: 0.03em;" title="Busca la letra (o pégala) y coloca encima los acordes que ya tiene la canción">
+                                        <i class="ph ph-text-aa"></i>
+                                        <span class="toggle-label">Añadir letra</span>
+                                    </button>
+                                    <button id="save-lyrics-btn" class="btn btn-primary hide" style="gap: 6px; padding: 5px 12px; font-size: 11px; height: 28px; border-radius: 20px; letter-spacing: 0.03em;" title="Guardar la letra con acordes en la hoja">
+                                        <i class="ph ph-check"></i>
+                                        <span class="toggle-label">Guardar letra</span>
+                                    </button>
+                                    <button id="discard-lyrics-btn" class="btn btn-secondary hide" style="gap: 6px; padding: 5px 12px; font-size: 11px; height: 28px; border-radius: 20px; letter-spacing: 0.03em;" title="Descartar la letra propuesta">
+                                        <i class="ph ph-x"></i>
+                                        <span class="toggle-label">Descartar</span>
+                                    </button>
                                     <button id="expand-chords-btn" class="btn btn-secondary hide" style="gap: 6px; padding: 5px 12px; font-size: 11px; height: 28px; border-radius: 20px; letter-spacing: 0.03em;" title="Ver Mapa Completo">
                                         <i class="ph ph-caret-up"></i>
                                         <span class="toggle-label">Expandir</span>
@@ -618,12 +630,6 @@
                     <label style="font-size: 10px; text-transform: uppercase; color: var(--text-secondary); font-weight: 700; margin-bottom: 6px; display: block; letter-spacing: 0.05em;">Otras versiones detectadas:</label>
                     <select id="candidates-select" class="form-input" style="width: 100%; font-size: 13px; padding: 8px;"></select>
                 </div>
-                <div id="songsterr-track-selector-container" class="hide" style="margin-top: 8px;">
-                    <label style="font-size: 11px; color: var(--text-secondary); display: flex; align-items: center; gap: 4px; margin-bottom: 4px;">
-                        <i class="ph ph-guitar"></i> Pista de Guitarra:
-                    </label>
-                    <select id="songsterr-track-select" class="form-input" style="font-size: 12px;"></select>
-                </div>
                 
                 <div class="suggestion-diff-grid">
                     <div class="diff-col">
@@ -639,6 +645,25 @@
                 <div class="modal-footer flex gap-4 mt-2">
                     <button id="modal-reject-btn" class="btn btn-secondary flex-grow">Descartar</button>
                     <button id="modal-accept-btn" class="btn btn-primary flex-grow">Aplicar & Guardar</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Paste lyrics modal (when no free source has them) -->
+    <div id="paste-lyrics-modal" class="modal-overlay hide">
+        <div class="double-bezel modal-bezel">
+            <div class="inner-core modal-core flex flex-col gap-4">
+                <div class="modal-header flex justify-between items-center">
+                    <h3 class="panel-title flex items-center gap-2"><i class="ph ph-text-aa" style="color: var(--accent-color);"></i> Pegar la letra</h3>
+                </div>
+                <p id="paste-lyrics-hint" class="empty-description" style="max-width: 100%; text-align: left; margin-bottom: 0;">
+                    No se ha encontrado la letra en ninguna fuente gratuita. Pégala aquí y se colocarán encima los acordes que ya tiene la canción.
+                </p>
+                <textarea id="paste-lyrics-text" class="form-input" rows="12" style="width: 100%; font-size: 13px; resize: vertical;" placeholder="Letra completa, con las estrofas y estribillos como se cantan"></textarea>
+                <div class="flex gap-3">
+                    <button id="paste-lyrics-cancel" type="button" class="btn btn-secondary flex-grow" style="justify-content: center;">Cancelar</button>
+                    <button id="paste-lyrics-submit" type="button" class="btn btn-primary flex-grow" style="justify-content: center;">Colocar acordes</button>
                 </div>
             </div>
         </div>
