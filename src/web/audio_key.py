@@ -10,7 +10,9 @@ import numpy as np
 import requests
 
 from .bpm import _norm_text
-from .harmony import NOTE_MAP, SEMITONES, clean_and_extract_chords, parse_chord_root_and_quality
+from .harmony import (NOTE_MAP, SEMITONES, clean_and_extract_chords, key_scores_from_chords,
+                      parse_chord_root_and_quality)
+from .key_fusion import fuse
 
 SAMPLE_RATE = 22050
 HOP = 2048
@@ -26,6 +28,9 @@ MINOR_PROFILE = np.array([5.0, 2.0, 3.5, 4.5, 2.0, 4.0, 2.0, 4.5, 3.5, 2.0, 1.5,
 # Scale of each mode (the minor one includes the raised 7th, so V and vii° chords are not penalised)
 MAJOR_SCALE = (0, 2, 4, 5, 7, 9, 11)
 MINOR_SCALE = (0, 2, 3, 5, 7, 8, 10, 11)
+# Quality gates: a clip quieter than this (RMS of the samples, full scale = 1) or a chroma this flat holds no key
+MIN_RMS = 1e-3
+MIN_CHROMA_STD = 1e-6
 # How much a key loses when all of the song's chord tones fall outside its scale
 CHORD_MISFIT_WEIGHT = 1.5
 
@@ -62,12 +67,19 @@ def _chroma_frames(samples):
     """12 x frames pitch-class energy of the clip, from its harmonic part (drums blur the key)."""
     if len(samples) < SAMPLE_RATE * 5:
         raise AudioKeyError("Audio demasiado corto")
+    if not np.isfinite(samples).all():
+        raise AudioKeyError("Audio corrupto")
+    if float(np.sqrt(np.mean(np.square(samples, dtype=np.float64)))) < MIN_RMS:
+        raise AudioKeyError("Audio silencioso: no hay música que analizar")
     try:
         import librosa  # heavy import: only paid by the first key estimation
     except ImportError:
         raise AudioKeyError("Falta librosa (pip install -r requirements.txt)")
     harmonic = librosa.effects.harmonic(samples, margin=4)
-    return librosa.feature.chroma_cqt(y=harmonic, sr=SAMPLE_RATE, hop_length=HOP, bins_per_octave=36)
+    frames = librosa.feature.chroma_cqt(y=harmonic, sr=SAMPLE_RATE, hop_length=HOP, bins_per_octave=36)
+    if not np.isfinite(frames).all():
+        raise AudioKeyError("No se pudo calcular el contenido armónico del audio")
+    return frames
 
 
 def _chroma_profile(samples):
@@ -103,9 +115,19 @@ def _chord_misfit(chords, tonic, scale):
     return float(outside / chords.sum())
 
 
+def check_chroma(chroma):
+    """Raises AudioKeyError when the 12-bin profile cannot say anything about the key (flat, empty or not finite);
+    correlating it would give NaN and a key that looks precise but is not."""
+    chroma = np.asarray(chroma, dtype=float)
+    if chroma.shape != (12,) or not np.isfinite(chroma).all() or float(np.std(chroma)) < MIN_CHROMA_STD:
+        raise AudioKeyError("El audio no tiene contenido armónico analizable")
+    return chroma
+
+
 def key_candidates(chroma, chords=None):
     """All 24 keys ranked by correlation with the key profiles. With the song's chord tones, keys that
     cannot hold those chords (B Major for Em7 - Gmaj7 - Bm) lose score in proportion to how many tones they miss."""
+    chroma = check_chroma(chroma)
     ranked = []
     for tonic in range(12):
         for names, profile, scale, mode in ((MAJOR_NAMES, MAJOR_PROFILE, MAJOR_SCALE, "Major"),
@@ -135,14 +157,36 @@ def _preview_chroma(artist, title):
     return None if frames is None else frames.mean(axis=1)
 
 
+def _key_id(tonality):
+    """(pitch class, mode) of 'Bb Major', so that spellings of the same key compare equal."""
+    name, mode = tonality.rsplit(" ", 1)
+    return SEMITONES.index(NOTE_MAP.get(name, name)), mode
+
+
+def _key_name(key):
+    """'Eb Major' from (3, 'Major'), with the spellings of the dashboard's key selector."""
+    pitch, mode = key
+    return f"{(MINOR_NAMES if mode == 'Minor' else MAJOR_NAMES)[pitch]} {mode}"
+
+
 def estimate_key(artist, title, chord_text=None):
-    """{'tonality', 'score', 'candidates'} from the song's Deezer preview, or None if Deezer has no preview.
-    chord_text (the chords written in the editor) rules out keys those chords do not fit."""
+    """{'tonality', 'score', 'candidates', 'agree', 'sources'} from the song's Deezer preview, or None if Deezer has no
+    preview. The audio's key profiles and the written chords (chord_text) are fused (see key_fusion): the audio alone
+    often mixes a key with its relative or parallel mode, the chords alone take the IV for the tonic in vamps.
+    'score' ranks the candidates; it is not a calibrated chance of being right. 'agree' tells whether the audio and the
+    chords pointed at the same key (None without readable chords)."""
     chroma = _preview_chroma(artist, title)
     if chroma is None:
         return None
-    ranked = key_candidates(chroma, chord_chroma(chord_text))
-    return {"tonality": ranked[0]["tonality"], "score": ranked[0]["score"], "candidates": ranked[:3]}
+    audio_scores = {_key_id(c["tonality"]): c["audio"] for c in key_candidates(chroma)}
+    chord_scores, _ = key_scores_from_chords(clean_and_extract_chords(chord_text or ""))
+    fused = fuse(audio_scores, chord_scores or None)
+    keys = fused["keys"]
+    return {"tonality": _key_name(keys[0]["key"]), "score": round(keys[0]["probability"], 3),
+            "candidates": [{"tonality": _key_name(k["key"]), "score": round(k["probability"], 3)} for k in keys[:3]],
+            "agree": fused["agree"],
+            "sources": {"audio": _key_name(max(audio_scores, key=audio_scores.get)),
+                        "chords": _key_name(max(chord_scores, key=chord_scores.get)) if chord_scores else None}}
 
 
 # Chords heard in the preview: diatonic triads of the key, one guess per window of audio

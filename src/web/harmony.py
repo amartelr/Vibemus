@@ -214,15 +214,17 @@ def _is_dominant7(quality, suffix):
     return quality == "major" and "7" in low and "maj" not in low
 
 
-def detect_key_from_chords(chord_list):
-    """Most likely key of a chord sequence, e.g. "E Major".
+def key_scores_from_chords(chord_list):
+    """Score of each of the 24 keys for a chord sequence: ({(tonic pitch class, "Major"|"Minor"): score}, prefer_flats).
+
+    Empty when no chord can be read. detect_key_from_chords() takes the best one.
 
     Measured against the audio key of 146 Liked songs : the previous scoring took the IV for the
     tonic in 42 of them (I-IV vamps, bVII borrowings, I->IV read as V->I). Chord weights, symmetric cadences and the
     7th of each chord (Emaj7 cannot be the V of A) bring exact matches from 54 % to 68 %.
     """
     if not chord_list:
-        return "C Major"
+        return {}, False
     flat_count = sum(1 for c in chord_list if 'b' in c and not c.startswith('B'))
     sharp_count = sum(1 for c in chord_list if '#' in c)
     prefer_flats = flat_count > sharp_count
@@ -233,7 +235,7 @@ def detect_key_from_chords(chord_list):
         if r and NOTE_MAP.get(r, r) in SEMITONES:
             parsed.append((SEMITONES.index(NOTE_MAP.get(r, r)), q, _is_dominant7(q, s), _seventh(s)))
     if not parsed:
-        return "C Major"
+        return {}, prefer_flats
 
     # a root also written as maj7 is a tonic-like chord: its dominant 7th is passing (I - I7 - IV), not a V7
     maj7_roots = {root for root, q, _, sev in parsed if q == "major" and sev == 11}
@@ -241,7 +243,7 @@ def detect_key_from_chords(chord_list):
     parsed = [(root, q, dom7 and root not in maj7_roots, None if dom7 and root in maj7_roots else sev)
               for root, q, dom7, sev in parsed]
 
-    best_key, best_score = "C Major", float("-inf")
+    scores = {}
     for tonic in range(12):
         for mode, weights in (("Major", MAJOR_W), ("Minor", MINOR_W)):
             tonic_q = "major" if mode == "Major" else "minor"
@@ -268,11 +270,23 @@ def detect_key_from_chords(chord_list):
                     score += 2.5                                    # IV -> V, ii -> V (predominant to dominant)
             if parsed[0][0] == tonic and parsed[0][1] == tonic_q: score += FIRST_BONUS
             if parsed[-1][0] == tonic and parsed[-1][1] == tonic_q: score += LAST_BONUS
-            if score > best_score:
-                best_score = score
-                name = SEMITONES[tonic]
-                best_key = f"{FLAT_NAMES.get(name, name) if prefer_flats else name} {mode}"
-    return best_key
+            scores[(tonic, mode)] = score
+    return scores, prefer_flats
+
+
+def key_name(tonic, mode, prefer_flats=False):
+    """'Bb Major' from (10, 'Major') with flats, 'A# Major' without."""
+    name = SEMITONES[tonic]
+    return f"{FLAT_NAMES.get(name, name) if prefer_flats else name} {mode}"
+
+
+def detect_key_from_chords(chord_list):
+    """Most likely key of a chord sequence, e.g. "E Major" ("C Major" when no chord can be read)."""
+    scores, prefer_flats = key_scores_from_chords(chord_list)
+    if not scores:
+        return "C Major"
+    tonic, mode = max(scores, key=scores.get)      # first of the best in tonic order, Major before Minor
+    return key_name(tonic, mode, prefer_flats)
 
 def infer_progression_full(chord_string, tonality):
     """Roman numerals in playing order, repetitions kept (["I", "V", "vi", "IV", "I", "V", ...]).
