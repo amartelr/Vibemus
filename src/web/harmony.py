@@ -2,6 +2,8 @@
 
 
 
+import re
+
 SEMITONES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
 NOTE_MAP = {
     'Db': 'C#', 'Eb': 'D#', 'Gb': 'F#', 'Ab': 'G#', 'Bb': 'A#',
@@ -13,26 +15,44 @@ FLAT_NAMES = {
     'C#': 'Db', 'D#': 'Eb', 'F#': 'Gb', 'G#': 'Ab', 'A#': 'Bb'
 }
 
+_CHORD_PATTERN = re.compile(r'\b[A-G][#b]?(?:[Mm]aj|[Mm]in|[Dd]im|[Aa]ug|[Ss]us|[Aa]dd|m|M|[0-9]|\-|\+|\#|b|o|\u00b0|\u00f8|\u0394)*(?:/[A-G][#b]?)?(?!\w)')
+_CHORD_TAG = re.compile(r'\[ch(?:\s[^\]]*)?\](.*?)\[/ch\]', re.IGNORECASE)
+_SECTION_TAG = re.compile(r'\[(?!ch\b)(?!/ch\])[^\]]*\]')
+_NOT_CHORD_WORDS = {'intro', 'verse', 'chorus', 'bridge', 'outro', 'solo', 'pre', 'instrumental', 'tab', 'ch', 'verso',
+                    'estribillo', 'puente', 'middle', 'between', 'verses', 'in', 'to', 'is', 'it', 'at', 'on', 'or',
+                    'an', 'be', 'do', 'so'}
+CHORD_LINE_RATIO = 0.6   # share of the words of a line that must be chords for a lone letter (A, C, G) to count as one
+
+
+def _chord_tokens(line):
+    return [m for m in _CHORD_PATTERN.findall(line) if m.lower() not in _NOT_CHORD_WORDS]
+
+
 def clean_and_extract_chords(text):
+    """Chords of a chord sheet, in order.
+
+    Tagged text ([ch]Am[/ch]) is trusted as it is. Free text is read line by line: a chord written as a single letter
+    ("A", "C") is only taken when most of the line is chords, so the article "A" of a lyric is not a chord.
+    """
     if not text:
         return []
-    import re
-    # 1. Strip section tags like [Intro], [Verse 1], [Between verses], [Middle 8], <verse_1>, etc.
-    t = re.sub(r'\[(?!ch\b)(?!/ch\])[^\]]*\]', ' ', text)
+    tagged = _CHORD_TAG.findall(text)
+    if tagged:
+        return [t for c in tagged for t in _chord_tokens(c.strip())[:1] if c.strip()]
+
+    # Section tags ([Intro], [Verse 1], <verse_1>, <song>) are not chords
+    t = _SECTION_TAG.sub(' ', text)
     t = re.sub(r'<[^>]+>', ' ', t)
-    
-    # 2. Extract chord tokens
-    chord_pattern = r'\b[A-G][#b]?(?:[Mm]aj|[Mm]in|[Dd]im|[Aa]ug|[Ss]us|[Aa]dd|m|M|[0-9]|\-|\+|\#|b|o|\u0394)*(?:/[A-G][#b]?)?(?!\w)'
-    matches = re.findall(chord_pattern, t)
-    
-    filtered = []
-    stop_words = {'intro', 'verse', 'chorus', 'bridge', 'outro', 'solo', 'pre', 'instrumental', 'tab', 'ch', 'verso', 'estribillo', 'puente', 'middle', 'between', 'verses', 'in', 'to', 'is', 'it', 'at', 'on', 'or', 'an', 'be', 'do', 'so'}
-    for m in matches:
-        if m.lower() in stop_words:
+
+    chords = []
+    for line in t.splitlines():
+        found = _chord_tokens(line)
+        if not found:
             continue
-        if len(m) > 1 or m in "ABCDEFG":
-            filtered.append(m)
-    return filtered
+        words = [w for w in line.split() if re.search(r'\w', w)]
+        chord_line = len(found) >= CHORD_LINE_RATIO * len(words)
+        chords.extend(m for m in found if chord_line or len(m) > 1)
+    return chords
 
 def parse_chord_root_and_quality(chord):
     import re
@@ -43,15 +63,18 @@ def parse_chord_root_and_quality(chord):
     root = match.group(1)
     suffix = match.group(2)
     
-    quality = 'major'
+    # From the most specific quality to the most general: "dim" contains an "m", so it must be tested before minor.
+    # Minor is only a suffix that STARTS with "m"/"min" (a capital "M" or "maj" is a major seventh: CM7, Cmaj7).
     s_low = suffix.lower()
-    if 'min' in s_low or ('m' in s_low and not 'maj' in s_low):
-        quality = 'minor'
-    elif 'dim' in s_low or 'o' in s_low:
+    if 'dim' in s_low or s_low.startswith('o') or '°' in suffix or 'ø' in suffix:
         quality = 'dim'
-    elif 'aug' in s_low or '+' in s_low:
+    elif 'aug' in s_low or '+' in suffix:
         quality = 'aug'
-        
+    elif s_low.startswith('min') or (suffix.startswith('m') and not s_low.startswith('maj')):
+        quality = 'minor'
+    else:
+        quality = 'major'
+
     return root, quality, suffix
 
 def get_roman_numeral(key_root, key_mode, chord_name):
@@ -73,6 +96,9 @@ def get_roman_numeral(key_root, key_mode, chord_name):
     is_minor_key = 'minor' in key_mode.lower() or 'min' in key_mode.lower() or key_mode.lower().strip() == 'm'
     
     if is_minor_key:
+        # Natural minor plus the leading tone (same scale as KEY_MINOR_SCALE). Semitones that are not in that scale
+        # (3 vs 4, 8 vs 9, 10 vs 11 share a degree number) keep their own sign so two roots never give the same numeral.
+        major_q = quality == 'major'
         if diff == 0:
             roman = 'i' if quality == 'minor' else 'I'
         elif diff == 1:
@@ -80,9 +106,9 @@ def get_roman_numeral(key_root, key_mode, chord_name):
         elif diff == 2:
             roman = 'ii°' if quality == 'dim' else ('ii' if quality == 'minor' else 'II')
         elif diff == 3:
-            roman = 'III' if quality == 'major' else 'iii'
+            roman = 'III' if major_q else 'iii'
         elif diff == 4:
-            roman = 'III' if quality == 'major' else 'iii'
+            roman = '#III' if major_q else '#iii'
         elif diff == 5:
             roman = 'iv' if quality == 'minor' else 'IV'
         elif diff == 6:
@@ -90,13 +116,13 @@ def get_roman_numeral(key_root, key_mode, chord_name):
         elif diff == 7:
             roman = 'v' if quality == 'minor' else 'V'
         elif diff == 8:
-            roman = 'VI' if quality == 'major' else 'vi'
+            roman = 'VI' if major_q else 'vi'
         elif diff == 9:
-            roman = 'vi°' if quality == 'dim' else 'VI'
+            roman = 'vi°' if quality == 'dim' else ('#VI' if major_q else '#vi')
         elif diff == 10:
-            roman = 'VII' if quality == 'major' else 'vii'
+            roman = 'VII' if major_q else 'vii'
         elif diff == 11:
-            roman = 'vii°' if quality == 'dim' else 'VII'
+            roman = 'vii°' if quality == 'dim' else ('#VII' if major_q else '#vii')
     else:
         if diff == 0:
             roman = 'I' if quality == 'major' else 'i'
@@ -126,6 +152,8 @@ def get_roman_numeral(key_root, key_mode, chord_name):
     clean_suffix = suffix
     if quality == 'minor':
         clean_suffix = re.sub(r'^(m|min)', '', suffix)
+    elif quality == 'dim' and roman.endswith('\u00b0'):
+        clean_suffix = re.sub(r'^(dim|o|\u00b0|\u00f8)', '', suffix, flags=re.IGNORECASE)  # the numeral already carries the °
         
     return f"{roman}{clean_suffix}"
 
@@ -148,10 +176,53 @@ def parse_tonality(tonality_str):
         
     return root, mode
 
+# Weight of each chord as (semitones above the tonic, quality) in each mode. Borrowed chords that are common in
+# pop/rock (bVII, iv, bVI in major; IV in minor) are mildly positive instead of penalised as foreign.
+MAJOR_W = {(0, "major"): 3.5, (2, "minor"): 1.5, (4, "minor"): 0.5, (5, "major"): 2.5, (7, "major"): 2.5,
+           (9, "minor"): 2.0, (11, "dim"): 0.5, (11, "minor"): 0.5,
+           (10, "major"): 1.0, (5, "minor"): 0.5, (8, "major"): 0.5, (2, "major"): 0.5, (4, "major"): 0.3}
+MINOR_W = {(0, "minor"): 3.5, (2, "dim"): 1.0, (2, "minor"): 0.5, (3, "major"): 2.0, (5, "minor"): 2.0, (5, "major"): 0.5,
+           (7, "minor"): 1.5, (7, "major"): 2.0, (8, "major"): 2.0, (10, "major"): 2.0, (11, "dim"): 0.5}
+FOREIGN = -1.5
+SEVENTH_MISFIT = 1.5
+FIRST_BONUS = 3.0   # songs start on the tonic more reliably than transcriptions end on it
+LAST_BONUS = 2.0
+
+
+KEY_MAJOR_SCALE = {0, 2, 4, 5, 7, 9, 11}
+KEY_MINOR_SCALE = {0, 2, 3, 5, 7, 8, 10, 11}  # natural minor plus the leading tone
+
+
+MAJOR_TRIADS = {(0, "major"), (2, "minor"), (4, "minor"), (5, "major"), (7, "major"), (9, "minor"), (11, "dim")}
+MINOR_TRIADS = {(0, "minor"), (2, "dim"), (3, "major"), (5, "minor"), (7, "minor"), (7, "major"), (8, "major"), (10, "major"), (11, "dim")}
+
+
+def _seventh(suffix):
+    """Interval of the chord's 7th above its root (11 maj7, 10 minor/dominant 7th, 9 dim7) or None."""
+    low = (suffix or "").lower()
+    if "maj" in low or "\u0394" in suffix or "M7" in suffix:
+        return 11 if any(n in low for n in ("7", "9", "11", "13")) or "\u0394" in suffix else None
+    if "dim7" in low or "o7" in low:
+        return 9
+    if any(n in low for n in ("7", "9", "11", "13")):
+        return 10
+    return None
+
+
+def _is_dominant7(quality, suffix):
+    low = (suffix or "").lower()
+    return quality == "major" and "7" in low and "maj" not in low
+
+
 def detect_key_from_chords(chord_list):
+    """Most likely key of a chord sequence, e.g. "E Major".
+
+    Measured against the audio key of 146 Liked songs : the previous scoring took the IV for the
+    tonic in 42 of them (I-IV vamps, bVII borrowings, I->IV read as V->I). Chord weights, symmetric cadences and the
+    7th of each chord (Emaj7 cannot be the V of A) bring exact matches from 54 % to 68 %.
+    """
     if not chord_list:
         return "C Major"
-        
     flat_count = sum(1 for c in chord_list if 'b' in c and not c.startswith('B'))
     sharp_count = sum(1 for c in chord_list if '#' in c)
     prefer_flats = flat_count > sharp_count
@@ -159,108 +230,108 @@ def detect_key_from_chords(chord_list):
     parsed = []
     for c in chord_list:
         r, q, s = parse_chord_root_and_quality(c)
-        if r:
-            canon_root = NOTE_MAP.get(r, r)
-            if canon_root in SEMITONES:
-                parsed.append((canon_root, q))
-                
+        if r and NOTE_MAP.get(r, r) in SEMITONES:
+            parsed.append((SEMITONES.index(NOTE_MAP.get(r, r)), q, _is_dominant7(q, s), _seventh(s)))
     if not parsed:
         return "C Major"
-        
-    best_key = "C Major"
-    best_score = -9999
-    
-    transitions = []
-    for i in range(len(parsed) - 1):
-        transitions.append((parsed[i], parsed[i+1]))
-        
-    for root in SEMITONES:
-        for mode in ["Major", "Minor"]:
-            score = 0
-            idx1 = SEMITONES.index(root)
-            
-            # 1. Diatonic scoring
-            for c_root, c_quality in parsed:
-                idx2 = SEMITONES.index(c_root)
-                diff = (idx2 - idx1) % 12
-                
-                if mode == "Major":
-                    if diff == 0 and c_quality == "major": score += 3.5
-                    elif diff == 2 and c_quality == "minor": score += 2.0
-                    elif diff == 4 and c_quality == "minor": score += 2.0
-                    elif diff == 5 and c_quality == "major": score += 2.5
-                    elif diff == 7 and c_quality == "major": score += 3.0
-                    elif diff == 9 and c_quality == "minor": score += 2.0
-                    elif diff == 11 and c_quality in ["dim", "minor"]: score += 1.0
-                    else:
-                        score -= 2.5
-                else: # Minor
-                    if diff == 0 and c_quality == "minor": score += 3.5
-                    elif diff == 2 and c_quality in ["dim", "minor"]: score += 1.5
-                    elif diff == 3 and c_quality == "major": score += 2.0
-                    elif diff == 5 and c_quality in ["minor", "major"]: score += 2.0
-                    elif diff == 7 and c_quality in ["minor", "major"]: score += 2.5
-                    elif diff == 8 and c_quality == "major": score += 2.0
-                    elif diff == 10 and c_quality == "major": score += 2.0
-                    elif diff == 11 and c_quality in ["dim", "major"]: score += 1.5
-                    else:
-                        score -= 2.5
 
-            # 2. Cadence & progression bonuses
-            for (c1_root, c1_qual), (c2_root, c2_qual) in transitions:
-                d1 = (SEMITONES.index(c1_root) - idx1) % 12
-                d2 = (SEMITONES.index(c2_root) - idx1) % 12
-                
-                if mode == "Major":
-                    if d1 == 7 and d2 == 0 and c2_qual == "major": score += 4.0 # V -> I
-                    elif d1 == 5 and d2 == 0 and c2_qual == "major": score += 3.0 # IV -> I
-                    elif d1 == 0 and d2 == 7: score += 2.0 # I -> V
-                    elif d1 == 0 and d2 == 5: score += 2.0 # I -> IV
-                    elif d1 == 5 and d2 == 7: score += 2.5 # IV -> V
-                    elif d1 == 2 and d2 == 7: score += 2.5 # ii -> V
-                else:
-                    if d1 == 10 and d2 == 0 and c2_qual == "minor": score += 4.5 # VII -> i (Aeolian)
-                    elif d1 == 7 and d2 == 0 and c2_qual == "minor": score += 4.5 # V/v -> i
-                    elif d1 == 5 and d2 == 0 and c2_qual == "minor": score += 3.0 # iv -> i
-                    elif d1 == 8 and d2 == 10 and c1_qual == "major" and c2_qual == "major": score += 3.0 # VI -> VII
-                    elif d1 == 8 and d2 == 5: score += 2.0 # VI -> iv
-                    elif d1 == 0 and d2 == 8: score += 1.5 # i -> VI
+    # a root also written as maj7 is a tonic-like chord: its dominant 7th is passing (I - I7 - IV), not a V7
+    maj7_roots = {root for root, q, _, sev in parsed if q == "major" and sev == 11}
+    # (and its b7 is a passing colour, not a tone that rules the key out)
+    parsed = [(root, q, dom7 and root not in maj7_roots, None if dom7 and root in maj7_roots else sev)
+              for root, q, dom7, sev in parsed]
 
-            # 3. First and last chord
-            first_diff = (SEMITONES.index(parsed[0][0]) - idx1) % 12
-            last_diff = (SEMITONES.index(parsed[-1][0]) - idx1) % 12
-            if mode == "Major":
-                if first_diff == 0 and parsed[0][1] == "major": score += 2.5
-                if last_diff == 0 and parsed[-1][1] == "major": score += 3.0
-            else:
-                if first_diff == 0 and parsed[0][1] == "minor": score += 2.5
-                if last_diff == 0 and parsed[-1][1] == "minor": score += 3.0
-
+    best_key, best_score = "C Major", float("-inf")
+    for tonic in range(12):
+        for mode, weights in (("Major", MAJOR_W), ("Minor", MINOR_W)):
+            tonic_q = "major" if mode == "Major" else "minor"
+            score = 0.0
+            scale = KEY_MAJOR_SCALE if mode == "Major" else KEY_MINOR_SCALE
+            for root, q, dom7, sev in parsed:
+                d = (root - tonic) % 12
+                score += weights.get((d, q if q in ("major", "minor", "dim") else "major"), FOREIGN)
+                if dom7 and d == 7:
+                    score += 1.0          # a dominant 7th on the fifth is strong evidence for this tonic
+                elif dom7 and d == 0 and mode == "Major":
+                    score -= 0.5          # tonic chords are rarely dominant 7ths (blues aside)
+                if sev is not None and (d + sev) % 12 not in scale:
+                    score -= SEVENTH_MISFIT   # e.g. Cmaj7 cannot be the V of F: its B is not in F major
+            # Cadences: symmetric weights so that I->IV in the right key is not read as V->I in the key of the IV
+            for (r1, q1, dom1, _), (r2, q2, _, _) in zip(parsed, parsed[1:]):
+                d1, d2 = (r1 - tonic) % 12, (r2 - tonic) % 12
+                if d2 == 0 and q2 == tonic_q:
+                    if d1 == 7: score += 4.0 if dom1 else 1.5      # V7 -> I; a plain V -> I counts like IV -> I
+                    elif d1 in (5, 10, 2): score += 1.5             # IV/iv, bVII, ii -> I
+                elif d1 == 0 and q1 == tonic_q and d2 in (5, 7, 10, 9, 8, 3):
+                    score += 1.0                                    # I -> anything diatonic
+                elif mode == "Major" and d1 in (5, 2) and d2 == 7 and q2 == "major":
+                    score += 2.5                                    # IV -> V, ii -> V (predominant to dominant)
+            if parsed[0][0] == tonic and parsed[0][1] == tonic_q: score += FIRST_BONUS
+            if parsed[-1][0] == tonic and parsed[-1][1] == tonic_q: score += LAST_BONUS
             if score > best_score:
                 best_score = score
-                display_root = FLAT_NAMES.get(root, root) if prefer_flats else root
-                best_key = f"{display_root} {mode}"
-                
+                name = SEMITONES[tonic]
+                best_key = f"{FLAT_NAMES.get(name, name) if prefer_flats else name} {mode}"
     return best_key
 
-def infer_progression(chord_string, tonality):
+def infer_progression_full(chord_string, tonality):
+    """Roman numerals in playing order, repetitions kept (["I", "V", "vi", "IV", "I", "V", ...]).
+
+    Only a chord repeated back to back counts once (the same chord written on several beats or lines). Pattern
+    detection (emotional style) needs this sequence; the Progression column keeps the summary of infer_progression().
+    """
     if not tonality or not chord_string:
-        return ""
-        
+        return []
     key_root, key_mode = parse_tonality(tonality)
     if not key_root:
-        return ""
-        
-    chords = clean_and_extract_chords(chord_string)
+        return []
     romans = []
-    for c in chords:
+    for c in clean_and_extract_chords(chord_string):
         r = get_roman_numeral(key_root, key_mode, c)
-        if r and r not in romans:
+        if r and (not romans or romans[-1] != r):
             romans.append(r)
-            
-    return " - ".join(romans[:6])
+    return romans
 
-def infer_emotional_style(chord_string, tonality):
+
+def infer_progression(chord_string, tonality):
+    """The first 6 distinct roman numerals, in order of first appearance, joined by " - " (what the sheet stores)."""
+    distinct = list(dict.fromkeys(infer_progression_full(chord_string, tonality)))
+    return " - ".join(distinct[:6])
+
+
+# ── Progression patterns used by the emotional style ────────────────────────────────────────────────────────────
+_DEGREE = re.compile(r'^[b#]?([IV]+|[iv]+)(\u00b0?)')
+
+
+def _degree(roman):
+    """Base degree of a numeral without accidental or suffix, case kept: 'bVII' -> 'VII', 'vi7' -> 'vi', 'ii°' -> 'ii°'."""
+    m = _DEGREE.match(roman)
+    return m.group(1) + m.group(2) if m else roman
+
+
+def _has_pattern(degrees, pattern):
+    """True when the pattern's degrees (each a regex, case-sensitive) appear one right after the other.
+
+    Progression patterns are consecutive by nature (I-V-vi-IV). Allowing gaps would make every long song match every
+    pattern, since the full progression repeats its chords many times.
+    """
+    n = len(pattern)
+    return any(all(re.fullmatch(pattern[j], degrees[i + j]) for j in range(n)) for i in range(len(degrees) - n + 1))
+
+
+# Each pattern is a tuple of degree regexes. Capitals are major chords, lowercase minor: vi is not VI.
+_TONIC = '[Ii]'
+_DOMINANT = '[Vv]'
+_P_EPIC = ((_TONIC, 'VII'), ('VI', 'III'), ('III', 'VII'))
+_P_POP = ('I', 'V', 'vi', 'IV')
+_P_DARK_MINOR = ('i', 'iv', _DOMINANT)
+_P_MINOR_EPIC = ('i', 'VI', 'III', 'VII')
+_P_DESCENT = (_TONIC, 'VII', 'VI', _DOMINANT)
+_P_JAZZ = ('ii°?', 'V', _TONIC)
+_P_PLAGAL = ('IV', 'I')
+
+
+def style_scores(chord_string, tonality):
     """
     Sistema de inferencia de estilo emocional basado en teoría musical:
       1. Modo de la tónica (Mayor/Menor)
@@ -285,6 +356,7 @@ def infer_emotional_style(chord_string, tonality):
         "Elegante":     0,
         "Moderna":      0,
         "Alegre":       0,
+        "Brillante":    0,
         "Enérgica":     0,
         "Orgánica":     0,
         "Tensa":        0,
@@ -294,8 +366,7 @@ def infer_emotional_style(chord_string, tonality):
 
     if not tonality:
         scores["Melancólica"] += 3
-        top = sorted(scores, key=lambda k: scores[k], reverse=True)
-        return ", ".join(t for t in top[:2] if scores[t] > 0) or "Melancólica"
+        return scores
 
     is_minor = bool(re.search(r'\b(m|min|minor)\b', tonality, re.IGNORECASE))
 
@@ -416,74 +487,74 @@ def infer_emotional_style(chord_string, tonality):
         scores["Íntima"]     += 1
 
     # ─── 6. PATRONES DE PROGRESIÓN ROMANA ────────────────────────────────────
-    # Inferimos los romanos de la progresión registrada
-    progression = infer_progression(chord_string, tonality) if chord_string and tonality else ""
-    prog_upper = progression.upper()
+    # Sobre la progresión completa y respetando mayúsculas (vi no es VI); un grado alterado (bVII) cuenta como su número
+    degrees = [_degree(r) for r in infer_progression_full(chord_string, tonality)] if chord_string and tonality else []
 
     # Patrones épicos/cinematográficos
-    if re.search(r'\bI\b.*\bVII\b|\bVI\b.*\bIII\b|\bIII\b.*\bVII\b', prog_upper):
+    if any(_has_pattern(degrees, p) for p in _P_EPIC):
         scores["Épica"]          += 3
         scores["Cinematográfica"] += 2
-    # Pop emocional (I-V-vi-IV o variantes)
-    if re.search(r'\bI\b.*\bV\b.*\bVI\b.*\bIV\b', prog_upper):
+    # Pop emocional (I-V-vi-IV)
+    if _has_pattern(degrees, _P_POP):
         scores["Alegre"]         += 2
         scores["Nostálgica"]     += 2
-    # Oscuro menor natural (i-iv-v o i-VI-III-VII)
-    if re.search(r'\bI\b.*\bIV\b.*\bV\b', prog_upper) and is_minor:
+    # Oscuro menor natural (i-iv-v)
+    if is_minor and _has_pattern(degrees, _P_DARK_MINOR):
         scores["Oscura"]         += 3
-    if re.search(r'\bI\b.*\bVI\b.*\bIII\b.*\bVII\b', prog_upper) and is_minor:
+    # i-VI-III-VII
+    if is_minor and _has_pattern(degrees, _P_MINOR_EPIC):
         scores["Épica"]          += 2
         scores["Oscura"]         += 1
-    # Descenso cromatico (i-VII-VI-V —flamenco/drama)
-    if re.search(r'\bI\b.*\bVII\b.*\bVI\b.*\bV\b', prog_upper):
+    # Descenso (i-VII-VI-V —flamenco/drama)
+    if _has_pattern(degrees, _P_DESCENT):
         scores["Tensa"]          += 3
         scores["Cinematográfica"] += 2
         scores["Oscura"]         += 1
     # Jazz (ii-V-I)
-    if re.search(r'\bII\b.*\bV\b.*\bI\b', prog_upper):
+    if _has_pattern(degrees, _P_JAZZ):
         scores["Elegante"]       += 3
         scores["Cálida"]         += 1
     # Plagal (IV-I) — religioso/organic
-    if re.search(r'\bIV\b.*\bI\b(?!\bV)', prog_upper):
+    if _has_pattern(degrees, _P_PLAGAL):
         scores["Orgánica"]       += 2
         scores["Cálida"]         += 1
-    # Loop modal (sin V) — estático/meditativo
-    if 'V' not in prog_upper and n_unique >= 3:
+    # Loop modal (sin acorde de dominante) — estático/meditativo
+    if degrees and not any(re.fullmatch(_DOMINANT, d) for d in degrees) and n_unique >= 3:
         scores["Flotante"]       += 2
         scores["Soñadora"]       += 1
 
     # ─── 7. PRÉSTAMO MODAL ───────────────────────────────────────────────────
-    # Detectar acordes de modo opuesto al tónico
+    # Acorde que no es diatónico de la tonalidad pero sí de su modo paralelo (iv en mayor, IV mayor en menor...)
     if chord_string and tonality:
-        chord_roots = set()
-        mode_mix = False
-        for c in chords:
-            r, q, _ = parse_chord_root_and_quality(c)
-            if r and q:
-                chord_roots.add((r, q))
-        minor_chords = sum(1 for _, q in chord_roots if q == 'minor')
-        major_chords = sum(1 for _, q in chord_roots if q == 'major')
-        if minor_chords > 0 and major_chords > 0:
-            ratio = min(minor_chords, major_chords) / max(minor_chords, major_chords)
-            if ratio > 0.3:
+        key_root, key_mode = parse_tonality(tonality)
+        tonic = SEMITONES.index(NOTE_MAP[key_root]) if key_root in NOTE_MAP else None
+        if tonic is not None:
+            own, parallel = (MINOR_TRIADS, MAJOR_TRIADS) if key_mode == "Minor" else (MAJOR_TRIADS, MINOR_TRIADS)
+            borrowed = set()
+            for c in chords:
+                r, q, _ = parse_chord_root_and_quality(c)
+                if r in NOTE_MAP:
+                    fn = ((SEMITONES.index(NOTE_MAP[r]) - tonic) % 12, q)
+                    if fn in parallel and fn not in own:
+                        borrowed.add(fn)
+            if borrowed:
                 scores["Cinematográfica"] += 3
                 scores["Moderna"]         += 2
                 scores["Nostálgica"]      += 1
 
-    # ─── SELECCIÓN FINAL ─────────────────────────────────────────────────────
-    # Ordenar por score y devolver hasta 3 etiquetas con score > 0
-    ranked = sorted(
-        [(label, sc) for label, sc in scores.items() if sc > 0],
-        key=lambda x: x[1],
-        reverse=True
-    )
+    return scores
 
-    top_labels = [label for label, _ in ranked[:3]]
 
-    if not top_labels:
-        return "Melancólica" if is_minor else "Alegre"
+def infer_emotional_style(chord_string, tonality):
+    """Up to 3 emotional labels, ordered by weight (2 when the tonality is unknown). See style_scores()."""
+    scores = style_scores(chord_string, tonality)
+    ranked = [label for label, sc in sorted(scores.items(), key=lambda x: x[1], reverse=True) if sc > 0]
+    if not tonality:
+        return ", ".join(ranked[:2]) or "Melancólica"
+    if not ranked:
+        return "Melancólica" if re.search(r'\b(m|min|minor)\b', tonality, re.IGNORECASE) else "Alegre"
+    return ", ".join(ranked[:3])
 
-    return ", ".join(top_labels)
 
 def infer_complexity(chord_string, tonality=None):
     if not chord_string:
