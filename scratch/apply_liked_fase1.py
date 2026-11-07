@@ -9,10 +9,13 @@ from src.web.harmony import infer_emotional_style, infer_progression
 
 LIKED = ("TRUE", "1", "YES", "SÍ", "SI")
 
+PRE_FASE1 = "c901a8f"   # último commit anterior a la Fase 1: harmony.py de entonces es lo que la web generaba antes
+
+
 def _old_harmony():
-    """harmony.py de HEAD (anterior a la Fase 1): sus resultados son lo que la web generó automáticamente."""
+    """harmony.py anterior a la Fase 1: sus resultados son lo que la web generó automáticamente."""
     import importlib.util, subprocess, tempfile
-    src = subprocess.run(["git", "show", "HEAD:src/web/harmony.py"], capture_output=True, text=True, check=True).stdout
+    src = subprocess.run(["git", "show", f"{PRE_FASE1}:src/web/harmony.py"], capture_output=True, text=True, check=True).stdout
     path = os.path.join(tempfile.mkdtemp(), "old_harmony.py")
     open(path, "w").write(src)
     spec = importlib.util.spec_from_file_location("old_harmony", path)
@@ -20,10 +23,24 @@ def _old_harmony():
     return mod
 
 OLD = _old_harmony()
+_KEYS = [f"{n} {m}" for n in ("C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B", "Db", "Eb", "Gb", "Ab", "Bb")
+         for m in ("Major", "Minor")]
+
+def machine_made(kind, cur, chord):
+    """True si el valor guardado es salida de la función (antigua o nueva) bajo alguna tonalidad: un valor calculado
+    con otra tonalidad que luego se corrigió. Lo que no se puede reproducir podría ser una edición manual."""
+    for key in _KEYS:
+        for mod in (OLD, sys.modules["src.web.harmony"]):
+            f = mod.infer_progression if kind == "progression" else mod.infer_emotional_style
+            if cur == f(chord, key):
+                return True
+    return False
 MANUAL = []     # (fila, artista, título, columna) con un valor que la función antigua no habría generado
 
 def in_scope(r, cell, scope):
     liked = cell(r, "liked").upper() in LIKED
+    if scope == "stale":
+        return True                                   # cualquier canción: solo se tocan valores reproducibles por la función
     if scope == "liked":
         return liked
     if liked:
@@ -48,7 +65,11 @@ def plan(rows, cm, scope):
             if cm.get(k, -1) == -1 or cur == v:
                 continue
             ref = old_auto["emotional" if k == "style" else k]
-            if cur and cur != ref:          # valor editado a mano (o de otra fuente): no se pisa
+            if scope == "stale":
+                manual = cur and not machine_made("progression" if k == "progression" else "emotional", cur, chord)
+            else:
+                manual = cur and cur != ref
+            if manual:                      # valor editado a mano (o de otra fuente): no se pisa
                 MANUAL.append((i + 2, cell(r, "artist"), cell(r, "title"), k)); continue
             diff[k] = (cur, v)
         if diff:
@@ -56,7 +77,7 @@ def plan(rows, cm, scope):
     return out
 
 ap = argparse.ArgumentParser(); ap.add_argument("--apply", action="store_true")
-ap.add_argument("--scope", choices=["liked", "rest-with-lyrics", "rest-no-lyrics"], default="liked")
+ap.add_argument("--scope", choices=["liked", "rest-with-lyrics", "rest-no-lyrics", "stale"], default="liked")
 args = ap.parse_args()
 sheet = SongSheet(); header, rows, cm = sheet.read()
 changes = plan(rows, cm, args.scope)
@@ -67,6 +88,10 @@ for _, _, _, d in changes:
     for k in d: count[k] = count.get(k, 0) + 1
 print("Celdas por columna:", count)
 print(f"Omitidas por no ser salida automática (posible edición manual): {len(MANUAL)} celdas en {len({m[0] for m in MANUAL})} canciones")
+if MANUAL and len(MANUAL) <= 30:
+    print("Omitidas (fila, canción, columna):")
+    for row, artist, title, col in MANUAL:
+        print(f"  fila {row}: {artist} - {title} [{col}]")
 if not args.apply:
     print("[SIMULACIÓN] No se ha escrito nada."); sys.exit()
 
