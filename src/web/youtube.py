@@ -19,34 +19,15 @@ _YT_BAD_WORDS = ("live", "cover", "remix", "karaoke", "tutorial", "lesson", "spe
                  "8d", "reaction", "mashup", "tribute", "instrumental", "reverb", "how to")
 _YT_MILD_BAD_WORDS = ("take", "demo", "alternate", "session", "rehearsal", "outtake", "version", "mono")
 
-def _search_youtube(query):
-    """Video results of a YouTube search (no API key): [{id, title, channel, length}]."""
-    resp = requests.get(
-        "https://www.youtube.com/results", params={"search_query": query, "hl": "en"},
-        headers={"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36",
-                 "Accept-Language": "en-US,en;q=0.9"},
-        cookies={"CONSENT": "YES+1"}, timeout=15)
-    m = re.search(r"var ytInitialData = (\{.*?\});</script>", resp.text, re.S)
-    if not m:
-        return []
-    found = []
-    def walk(node):
-        if isinstance(node, dict):
-            v = node.get("videoRenderer")
-            if v and v.get("videoId"):
-                found.append({
-                    "id": v["videoId"],
-                    "title": "".join(r.get("text", "") for r in v.get("title", {}).get("runs", [])),
-                    "channel": "".join(r.get("text", "") for r in v.get("ownerText", {}).get("runs", [])),
-                    "length": v.get("lengthText", {}).get("simpleText", ""),
-                })
-            for child in node.values():
-                walk(child)
-        elif isinstance(node, list):
-            for child in node:
-                walk(child)
-    walk(json.loads(m.group(1)))
-    return found
+def _search_music_songs(query):
+    """Song results (audio tracks, no music videos) of a YouTube Music search: [{id, title, channel, length}]."""
+    from ytmusicapi import YTMusic  # imported here: the search needs no sign-in
+    return [{
+        "id": r["videoId"],
+        "title": r.get("title", ""),
+        "channel": ", ".join(a["name"] for a in r.get("artists") or []),
+        "length": r.get("duration") or "",
+    } for r in YTMusic().search(query, filter="songs", limit=10) if r.get("videoId")]
 
 def _score_video(video, artist, title):
     """Higher is a better stand-in for the studio recording; None when it is clearly another song."""
@@ -60,8 +41,6 @@ def _score_video(video, artist, title):
         score += 4
     elif a and a in title_n:
         score += 1
-    if chan_n.endswith(" topic"):
-        score -= 3   # auto-generated catalogue tracks are the ones that tend to need a signed-in session
     if "official audio" in title_n or "official video" in title_n or "official music video" in title_n:
         score += 3
     elif "audio" in title_n or "official" in title_n:
