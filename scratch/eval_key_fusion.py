@@ -93,7 +93,7 @@ print("\nConfianza (probabilidad de la 1ª) frente a acierto, en evaluación:")
 cal = [(key_fusion.fuse(s["audio"], s["chords"], **kw), s) for s in groups["evaluación"]]
 cuts = [0, 0.4, 0.55, 0.7, 0.85, 1.01]
 for lo, hi in zip(cuts, cuts[1:]):
-    sel = [(f, s) for f, s in cal if lo <= f["confidence"] < hi]
+    sel = [(f, s) for f, s in cal if lo <= f["keys"][0]["probability"] < hi]
     if sel: print(f"  {lo:.2f}-{min(hi,1):.2f}: {len(sel):3d} canciones, acierto {100*sum(f['keys'][0]['key']==s['truth'] for f,s in sel)/len(sel):5.1f}%")
 agree = [(f, s) for f, s in cal if f["agree"]]; dis = [(f, s) for f, s in cal if f["agree"] is False]
 print(f"  audio y acordes coinciden: {len(agree)} (acierto {100*sum(f['keys'][0]['key']==s['truth'] for f,s in agree)/max(len(agree),1):.1f}%) | discrepan: {len(dis)} (acierto {100*sum(f['keys'][0]['key']==s['truth'] for f,s in dis)/max(len(dis),1):.1f}%)")
